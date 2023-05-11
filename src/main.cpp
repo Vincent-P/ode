@@ -62,18 +62,22 @@ static_assert(ARRAY_LENGTH(TokenKind_str) == uint64_t(TokenKind::Count));
 enum struct Result : uint64_t
 {
 	Ok,
-	LexerError,
 	LexerDone,
+	LexerUnkownToken,
 	UnexpectedToken,
 	ExpectedTokenGotEof,
+	CompilerExpectedIdentifier,
+	CompilerUnexpectedIdentifier,
 	Count,
 };
 const char *Result_str[] = {
 	"Ok",
-	"LexerError",
 	"LexerDone",
+	"LexerUnkownToken",
 	"UnexpectedToken",
 	"ExpectedTokenGotEof",
+	"CompilerExpectedIdentifier",
+	"CompilerUnexpectedIdentifier",
 };
 static_assert(ARRAY_LENGTH(Result_str) == uint64_t(Result::Count));
 
@@ -89,6 +93,7 @@ struct LexerState
 	const char *input;
 	uint64_t input_length;
 	uint64_t offset;
+	Result result;
 };
 
 struct AstNode
@@ -114,6 +119,18 @@ struct ParserState
 	TokenKind expected_token_kind;
 };
 
+struct CompilerState
+{
+	const char *input;
+	uint64_t input_length;
+	const Token *tokens;
+	uint64_t token_length;
+	const AstNode *ast_nodes;
+	uint64_t ast_nodes_length;
+	Result result;
+	Token got_token;
+};
+
 bool is_identifier_char(char c)
 {
 	bool is_lower = 'a' <= c && c <= 'z';
@@ -131,11 +148,15 @@ bool is_identifier_first_char(char c)
 
 bool is_whitespace(char c)
 {
-	return c == ' ' || c == '\n' || c == '\r';
+	return c == ' ' || c == '\n' || c == '\r' || c == '\t';
 }
 
-Result lexer_next_token(LexerState *lexer, Token *result)
+void lexer_next_token(LexerState *lexer, Token *result)
 {
+	if (lexer->result != Result::Ok) {
+		return;
+	}
+
 	const char *input_cursor = lexer->input + lexer->offset;
 	const char *input_end = lexer->input + lexer->input_length;
 
@@ -145,7 +166,8 @@ Result lexer_next_token(LexerState *lexer, Token *result)
 
 	if (input_cursor >= input_end) {
 		*result = {};
-		return Result::LexerDone;
+		lexer->result = Result::LexerDone;
+		return;
 	}
 
 	const char *first_char_cursor = input_cursor;
@@ -179,11 +201,10 @@ Result lexer_next_token(LexerState *lexer, Token *result)
 		result->length = uint64_t(input_cursor - first_char_cursor);
 	} else {
 		*result = {};
-		return Result::LexerError;
+		lexer->result = Result::LexerUnkownToken;
 	}
 
 	lexer->offset = uint64_t(input_cursor - lexer->input);
-	return Result::Ok;
 }
 
 Token parser_current_token(ParserState *parser)
@@ -196,7 +217,7 @@ Token parser_current_token(ParserState *parser)
 	}
 }
 
-Token parser_expect_token(ParserState *parser, TokenKind token_kind)
+Token parser_expect_token(ParserState *parser, TokenKind expect_kind)
 {
 	if (parser->result != Result::Ok) {
 		return {};
@@ -209,12 +230,12 @@ Token parser_expect_token(ParserState *parser, TokenKind token_kind)
 
 	Token token = parser->tokens[parser->i_current_token];
 
-	if (token.kind == token_kind) {
+	if (token.kind == expect_kind) {
 		parser->i_current_token += 1;
 		parser->result = Result::Ok;
 	} else {
 		parser->result = Result::UnexpectedToken;
-		parser->expected_token_kind = token_kind;
+		parser->expected_token_kind = expect_kind;
 	}
 	return token;
 }
@@ -362,6 +383,43 @@ void print_indent(int indent)
 	}
 }
 
+void compile_function(CompilerState *compiler, const AstNode *function_node)
+{
+	(void)(compiler);
+	(void)(function_node);
+}
+
+void compile_module(CompilerState *compiler)
+{
+	const AstNode *root_node = compiler->ast_nodes;
+
+	const AstNode *root_expr = root_node->left_child;
+	while (root_expr != nullptr) {
+
+		const AstNode *first_sexpr_member = root_expr->left_child;
+
+		const bool not_an_atom = first_sexpr_member == nullptr || first_sexpr_member->atom_token == nullptr;
+		const bool not_an_identifier = not_an_atom || first_sexpr_member->atom_token->kind != TokenKind::Identifier;
+		if (not_an_identifier) {
+			compiler->result = Result::CompilerExpectedIdentifier;
+			return;
+		}
+
+		const Token identifier = *first_sexpr_member->atom_token;
+		const char *identifier_string = compiler->input + identifier.offset;
+
+		if (string_equals(identifier_string, identifier.length, "define", strlen("define"))) {
+			compile_function(compiler, root_expr);
+		} else {
+			compiler->result = Result::CompilerUnexpectedIdentifier;
+			compiler->got_token = identifier;
+			return;
+		}
+
+		root_expr = root_expr->right_sibling;
+	}
+}
+
 void print_ast_rec(const char *input, AstNode *node, int indent)
 {
 	if (node->left_child != nullptr) {
@@ -370,7 +428,7 @@ void print_ast_rec(const char *input, AstNode *node, int indent)
 
 	if (node->atom_token != nullptr) {
 		Token token = *node->atom_token;
-		printf("%s[%.*s]", TokenKind_str[uint64_t(token.kind)], int(token.length), input + token.offset);
+		fprintf(stdout, "%s[%.*s]", TokenKind_str[uint64_t(token.kind)], int(token.length), input + token.offset);
 	}
 
 	if (node->left_child != nullptr) {
@@ -408,12 +466,16 @@ int main(int, const char *argv[])
 {
 	const char *input_file_path = argv[1];
 	FILE *input_file = fopen(input_file_path, "r");
+	if (input_file == nullptr) {
+		return 1;
+	}
+
 	long file_size = 0;
 	char *file_content = read_entire_file(input_file, &file_size);
 	fclose(input_file);
 
-	printf("Running: %s\n", input_file_path);
-	printf("%s\n", file_content);
+	fprintf(stdout, "Running: %s\n", input_file_path);
+	fprintf(stdout, "%s\n", file_content);
 
 	LexerState lexer = {};
 	lexer.input = file_content;
@@ -423,8 +485,24 @@ int main(int, const char *argv[])
 	Token *tokens = (Token *)malloc(tokens_capacity * sizeof(Token));
 	uint64_t tokens_length = 0;
 
-	while (tokens_length < tokens_capacity && lexer_next_token(&lexer, &tokens[tokens_length]) == Result::Ok) {
+	while (tokens_length < tokens_capacity) {
+		lexer_next_token(&lexer, &tokens[tokens_length]);
+		if (lexer.result == Result::LexerDone) {
+			break;
+		}
 		tokens_length += 1;
+	}
+
+	if (lexer.result != Result::LexerDone) {
+		fprintf(stderr,
+			"# Lexer[input_length: %zu, offset: %zu] returned %s\n",
+			lexer.input_length,
+			lexer.offset,
+			Result_str[uint64_t(lexer.result)]);
+		if (lexer.offset < lexer.input_length) {
+			fprintf(stderr, "# Stopped at char '%c'\n", lexer.input[lexer.offset]);
+		}
+		return 1;
 	}
 
 	uint64_t ast_nodes_capacity = 4096;
@@ -440,27 +518,45 @@ int main(int, const char *argv[])
 	parser.ast_nodes_length = 0;
 	parse_module(&parser);
 
-	printf("Parsing returned %s\n", Result_str[uint64_t(parser.result)]);
-
 	print_ast(lexer.input, parser.ast_nodes);
 
 	if (parser.result != Result::Ok) {
-		printf("Parser[token_length: %zu, i_current_token: %zu]\n", parser.token_length, parser.i_current_token);
+		fprintf(stderr,
+			"# Parser[token_length: %zu, i_current_token: %zu] returned %s\n",
+			parser.token_length,
+			parser.i_current_token,
+			Result_str[uint64_t(parser.result)]);
 
 		if (parser.token_length > 0) {
 			uint64_t i_last_token =
 				parser.i_current_token < parser.token_length ? parser.i_current_token : parser.token_length - 1;
 			Token last_token = tokens[i_last_token];
 			const char *token_kind_str = TokenKind_str[uint64_t(last_token.kind)];
-			printf("Last seen token is %s '%.*s'\n",
+			fprintf(stderr,
+				"# Last seen token is %s[%.*s]\n",
 				token_kind_str,
 				int(last_token.length),
 				lexer.input + last_token.offset);
 		}
 
 		if (parser.expected_token_kind != TokenKind::Invalid) {
-			printf("Expected token of kind %s\n", TokenKind_str[uint64_t(parser.expected_token_kind)]);
+			fprintf(stderr, "# Expected token of kind %s\n", TokenKind_str[uint64_t(parser.expected_token_kind)]);
 		}
+
+		return 1;
+	}
+
+	CompilerState compiler = {};
+	compiler.input = parser.input;
+	compiler.input_length = parser.input_length;
+	compiler.tokens = parser.tokens;
+	compiler.token_length = parser.token_length;
+	compiler.ast_nodes = parser.ast_nodes;
+	compiler.ast_nodes_length = parser.ast_nodes_length;
+	compile_module(&compiler);
+
+	if (compiler.result != Result::Ok) {
+		return 1;
 	}
 
 	return 0;
