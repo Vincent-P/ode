@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.23)
 project(playground LANGUAGES CXX)
 
-add_executable(ode src/main.cpp)
+add_executable(ode src/main.cpp src/compiler.cpp)
 target_compile_options(ode PRIVATE
     $<$<CXX_COMPILER_ID:Clang,GNU>:-march=native>
     # Warning level
