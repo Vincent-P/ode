@@ -62,8 +62,8 @@ int load_file(const char *file_path, uint64_t path_length)
 	fprintf(stdout, "module: %.*s\n", int(module_name_length), module_name);
 	fprintf(stdout, "%s\n", file_content);
 
-	Result res = eval_content(module_name, module_name_length, file_content, uint64_t(file_size));
-
+	Compiler *compiler = compiler_init();
+	Result res = compile_module(compiler, module_name, module_name_length, file_content, uint64_t(file_size));
 	return res != Result::Ok;
 }
 

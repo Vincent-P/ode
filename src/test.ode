@@ -1,2 +1,4 @@
+(define main2 main21 2)
+
 (define main i32
 	(+ 1 2))
