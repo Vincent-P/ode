@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+inline constexpr uint64_t MAX_ARGUMENTS = 8;
+
 enum struct TokenKind : uint64_t
 {
 	Invalid,
@@ -61,11 +63,75 @@ struct ParserState
 	TokenKind expected_token_kind;
 };
 
+enum struct TypeKind : uint8_t
+{
+	Invalid,
+	Primitive,
+	Pointer,
+	Struct,
+};
+
+enum struct PrimitiveKind : uint8_t
+{
+	Int,
+	Bool,
+	Float,
+	Count,
+};
+
+const char *PrimitiveKind_str[] = {
+	"i32",
+	"bool",
+	"f32",
+};
+static_assert(ARRAY_LENGTH(PrimitiveKind_str) == uint64_t(PrimitiveKind::Count));
+
+uint64_t PrimitiveKind_size[] = {
+	4,
+	1,
+	4,
+};
+static_assert(ARRAY_LENGTH(PrimitiveKind_size) == uint64_t(PrimitiveKind::Count));
+
+struct PrimitiveType
+{
+	const char *name;
+	uint64_t name_length;
+	PrimitiveKind kind;
+};
+struct PointerType
+{
+	uint64_t pointee_type;
+};
+struct StructType
+{
+	const char *name;
+	uint64_t name_length;
+	uint64_t field_types[8];
+	uint64_t field_offsets[8];
+	const char *field_names[8];
+	uint64_t field_names_length[8];
+	uint64_t field_length;
+};
+struct Type
+{
+	TypeKind kind;
+	uint64_t size;
+	union
+	{
+		PrimitiveType primitive;
+		PointerType pointer;
+		StructType structure;
+	};
+};
+
 struct Function
 {
 	const char *name;
 	uint64_t name_length;
 	uint64_t address; // offset into the compiler bytecode
+	uint64_t arg_types[MAX_ARGUMENTS];
+	uint64_t return_type;
 };
 
 struct Module
@@ -78,6 +144,10 @@ struct Module
 	OpCode *bytecode;
 	uint64_t bytecode_capacity;
 	uint64_t bytecode_length;
+	Type *types;
+	uint64_t types_capacity;
+	uint64_t types_length;
+	uint64_t primitive_types[uint8_t(PrimitiveKind::Count)];
 };
 
 struct Compiler
@@ -407,20 +477,32 @@ void compiler_push_opcode(Compiler *compiler, CompilerState *compstate, OpCode o
 }
 
 void compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode *function_node);
+
+void compile_atom(Compiler *compiler, CompilerState *compstate, const AstNode *expr_node)
+{
+	const Token token = *expr_node->atom_token;
+
+	if (token.kind == TokenKind::Identifier) {
+		// Refer a declared variable
+		// <identifier>
+		fprintf(stdout, "Expr evaluated to %.*s\n", int(token.length), compstate->input + token.offset);
+		compiler_push_opcode(compiler, compstate, OpCode::GetLocal);
+	} else if (token.kind == TokenKind::Number) {
+		// An integer constant
+		// <number>
+		int token_number = int_from_string(compstate->input + token.offset, token.length);
+		fprintf(stdout, "Expr evaluated to %d\n", token_number);
+		compiler_push_opcode(compiler, compstate, OpCode::Constant);
+	} else {
+		compstate->result = Result::Fatal;
+	}
+}
+
+// <identifier> | <number> | <s-expression>
 void compile_expr(Compiler *compiler, CompilerState *compstate, const AstNode *expr_node)
 {
 	if (expr_node->atom_token != nullptr) {
-		const Token token = *expr_node->atom_token;
-		if (token.kind == TokenKind::Identifier) {
-			fprintf(stdout, "Expr evaluated to %.*s\n", int(token.length), compstate->input + token.offset);
-			compiler_push_opcode(compiler, compstate, OpCode::GetLocal);
-		} else if (token.kind == TokenKind::Number) {
-			int token_number = int_from_string(compstate->input + token.offset, token.length);
-			fprintf(stdout, "Expr evaluated to %d\n", token_number);
-			compiler_push_opcode(compiler, compstate, OpCode::Constant);
-		} else {
-			compstate->result = Result::Fatal;
-		}
+		compile_atom(compiler, compstate, expr_node);
 	} else if (expr_node->left_child != nullptr) {
 		compile_sexpr(compiler, compstate, expr_node);
 	} else {
@@ -428,8 +510,11 @@ void compile_expr(Compiler *compiler, CompilerState *compstate, const AstNode *e
 	}
 }
 
+// Defines a new function
+// (define <name> <return_type> <body expression>)
 void compile_define(Compiler *compiler, CompilerState *compstate, const AstNode *node)
 {
+	// -- Parsing
 	const AstNode *define_token_node = node->left_child;
 	const AstNode *name_node = define_token_node->right_sibling;
 
@@ -454,7 +539,7 @@ void compile_define(Compiler *compiler, CompilerState *compstate, const AstNode 
 	const char *name_token_str = compstate->input + name_token.offset;
 	const Token return_token = *return_type_node->atom_token;
 
-	// Define new function
+	// -- Type checking
 	Module *current_module = compiler->modules + compstate->i_current_module;
 	fprintf(stdout,
 		"Defining new function: %.*s -> %.*s\n",
@@ -476,13 +561,14 @@ void compile_define(Compiler *compiler, CompilerState *compstate, const AstNode 
 		return;
 	}
 
+	// Create a new function symbol
 	Function *function = current_module->functions + current_module->functions_length;
-	current_module->functions_length += 1;
-
 	function->name = name_token_str;
 	function->name_length = name_token.length;
 	function->address = current_module->bytecode_length;
+	current_module->functions_length += 1;
 
+	// -- Compiling
 	// TODO arguments
 
 	// Compile the body
@@ -491,8 +577,11 @@ void compile_define(Compiler *compiler, CompilerState *compstate, const AstNode 
 	compiler_push_opcode(compiler, compstate, OpCode::Ret);
 }
 
+// Adds two integers
+// (+ <lhs> <rhs>)
 void compile_iadd(Compiler *compiler, CompilerState *compstate, const AstNode *node)
 {
+	// -- Parsing
 	const AstNode *plus_token_node = node->left_child;
 
 	const AstNode *lhs_node = plus_token_node->right_sibling;
@@ -512,6 +601,10 @@ void compile_iadd(Compiler *compiler, CompilerState *compstate, const AstNode *n
 		return;
 	}
 
+	// -- Type checking
+	// TODO
+
+	// -- Compiling
 	compile_expr(compiler, compstate, lhs_node);
 	compile_expr(compiler, compstate, rhs_node);
 	compiler_push_opcode(compiler, compstate, OpCode::IAdd);
@@ -528,8 +621,10 @@ const char *compstate_builtins_str[] = {
 };
 static_assert(ARRAY_LENGTH(Result_str) == uint64_t(Result::Count));
 
+// (<identifier> <expr>*)
 void compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode *function_node)
 {
+	// -- Parsing
 	const AstNode *identifier_node = function_node->left_child;
 	if (identifier_node->atom_token == nullptr) {
 		compstate->result = Result::CompilerExpectedIdentifier;
@@ -539,7 +634,7 @@ void compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode *
 	const Token identifier = *identifier_node->atom_token;
 	const char *identifier_string = compstate->input + identifier.offset;
 
-	// Lookup for code generation "intrinsics"
+	// Dispatch to the correct builtin compile function (define, iadd, etc)
 	const uint64_t compstate_builtin_length = ARRAY_LENGTH(compiler_builtins);
 	for (uint64_t i = 0; i < compstate_builtin_length; ++i) {
 		if (string_equals(identifier_string,
@@ -551,13 +646,11 @@ void compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode *
 		}
 	}
 
-	// Generate function call
+	// If the identifier is not a builtin, generate a function call
+	// -- Type checking / Compiling
 	fprintf(stdout, "Calling function '%.*s'\n", int(identifier.length), identifier_string);
-	// TODO lookup symbol
-	// compile error
 	compstate->result = Result::CompilerUnknownSymbol;
 
-	// evalutate args
 	const AstNode *arg_node = identifier_node->right_sibling;
 	while (arg_node != nullptr) {
 		compile_expr(compiler, compstate, arg_node);
@@ -565,6 +658,7 @@ void compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode *
 	}
 }
 
+// A module is the "root" of a script, a series of S-expression
 void compile_module(Compiler *compiler, CompilerState *compstate)
 {
 	const AstNode *root_node = compstate->ast_nodes;
@@ -597,6 +691,31 @@ Compiler *compiler_init()
 	compiler->modules = static_cast<Module *>(calloc(compiler->modules_capacity, sizeof(Module)));
 	return compiler;
 };
+
+void module_init(Module *new_module)
+{
+	const uint64_t functions_capacity = 8;
+	new_module->functions_capacity = functions_capacity;
+	new_module->functions = static_cast<Function *>(calloc(functions_capacity, sizeof(Function)));
+
+	const uint64_t bytecode_capacity = 1024;
+	new_module->bytecode_capacity = functions_capacity;
+	new_module->bytecode = static_cast<OpCode *>(calloc(bytecode_capacity, sizeof(OpCode)));
+
+	const uint64_t types_capacity = 32;
+	new_module->types_capacity = functions_capacity;
+	new_module->types = static_cast<Type *>(calloc(types_capacity, sizeof(Type)));
+
+	for (uint64_t i = 0; i < uint64_t(PrimitiveKind::Count); ++i) {
+		Type *new_type = new_module->types + i;
+		new_type->kind = TypeKind::Primitive;
+		new_type->size = PrimitiveKind_size[i];
+		new_type->primitive.kind = PrimitiveKind(i);
+		new_type->primitive.name = PrimitiveKind_str[i];
+		new_type->primitive.name_length = strlen(PrimitiveKind_str[i]);
+	}
+	new_module->types_length = uint64_t(PrimitiveKind::Count);
+}
 
 Result compile_module(
 	Compiler *compiler, const char *module_name, uint64_t module_name_length, const char *input, uint64_t input_length)
@@ -686,13 +805,8 @@ Result compile_module(
 
 		i_module = compiler->modules_length;
 		Module *new_module = compiler->modules + i_module;
+		module_init(new_module);
 		compiler->modules_length += 1;
-		const uint64_t functions_capacity = 8;
-		const uint64_t bytecode_capacity = 1024;
-		new_module->functions_capacity = functions_capacity;
-		new_module->functions = static_cast<Function *>(calloc(functions_capacity, sizeof(Function)));
-		new_module->bytecode_capacity = functions_capacity;
-		new_module->bytecode = static_cast<OpCode *>(calloc(bytecode_capacity, sizeof(OpCode)));
 	}
 
 	CompilerState compstate = {};
