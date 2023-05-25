@@ -9,6 +9,7 @@ enum OpCode : uint8_t
 	// Control flow
 	Ret,
 	// Variables storage
+	SetLocal,
 	GetLocal,
 	// Maths
 	IAdd,
@@ -19,6 +20,7 @@ inline const char *OpCode_str[] = {
 	"Constant",
 	"Push",
 	"Ret",
+	"SetLocal",
 	"GetLocal",
 	"IAdd",
 	"Halt",

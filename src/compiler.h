@@ -12,9 +12,11 @@ enum struct Result : uint64_t
 	CompilerExpectedIdentifier,
 	CompilerExpectedExpr,
 	CompilerUnexpectedIdentifier,
+	CompilerUnexpectedExpression,
 	CompilerUnknownSymbol,
 	CompilerDuplicateSymbol,
 	CompilerTooManyArgs,
+	CompilerExpectedTypeGot,
 	Fatal,
 	Count,
 };
@@ -28,9 +30,11 @@ inline const char *Result_str[] = {
 	"CompilerExpectedIdentifier",
 	"CompilerExpectedExpr",
 	"CompilerUnexpectedIdentifier",
+	"CompilerUnexpectedExpression",
 	"CompilerUnknownSymbol",
 	"CompilerDuplicateSymbol",
 	"CompilerTooManyArgs",
+	"CompilerExpectedTypeGot",
 	"Fatal",
 };
 static_assert(ARRAY_LENGTH(Result_str) == uint64_t(Result::Count));

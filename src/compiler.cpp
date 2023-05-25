@@ -38,6 +38,8 @@ struct LexerState
 	uint64_t input_length;
 	uint64_t offset;
 	Result result;
+	uint64_t error_offset;
+	uint64_t error_length;
 };
 
 struct AstNode
@@ -59,68 +61,58 @@ struct ParserState
 	uint64_t ast_nodes_capacity;
 	uint64_t ast_nodes_length;
 	Result result;
+	uint64_t error_offset;
+	uint64_t error_length;
 	uint64_t i_current_token;
 	TokenKind expected_token_kind;
 };
 
 enum struct TypeKind : uint8_t
 {
-	Invalid,
-	Primitive,
-	Pointer,
-	Struct,
-};
-
-enum struct PrimitiveKind : uint8_t
-{
 	Int,
 	Bool,
 	Float,
+	Pointer,
+	Struct,
 	Count,
 };
-
-const char *PrimitiveKind_str[] = {
+const char *TypeKind_str[] = {
 	"i32",
 	"bool",
 	"f32",
+	"ptr",
+	"struct",
 };
-static_assert(ARRAY_LENGTH(PrimitiveKind_str) == uint64_t(PrimitiveKind::Count));
+static_assert(ARRAY_LENGTH(TypeKind_str) == uint64_t(TypeKind::Count));
 
-uint64_t PrimitiveKind_size[] = {
+uint64_t TypeKind_size[] = {
 	4,
 	1,
 	4,
+	4,
+	1,
 };
-static_assert(ARRAY_LENGTH(PrimitiveKind_size) == uint64_t(PrimitiveKind::Count));
+static_assert(ARRAY_LENGTH(TypeKind_size) == uint64_t(TypeKind::Count));
 
-struct PrimitiveType
-{
-	const char *name;
-	uint64_t name_length;
-	PrimitiveKind kind;
-};
-struct PointerType
-{
-	uint64_t pointee_type;
-};
+struct Type;
 struct StructType
 {
 	const char *name;
 	uint64_t name_length;
-	uint64_t field_types[8];
-	uint64_t field_offsets[8];
 	const char *field_names[8];
 	uint64_t field_names_length[8];
-	uint64_t field_length;
+	Type *field_types[8];
+	uint64_t field_offsets[8];
+	uint64_t field_count;
 };
+
 struct Type
 {
 	TypeKind kind;
 	uint64_t size;
 	union
 	{
-		PrimitiveType primitive;
-		PointerType pointer;
+		Type *pointee;
 		StructType structure;
 	};
 };
@@ -144,10 +136,6 @@ struct Module
 	OpCode *bytecode;
 	uint64_t bytecode_capacity;
 	uint64_t bytecode_length;
-	Type *types;
-	uint64_t types_capacity;
-	uint64_t types_length;
-	uint64_t primitive_types[uint8_t(PrimitiveKind::Count)];
 };
 
 struct Compiler
@@ -157,17 +145,41 @@ struct Compiler
 	uint64_t modules_capacity;
 };
 
+struct LexicalScope
+{
+	const char **variables_name;
+	uint64_t *variables_name_length;
+	uint64_t *variables_type;
+	uint64_t variables_length;
+};
+
 struct CompilerState
 {
 	uint64_t i_current_module;
+
 	const char *input;
 	uint64_t input_length;
+
 	const Token *tokens;
 	uint64_t token_length;
+
 	const AstNode *ast_nodes;
 	uint64_t ast_nodes_length;
+
+	Type *types;
+	uint64_t types_capacity;
+	uint64_t types_length;
+
+	LexicalScope *scopes;
+	uint64_t scopes_capacity;
+	uint64_t scopes_length;
+
 	Result result;
+	uint64_t error_offset;
+	uint64_t error_length;
 	Token got_token;
+	Type *expected_type;
+	Type *got_type;
 };
 
 bool is_identifier_char(char c)
@@ -241,6 +253,8 @@ void lexer_next_token(LexerState *lexer, Token *result)
 	} else {
 		*result = {};
 		lexer->result = Result::LexerUnknownToken;
+		lexer->error_offset = uint64_t(first_char_cursor - lexer->input);
+		lexer->error_length = 1;
 	}
 
 	lexer->offset = uint64_t(input_cursor - lexer->input);
@@ -252,6 +266,13 @@ Token parser_current_token(ParserState *parser)
 		return parser->tokens[parser->i_current_token];
 	} else {
 		parser->result = Result::ExpectedTokenGotEof;
+		parser->error_offset = 0;
+		parser->error_length = 0;
+		if (parser->token_length > 0) {
+			const Token *last_token = parser->tokens + parser->token_length - 1;
+			parser->error_offset = last_token->offset + last_token->length;
+			parser->error_length = parser->input_length - parser->error_offset;
+		}
 		return {};
 	}
 }
@@ -264,6 +285,13 @@ Token parser_expect_token(ParserState *parser, TokenKind expect_kind)
 
 	if (parser->i_current_token >= parser->token_length) {
 		parser->result = Result::ExpectedTokenGotEof;
+		parser->error_offset = 0;
+		parser->error_length = 0;
+		if (parser->token_length > 0) {
+			const Token *last_token = parser->tokens + parser->token_length - 1;
+			parser->error_offset = last_token->offset + last_token->length;
+			parser->error_length = parser->input_length - parser->error_offset;
+		}
 		return {};
 	}
 
@@ -274,6 +302,8 @@ Token parser_expect_token(ParserState *parser, TokenKind expect_kind)
 		parser->result = Result::Ok;
 	} else {
 		parser->result = Result::UnexpectedToken;
+		parser->error_offset = token.offset;
+		parser->error_length = token.length;
 		parser->expected_token_kind = expect_kind;
 	}
 	return token;
@@ -389,6 +419,8 @@ AstNode *parse_atom(ParserState *parser)
 		return new_node;
 	} else {
 		parser->result = Result::UnexpectedToken;
+		parser->error_offset = current_token.offset;
+		parser->error_length = current_token.length;
 		parser->expected_token_kind = TokenKind::Number;
 		return nullptr;
 	}
@@ -464,6 +496,7 @@ AstNode *parse_module(ParserState *parser)
 	return root_node;
 }
 
+// compiler helpers
 void compiler_push_opcode(Compiler *compiler, CompilerState *compstate, OpCode opcode)
 {
 	Module *current_module = compiler->modules + compstate->i_current_module;
@@ -476,9 +509,135 @@ void compiler_push_opcode(Compiler *compiler, CompilerState *compstate, OpCode o
 	current_module->bytecode_length += 1;
 }
 
-void compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode *function_node);
+Type *compiler_type_new(CompilerState *compstate)
+{
+	if (compstate->types_length + 1 >= compstate->types_capacity) {
+		compstate->result = Result::Fatal;
+		return nullptr;
+	}
+	Type *new_type = compstate->types + compstate->types_length;
+	compstate->types_length += 1;
+	return new_type;
+}
 
-void compile_atom(Compiler *compiler, CompilerState *compstate, const AstNode *expr_node)
+bool type_similar(Type *lhs, Type *rhs)
+{
+	if (lhs == nullptr || rhs == nullptr) {
+		return false;
+	}
+
+	if (lhs->kind != rhs->kind) {
+		return false;
+	} else if (lhs->kind == TypeKind::Pointer) {
+		return type_similar(lhs->pointee, rhs->pointee);
+	} else if (lhs->kind == TypeKind::Struct) {
+		bool same_layout = lhs->structure.field_count == rhs->structure.field_count;
+		for (uint64_t i = 0; same_layout && i < lhs->structure.field_count; ++i) {
+			same_layout = type_similar(lhs->structure.field_types[i], rhs->structure.field_types[i]);
+		}
+		return same_layout;
+	} else {
+		return true;
+	}
+}
+
+static constexpr uint64_t SCOPE_MAX_VARIABLES = 16;
+
+void compiler_push_scope(CompilerState *compstate)
+{
+	if (compstate->scopes_length >= compstate->scopes_capacity) {
+		compstate->result = Result::Fatal;
+		return;
+	}
+
+	LexicalScope *new_scope = compstate->scopes + compstate->scopes_length;
+	compstate->scopes_length += 1;
+
+	*new_scope = {};
+	new_scope->variables_name = (const char **)calloc(SCOPE_MAX_VARIABLES, sizeof(const char *));
+	new_scope->variables_name_length = (uint64_t *)calloc(SCOPE_MAX_VARIABLES, sizeof(uint64_t));
+	new_scope->variables_type = (uint64_t *)calloc(SCOPE_MAX_VARIABLES, sizeof(uint64_t));
+}
+
+void compiler_pop_scope(CompilerState *compstate)
+{
+	if (compstate->scopes_length == 0) {
+		compstate->result = Result::Fatal;
+		return;
+	}
+
+	LexicalScope *current_scope = compstate->scopes + compstate->scopes_length - 1;
+	compstate->scopes_length -= 1;
+	free(current_scope->variables_name);
+	free(current_scope->variables_name_length);
+	free(current_scope->variables_type);
+}
+
+bool compiler_push_variable(
+	CompilerState *compstate, const Token *identifier_token, uint64_t i_type, uint64_t *i_variable_out)
+{
+	if (compstate->scopes_length >= compstate->scopes_capacity) {
+		compstate->result = Result::Fatal;
+		return false;
+	}
+
+	LexicalScope *current_scope = compstate->scopes + compstate->scopes_length - 1;
+	if (current_scope->variables_length >= SCOPE_MAX_VARIABLES) {
+		compstate->result = Result::Fatal;
+		return false;
+	}
+
+	uint64_t i_new_variable = current_scope->variables_length;
+	current_scope->variables_length += 1;
+
+	current_scope->variables_name[i_new_variable] = compstate->input + identifier_token->offset;
+	current_scope->variables_name_length[i_new_variable] = identifier_token->length;
+	current_scope->variables_type[i_new_variable] = i_type;
+
+	*i_variable_out = i_new_variable;
+	return true;
+}
+
+bool compiler_lookup_variable(
+	CompilerState *compstate, const Token *identifier_token, Type **type_out, uint64_t *i_variable_out)
+{
+	if (compstate->scopes_length == 0) {
+		compstate->result = Result::Fatal;
+		return false;
+	}
+
+	const char *tofind_name = compstate->input + identifier_token->offset;
+	uint64_t tofind_name_length = identifier_token->length;
+
+	for (uint64_t i_scope = compstate->scopes_length - 1; i_scope < compstate->scopes_length; --i_scope) {
+		LexicalScope *scope = compstate->scopes + i_scope;
+
+		uint64_t i_found = 0;
+		Type *found_type = nullptr;
+		for (uint64_t i_variable = 0; i_variable < scope->variables_length; ++i_variable) {
+			const char *variable_name = scope->variables_name[i_variable];
+			uint64_t variable_name_length = scope->variables_name_length[i_variable];
+
+			if (string_equals(tofind_name, tofind_name_length, variable_name, variable_name_length)) {
+				i_found = i_variable;
+				found_type = compstate->types + scope->variables_type[i_variable];
+			}
+		}
+
+		if (found_type != nullptr) {
+			*type_out = found_type;
+			*i_variable_out = i_found;
+			return true;
+		}
+	}
+
+	return false;
+}
+
+// compiler
+Type *compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode *node);
+
+Type *compile_atom(Compiler *compiler, CompilerState *compstate, const AstNode *expr_node)
 {
 	const Token token = *expr_node->atom_token;
 
@@ -486,33 +645,51 @@ void compile_atom(Compiler *compiler, CompilerState *compstate, const AstNode *e
 		// Refer a declared variable
 		// <identifier>
 		fprintf(stdout, "Expr evaluated to %.*s\n", int(token.length), compstate->input + token.offset);
+		Type *ty = nullptr;
+		uint64_t i_variable = 0;
+		if (!compiler_lookup_variable(compstate, &token, &ty, &i_variable)) {
+			compstate->result = Result::CompilerUnknownSymbol;
+			compstate->error_offset = token.offset;
+			compstate->error_length = token.length;
+			return nullptr;
+		}
 		compiler_push_opcode(compiler, compstate, OpCode::GetLocal);
+		return ty;
 	} else if (token.kind == TokenKind::Number) {
 		// An integer constant
 		// <number>
 		int token_number = int_from_string(compstate->input + token.offset, token.length);
 		fprintf(stdout, "Expr evaluated to %d\n", token_number);
+		Type *ty = compiler_type_new(compstate);
+		ty->kind = TypeKind::Int;
 		compiler_push_opcode(compiler, compstate, OpCode::Constant);
+		return ty;
 	} else {
 		compstate->result = Result::Fatal;
+		return nullptr;
 	}
 }
 
 // <identifier> | <number> | <s-expression>
-void compile_expr(Compiler *compiler, CompilerState *compstate, const AstNode *expr_node)
+Type *compile_expr(Compiler *compiler, CompilerState *compstate, const AstNode *expr_node)
 {
+	if (compstate->result != Result::Ok) {
+		return nullptr;
+	}
+
 	if (expr_node->atom_token != nullptr) {
-		compile_atom(compiler, compstate, expr_node);
+		return compile_atom(compiler, compstate, expr_node);
 	} else if (expr_node->left_child != nullptr) {
-		compile_sexpr(compiler, compstate, expr_node);
+		return compile_sexpr(compiler, compstate, expr_node);
 	} else {
 		compstate->result = Result::Fatal;
+		return nullptr;
 	}
 }
 
 // Defines a new function
 // (define <name> <return_type> <body expression>)
-void compile_define(Compiler *compiler, CompilerState *compstate, const AstNode *node)
+Type *compile_define(Compiler *compiler, CompilerState *compstate, const AstNode *node)
 {
 	// -- Parsing
 	const AstNode *define_token_node = node->left_child;
@@ -520,19 +697,24 @@ void compile_define(Compiler *compiler, CompilerState *compstate, const AstNode 
 
 	if (name_node == nullptr || name_node->atom_token == nullptr) {
 		compstate->result = Result::CompilerExpectedIdentifier;
-		return;
+		return nullptr;
 	}
 
 	const AstNode *return_type_node = name_node->right_sibling;
 	if (return_type_node == nullptr || return_type_node->atom_token == nullptr) {
 		compstate->result = Result::CompilerExpectedIdentifier;
-		return;
+		return nullptr;
 	}
 
 	const AstNode *body_node = return_type_node->right_sibling;
 	if (body_node == nullptr) {
 		compstate->result = Result::CompilerExpectedExpr;
-		return;
+		return nullptr;
+	}
+
+	if (body_node->right_sibling != nullptr) {
+		compstate->result = Result::CompilerUnexpectedExpression;
+		return nullptr;
 	}
 
 	const Token name_token = *name_node->atom_token;
@@ -552,13 +734,13 @@ void compile_define(Compiler *compiler, CompilerState *compstate, const AstNode 
 		if (string_equals(function->name, function->name_length, name_token_str, name_token.length)) {
 			compstate->result = Result::CompilerDuplicateSymbol;
 			// Actually it should be possible to recompile a function if signature has not changed.
-			return;
+			return nullptr;
 		}
 	}
 
 	if (current_module->functions_length + 1 >= current_module->functions_capacity) {
 		compstate->result = Result::Fatal;
-		return;
+		return nullptr;
 	}
 
 	// Create a new function symbol
@@ -569,17 +751,83 @@ void compile_define(Compiler *compiler, CompilerState *compstate, const AstNode 
 	current_module->functions_length += 1;
 
 	// -- Compiling
+	compiler_push_scope(compstate);
 	// TODO arguments
+	compile_expr(compiler, compstate, body_node);
+	compiler_push_opcode(compiler, compstate, OpCode::Ret);
+	compiler_pop_scope(compstate);
+	return nullptr;
+}
+
+Type *compile_let(Compiler *compiler, CompilerState *compstate, const AstNode *node)
+{
+	// -- Parsing
+	const AstNode *let_token_node = node->left_child;
+	const AstNode *name_node = let_token_node->right_sibling;
+
+	if (name_node == nullptr || name_node->atom_token == nullptr) {
+		compstate->result = Result::CompilerExpectedIdentifier;
+		return nullptr;
+	}
+
+	const AstNode *value_node = name_node->right_sibling;
+	if (value_node == nullptr) {
+		compstate->result = Result::CompilerExpectedExpr;
+		return nullptr;
+	}
+
+	const Token name_token = *name_node->atom_token;
+
+	// -- Type checking
+	fprintf(stdout, "Defining new local: %.*s\n", int(name_token.length), compstate->input + name_token.offset);
 
 	// Compile the body
-	compile_expr(compiler, compstate, body_node);
+	Type *expr_type = compile_expr(compiler, compstate, value_node);
+	if (expr_type == nullptr) {
+		return nullptr;
+	}
 
-	compiler_push_opcode(compiler, compstate, OpCode::Ret);
+	uint64_t i_expr_type = uint64_t(expr_type - compstate->types);
+	if (i_expr_type >= compstate->types_length) {
+		compstate->result = Result::Fatal;
+		return nullptr;
+	}
+	uint64_t i_variable = 0;
+	if (!compiler_push_variable(compstate, &name_token, i_expr_type, &i_variable)) {
+		return nullptr;
+	}
+
+	compiler_push_opcode(compiler, compstate, OpCode::SetLocal);
+
+	return expr_type;
+}
+
+Type *compile_begin(Compiler *compiler, CompilerState *compstate, const AstNode *node)
+{
+	const AstNode *begin_node = node->left_child;
+	if (begin_node == nullptr || begin_node->atom_token == nullptr) {
+		compstate->result = Result::CompilerExpectedIdentifier;
+		return nullptr;
+	}
+
+	const AstNode *current_expr_node = begin_node->right_sibling;
+	if (current_expr_node == nullptr) {
+		compstate->result = Result::CompilerExpectedExpr;
+		return nullptr;
+	}
+
+	Type *return_type = nullptr;
+	while (current_expr_node != nullptr) {
+		return_type = compile_expr(compiler, compstate, current_expr_node);
+		current_expr_node = current_expr_node->right_sibling;
+	}
+
+	return return_type;
 }
 
 // Adds two integers
 // (+ <lhs> <rhs>)
-void compile_iadd(Compiler *compiler, CompilerState *compstate, const AstNode *node)
+Type *compile_iadd(Compiler *compiler, CompilerState *compstate, const AstNode *node)
 {
 	// -- Parsing
 	const AstNode *plus_token_node = node->left_child;
@@ -587,48 +835,70 @@ void compile_iadd(Compiler *compiler, CompilerState *compstate, const AstNode *n
 	const AstNode *lhs_node = plus_token_node->right_sibling;
 	if (lhs_node == nullptr) {
 		compstate->result = Result::CompilerExpectedExpr;
-		return;
+		return nullptr;
 	}
 
 	const AstNode *rhs_node = lhs_node->right_sibling;
 	if (rhs_node == nullptr) {
 		compstate->result = Result::CompilerExpectedExpr;
-		return;
+		return nullptr;
 	}
 
 	if (rhs_node->right_sibling != nullptr) {
 		compstate->result = Result::CompilerTooManyArgs;
-		return;
+		return nullptr;
 	}
 
 	// -- Type checking
-	// TODO
+	Type *lhs = compile_expr(compiler, compstate, lhs_node);
+	Type *rhs = compile_expr(compiler, compstate, rhs_node);
+	if (compstate->result != Result::Ok) {
+		return nullptr;
+	}
+
+	Type int_type = {};
+	int_type.kind = TypeKind::Int;
+	bool lhs_valid = type_similar(lhs, &int_type);
+	bool rhs_valid = type_similar(rhs, &int_type);
+	bool valid_types = lhs_valid && rhs_valid;
+	if (!valid_types) {
+		Type *int_type_stored = compiler_type_new(compstate);
+		*int_type_stored = int_type;
+
+		compstate->result = Result::CompilerExpectedTypeGot;
+		compstate->expected_type = int_type_stored;
+		compstate->got_type = lhs_valid ? rhs : lhs;
+	}
 
 	// -- Compiling
-	compile_expr(compiler, compstate, lhs_node);
-	compile_expr(compiler, compstate, rhs_node);
 	compiler_push_opcode(compiler, compstate, OpCode::IAdd);
+
+	return lhs;
 }
 
-using CompstateBuiltin = void (*)(Compiler *, CompilerState *, const AstNode *);
+using CompstateBuiltin = Type *(*)(Compiler *, CompilerState *, const AstNode *);
 CompstateBuiltin compiler_builtins[] = {
 	compile_define,
+	compile_let,
+	compile_begin,
 	compile_iadd,
 };
 const char *compstate_builtins_str[] = {
 	"define",
+	"let",
+	"begin",
 	"+",
 };
 static_assert(ARRAY_LENGTH(Result_str) == uint64_t(Result::Count));
 
 // (<identifier> <expr>*)
-void compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode *function_node)
+Type *compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode *function_node)
 {
 	// -- Parsing
 	const AstNode *identifier_node = function_node->left_child;
 	if (identifier_node->atom_token == nullptr) {
 		compstate->result = Result::CompilerExpectedIdentifier;
-		return;
+		return nullptr;
 	}
 
 	const Token identifier = *identifier_node->atom_token;
@@ -641,8 +911,7 @@ void compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode *
 				identifier.length,
 				compstate_builtins_str[i],
 				strlen(compstate_builtins_str[i]))) {
-			compiler_builtins[i](compiler, compstate, function_node);
-			return;
+			return compiler_builtins[i](compiler, compstate, function_node);
 		}
 	}
 
@@ -650,12 +919,16 @@ void compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode *
 	// -- Type checking / Compiling
 	fprintf(stdout, "Calling function '%.*s'\n", int(identifier.length), identifier_string);
 	compstate->result = Result::CompilerUnknownSymbol;
+	compstate->error_offset = identifier.offset;
+	compstate->error_length = identifier.length;
 
 	const AstNode *arg_node = identifier_node->right_sibling;
 	while (arg_node != nullptr) {
 		compile_expr(compiler, compstate, arg_node);
 		arg_node = arg_node->right_sibling;
 	}
+
+	return nullptr;
 }
 
 // A module is the "root" of a script, a series of S-expression
@@ -699,22 +972,8 @@ void module_init(Module *new_module)
 	new_module->functions = static_cast<Function *>(calloc(functions_capacity, sizeof(Function)));
 
 	const uint64_t bytecode_capacity = 1024;
-	new_module->bytecode_capacity = functions_capacity;
+	new_module->bytecode_capacity = bytecode_capacity;
 	new_module->bytecode = static_cast<OpCode *>(calloc(bytecode_capacity, sizeof(OpCode)));
-
-	const uint64_t types_capacity = 32;
-	new_module->types_capacity = functions_capacity;
-	new_module->types = static_cast<Type *>(calloc(types_capacity, sizeof(Type)));
-
-	for (uint64_t i = 0; i < uint64_t(PrimitiveKind::Count); ++i) {
-		Type *new_type = new_module->types + i;
-		new_type->kind = TypeKind::Primitive;
-		new_type->size = PrimitiveKind_size[i];
-		new_type->primitive.kind = PrimitiveKind(i);
-		new_type->primitive.name = PrimitiveKind_str[i];
-		new_type->primitive.name_length = strlen(PrimitiveKind_str[i]);
-	}
-	new_module->types_length = uint64_t(PrimitiveKind::Count);
 }
 
 Result compile_module(
@@ -742,6 +1001,14 @@ Result compile_module(
 			lexer.input_length,
 			lexer.offset,
 			Result_str[uint64_t(lexer.result)]);
+
+		fprintf(stderr,
+			"Error at (%zu, %zu): '%.*s'\n",
+			lexer.error_offset,
+			lexer.error_length,
+			int(lexer.error_length),
+			lexer.input + lexer.error_offset);
+
 		if (lexer.offset < lexer.input_length) {
 			fprintf(stderr, "# Stopped at char '%c'\n", lexer.input[lexer.offset]);
 		}
@@ -769,6 +1036,13 @@ Result compile_module(
 			parser.token_length,
 			parser.i_current_token,
 			Result_str[uint64_t(parser.result)]);
+
+		fprintf(stderr,
+			"Error at (%zu, %zu): '%.*s'\n",
+			parser.error_offset,
+			parser.error_length,
+			int(parser.error_length),
+			parser.input + parser.error_offset);
 
 		if (parser.token_length > 0) {
 			uint64_t i_last_token =
@@ -809,6 +1083,8 @@ Result compile_module(
 		compiler->modules_length += 1;
 	}
 
+	LexicalScope scopes[16] = {};
+
 	CompilerState compstate = {};
 	compstate.i_current_module = i_module;
 	compstate.input = parser.input;
@@ -817,10 +1093,33 @@ Result compile_module(
 	compstate.token_length = parser.token_length;
 	compstate.ast_nodes = parser.ast_nodes;
 	compstate.ast_nodes_length = parser.ast_nodes_length;
+	compstate.types_capacity = 64;
+	compstate.types = (Type *)calloc(compstate.types_capacity, sizeof(Type));
+	compstate.scopes = scopes;
+	compstate.scopes_capacity = 16;
 	compile_module(compiler, &compstate);
 
 	if (compstate.result != Result::Ok) {
 		fprintf(stderr, "# Compstate[] returned %s\n", Result_str[uint64_t(compstate.result)]);
+		fprintf(stderr,
+			"Error at (%zu, %zu): '%.*s'\n",
+			compstate.error_offset,
+			compstate.error_length,
+			int(compstate.error_length),
+			compstate.input + compstate.error_offset);
+
+		if (compstate.expected_type == nullptr) {
+			fprintf(stderr, "# expected type %s\n", "<nullptr>");
+		} else {
+			fprintf(stderr, "# expected type %s\n", TypeKind_str[uint64_t(compstate.expected_type->kind)]);
+		}
+
+		if (compstate.got_type == nullptr) {
+			fprintf(stderr, "# got type %s\n", "<nullptr>");
+		} else {
+			fprintf(stderr, "# got type %s\n", TypeKind_str[uint64_t(compstate.got_type->kind)]);
+		}
+
 		return compstate.result;
 	}
 
