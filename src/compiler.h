@@ -64,6 +64,5 @@ main loop exemple
 */
 struct Compiler;
 Compiler *compiler_init();
-Result compile_module(
-	Compiler *compiler, const char *module_name, uint64_t module_name_length, const char *input, uint64_t input_length);
+Result compile_module(Compiler *compiler, sv module_name, sv input);
 Result compiler_make_image(Compiler *compiler, Image *image);

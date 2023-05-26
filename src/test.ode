@@ -1,6 +1,8 @@
-(define main2 main21 2)
+(define (add1 i32) (n i32) (+ 1 n))
 
-(define main i32
+(define (main2 i32) (n bool) n)
+
+(define (main i32) ()
 	(begin
 		(let toto 1)
 		(+ 1 toto)))
