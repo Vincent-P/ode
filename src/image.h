@@ -9,10 +9,13 @@ enum OpCode : uint8_t
 	// Control flow
 	Ret,
 	// Variables storage
+	BeginScope,
+	EndScope,
 	SetLocal,
 	GetLocal,
 	// Maths
 	IAdd,
+	ILessThanEq,
 	Halt,
 	Count,
 };
@@ -20,9 +23,12 @@ inline const char *OpCode_str[] = {
 	"Constant",
 	"Push",
 	"Ret",
+	"BeginScope",
+	"EndScope",
 	"SetLocal",
 	"GetLocal",
 	"IAdd",
+	"ILessThanEq",
 	"Halt",
 };
 static_assert(ARRAY_LENGTH(OpCode_str) == uint8_t(OpCode::Count));

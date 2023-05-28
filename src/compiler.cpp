@@ -198,7 +198,8 @@ bool is_identifier_char(char c)
 	bool is_lower = 'a' <= c && c <= 'z';
 	bool is_upper = 'A' <= c && c <= 'Z';
 	bool is_number = '0' <= c && c <= '9';
-	return c == '_' || c == '+' || c == '-' || c == '/' || c == '*' || is_lower || is_upper || is_number;
+	bool is_operator = c == '+' || c == '-' || c == '/' || c == '*' || c == '<' || c == '>' || c == '=';
+	return c == '_' || is_operator || is_lower || is_upper || is_number;
 }
 
 // Reserve the identifier that start with a number for literals
@@ -371,7 +372,7 @@ void print_ast_rec(sv input, AstNode *node, int indent)
 	if (node->atom_token != nullptr) {
 		Token token = *node->atom_token;
 		sv token_str = sv_substr(input, token.span);
-		fprintf(stdout, "%s[%.*s]", TokenKind_str[uint64_t(token.kind)], int(token_str.length), token_str.chars);
+		fprintf(stdout, "%.*s", int(token_str.length), token_str.chars);
 	}
 
 	if (node->left_child != nullptr) {
@@ -546,7 +547,7 @@ bool type_similar(Type *lhs, Type *rhs)
 
 static constexpr uint64_t SCOPE_MAX_VARIABLES = 16;
 
-void compiler_push_scope(CompilerState *compstate)
+void compiler_push_scope(Compiler *compiler, CompilerState *compstate)
 {
 	if (compstate->scopes_length >= compstate->scopes_capacity) {
 		compstate->result = Result::Fatal;
@@ -559,9 +560,11 @@ void compiler_push_scope(CompilerState *compstate)
 	*new_scope = {};
 	new_scope->variables_name = (sv *)calloc(SCOPE_MAX_VARIABLES, sizeof(sv));
 	new_scope->variables_type = (uint64_t *)calloc(SCOPE_MAX_VARIABLES, sizeof(uint64_t));
+
+	compiler_push_opcode(compiler, compstate, OpCode::BeginScope);
 }
 
-void compiler_pop_scope(CompilerState *compstate)
+void compiler_pop_scope(Compiler *compiler, CompilerState *compstate)
 {
 	if (compstate->scopes_length == 0) {
 		compstate->result = Result::Fatal;
@@ -572,6 +575,8 @@ void compiler_pop_scope(CompilerState *compstate)
 	compstate->scopes_length -= 1;
 	free(current_scope->variables_name);
 	free(current_scope->variables_type);
+
+	compiler_push_opcode(compiler, compstate, OpCode::EndScope);
 }
 
 bool compiler_push_variable(
@@ -591,8 +596,12 @@ bool compiler_push_variable(
 	uint64_t i_new_variable = current_scope->variables_length;
 	current_scope->variables_length += 1;
 
-	current_scope->variables_name[i_new_variable] = sv_substr(compstate->input.text, identifier_token->span);
+	sv name_str = sv_substr(compstate->input.text, identifier_token->span);
+
+	current_scope->variables_name[i_new_variable] = name_str;
 	current_scope->variables_type[i_new_variable] = i_type;
+
+	fprintf(stdout, "Defining new local: %.*s\n", int(name_str.length), name_str.chars);
 
 	*i_variable_out = i_new_variable;
 	return true;
@@ -674,7 +683,6 @@ Type *compile_atom(Compiler *compiler, CompilerState *compstate, const AstNode *
 	if (token.kind == TokenKind::Identifier) {
 		// Refer a declared variable
 		// <identifier>
-		fprintf(stdout, "Expr evaluated to %.*s\n", int(token_sv.length), token_sv.chars);
 		Type *ty = nullptr;
 		uint64_t i_variable = 0;
 		if (!compiler_lookup_variable(compstate, &token, &ty, &i_variable)) {
@@ -688,7 +696,7 @@ Type *compile_atom(Compiler *compiler, CompilerState *compstate, const AstNode *
 		// An integer constant
 		// <number>
 		int token_number = sv_to_int(token_sv);
-		fprintf(stdout, "Expr evaluated to %d\n", token_number);
+		(void)(token_number);
 		Type *ty = compiler_type_new(compstate);
 		ty->kind = TypeKind::Int;
 		compiler_push_opcode(compiler, compstate, OpCode::Constant);
@@ -716,8 +724,26 @@ Type *compile_expr(Compiler *compiler, CompilerState *compstate, const AstNode *
 	}
 }
 
+Type *compile_sexprs_return_last(Compiler *compiler, CompilerState *compstate, const AstNode *node)
+{
+	const AstNode *current_expr_node = node;
+	if (current_expr_node == nullptr) {
+		compstate->result = Result::CompilerExpectedExpr;
+		compstate->error = node->span;
+		return nullptr;
+	}
+
+	Type *return_type = nullptr;
+	while (current_expr_node != nullptr) {
+		return_type = compile_expr(compiler, compstate, current_expr_node);
+		current_expr_node = current_expr_node->right_sibling;
+	}
+
+	return return_type;
+}
+
 // Defines a new function
-// (define <name> <return_type> <body expression>)
+// (define <name> <return_type> <expression>+)
 Type *compile_define(Compiler *compiler, CompilerState *compstate, const AstNode *node)
 {
 	Token name_token = {};
@@ -774,17 +800,6 @@ Type *compile_define(Compiler *compiler, CompilerState *compstate, const AstNode
 	}
 
 	const AstNode *body_node = arglist_node->right_sibling;
-	if (body_node == nullptr) {
-		compstate->result = Result::CompilerExpectedExpr;
-		compstate->error = node->span;
-		return nullptr;
-	}
-
-	if (body_node->right_sibling != nullptr) {
-		compstate->result = Result::CompilerUnexpectedExpression;
-		compstate->error = node->span;
-		return nullptr;
-	}
 
 	sv name_token_str = sv_substr(compstate->input.text, name_token.span);
 
@@ -832,7 +847,7 @@ Type *compile_define(Compiler *compiler, CompilerState *compstate, const AstNode
 	}
 	function->return_type = i_return_type;
 
-	compiler_push_scope(compstate);
+	compiler_push_scope(compiler, compstate);
 
 	for (uint64_t i_arg = 0; i_arg < args_length; ++i_arg) {
 		Type *arg_type = parse_type(compiler, compstate, arg_nodes[i_arg]);
@@ -852,10 +867,15 @@ Type *compile_define(Compiler *compiler, CompilerState *compstate, const AstNode
 		}
 	}
 
-	Type *body_type = compile_expr(compiler, compstate, body_node);
+	Type *body_type = compile_sexprs_return_last(compiler, compstate, body_node);
 
+	compiler_pop_scope(compiler, compstate);
 	compiler_push_opcode(compiler, compstate, OpCode::Ret);
-	compiler_pop_scope(compstate);
+
+	// Return an error if body_type compilation failed
+	if (body_type == nullptr) {
+		return nullptr;
+	}
 
 	bool valid_return_type = type_similar(return_type, body_type);
 	if (!valid_return_type) {
@@ -866,6 +886,42 @@ Type *compile_define(Compiler *compiler, CompilerState *compstate, const AstNode
 	}
 
 	return nullptr;
+}
+
+// Conditional branch
+// (if <cond_expression> <then_expression> <else_expression>)
+Type *compile_if(Compiler *compiler, CompilerState *compstate, const AstNode *node)
+{
+	// -- Parsing
+	const AstNode *if_token_node = node->left_child;
+
+	const AstNode *cond_expr_node = if_token_node->right_sibling;
+	Type *cond_expr = compile_expr(compiler, compstate, cond_expr_node);
+	if (cond_expr == nullptr) {
+		return nullptr;
+	}
+
+	const AstNode *then_expr_node = if_token_node->right_sibling;
+	Type *then_expr = compile_expr(compiler, compstate, then_expr_node);
+	if (then_expr == nullptr) {
+		return nullptr;
+	}
+
+	const AstNode *else_expr_node = if_token_node->right_sibling;
+	Type *else_expr = compile_expr(compiler, compstate, else_expr_node);
+	if (else_expr == nullptr) {
+		return nullptr;
+	}
+
+	bool valid_return_type = type_similar(then_expr, else_expr);
+	if (!valid_return_type) {
+		compstate->result = Result::CompilerExpectedTypeGot;
+		compstate->error = node->span;
+		compstate->expected_type = then_expr;
+		compstate->got_type = else_expr;
+	}
+
+	return then_expr;
 }
 
 Type *compile_let(Compiler *compiler, CompilerState *compstate, const AstNode *node)
@@ -888,11 +944,8 @@ Type *compile_let(Compiler *compiler, CompilerState *compstate, const AstNode *n
 	}
 
 	const Token name_token = *name_node->atom_token;
-	sv name_str = sv_substr(compstate->input.text, name_token.span);
 
 	// -- Type checking
-	fprintf(stdout, "Defining new local: %.*s\n", int(name_str.length), name_str.chars);
-
 	// Compile the body
 	Type *expr_type = compile_expr(compiler, compstate, value_node);
 	if (expr_type == nullptr) {
@@ -924,25 +977,12 @@ Type *compile_begin(Compiler *compiler, CompilerState *compstate, const AstNode 
 		return nullptr;
 	}
 
-	const AstNode *current_expr_node = begin_node->right_sibling;
-	if (current_expr_node == nullptr) {
-		compstate->result = Result::CompilerExpectedExpr;
-		compstate->error = node->span;
-		return nullptr;
-	}
-
-	Type *return_type = nullptr;
-	while (current_expr_node != nullptr) {
-		return_type = compile_expr(compiler, compstate, current_expr_node);
-		current_expr_node = current_expr_node->right_sibling;
-	}
-
-	return return_type;
+	return compile_sexprs_return_last(compiler, compstate, begin_node->right_sibling);
 }
 
-// Adds two integers
-// (+ <lhs> <rhs>)
-Type *compile_iadd(Compiler *compiler, CompilerState *compstate, const AstNode *node)
+// (<op> <lhs> <rhs>)
+Type *compile_binary_opcode(
+	Compiler *compiler, CompilerState *compstate, const AstNode *node, Type *type, OpCode opcode)
 {
 	// -- Parsing
 	const AstNode *plus_token_node = node->left_child;
@@ -974,38 +1014,54 @@ Type *compile_iadd(Compiler *compiler, CompilerState *compstate, const AstNode *
 		return nullptr;
 	}
 
-	Type int_type = {};
-	int_type.kind = TypeKind::Int;
-	bool lhs_valid = type_similar(lhs, &int_type);
-	bool rhs_valid = type_similar(rhs, &int_type);
+	bool lhs_valid = type_similar(lhs, type);
+	bool rhs_valid = type_similar(rhs, type);
 	bool valid_types = lhs_valid && rhs_valid;
 	if (!valid_types) {
-		Type *int_type_stored = compiler_type_new(compstate);
-		*int_type_stored = int_type;
 
 		compstate->result = Result::CompilerExpectedTypeGot;
-		compstate->expected_type = int_type_stored;
+		compstate->expected_type = type;
 		compstate->got_type = lhs_valid ? rhs : lhs;
 	}
 
-	// -- Compiling
-	compiler_push_opcode(compiler, compstate, OpCode::IAdd);
+	compiler_push_opcode(compiler, compstate, opcode);
 
 	return lhs;
+}
+
+// Add two integers
+Type *compile_iadd(Compiler *compiler, CompilerState *compstate, const AstNode *node)
+{
+	Type *int_type = compiler_type_new(compstate);
+	int_type->kind = TypeKind::Int;
+	return compile_binary_opcode(compiler, compstate, node, int_type, OpCode::IAdd);
+}
+
+// Compare two integers
+// (<= <lhs> <rhs>)
+Type *compile_ltethan(Compiler *compiler, CompilerState *compstate, const AstNode *node)
+{
+	Type *int_type = compiler_type_new(compstate);
+	int_type->kind = TypeKind::Int;
+	return compile_binary_opcode(compiler, compstate, node, int_type, OpCode::ILessThanEq);
 }
 
 using CompstateBuiltin = Type *(*)(Compiler *, CompilerState *, const AstNode *);
 CompstateBuiltin compiler_builtins[] = {
 	compile_define,
+	compile_if,
 	compile_let,
 	compile_begin,
 	compile_iadd,
+	compile_ltethan,
 };
 sv compstate_builtins_str[] = {
-	sv{"define", strlen("define")},
-	sv{"let", strlen("let")},
-	sv{"begin", strlen("begin")},
-	sv{"+", strlen("+")},
+	sv_from_null_terminated("define"),
+	sv_from_null_terminated("if"),
+	sv_from_null_terminated("let"),
+	sv_from_null_terminated("begin"),
+	sv_from_null_terminated("+"),
+	sv_from_null_terminated("<="),
 };
 static_assert(ARRAY_LENGTH(Result_str) == uint64_t(Result::Count));
 
@@ -1154,8 +1210,6 @@ Result compile_module(Compiler *compiler, sv module_name, sv input)
 	parser.ast_nodes_length = 0;
 	parse_module(&parser);
 
-	print_ast(input, parser.ast_nodes);
-
 	if (parser.result != Result::Ok) {
 		fprintf(stderr,
 			"# Parser[token_length: %zu, i_current_token: %zu] returned %s\n",
@@ -1191,6 +1245,8 @@ Result compile_module(Compiler *compiler, sv module_name, sv input)
 
 		return parser.result;
 	}
+	fprintf(stdout, "\nParsing success:\n");
+	print_ast(input, parser.ast_nodes);
 
 	// Find module
 	uint64_t i_module = 0;
@@ -1252,11 +1308,11 @@ Result compile_module(Compiler *compiler, sv module_name, sv input)
 		return compstate.result;
 	}
 
-	fprintf(stdout, "Compilation success:\n");
+	fprintf(stdout, "\nCompilation success:\n");
 	Module *compiled_module = compiler->modules + compstate.i_current_module;
 	for (uint64_t i_opcode = 0; i_opcode < compiled_module->bytecode_length; ++i_opcode) {
 		OpCode opcode = compiled_module->bytecode[i_opcode];
-		fprintf(stdout, "%s\n", OpCode_str[uint8_t(opcode)]);
+		fprintf(stdout, "\t%s\n", OpCode_str[uint8_t(opcode)]);
 	}
 
 	return Result::Ok;

@@ -1,8 +1,13 @@
 (define (add1 i32) (n i32) (+ 1 n))
 
-(define (main2 i32) (n bool) n)
+(define (main2 i32) (n bool) n (begin 1 2 3))
 
 (define (main i32) ()
 	(begin
 		(let toto 1)
 		(+ 1 toto)))
+
+(define (fib i32) (n i32)
+	(if (<= n 1)
+		n
+		(+ (fib (- n 1)) (fib (- n 2)))))
