@@ -775,6 +775,12 @@ Type *compile_define(Compiler *compiler, CompilerState *compstate, const AstNode
 
 	const AstNode *arglist_node = name_node->right_sibling;
 	{
+		if (arglist_node->atom_token != nullptr) {
+			compstate->result = Result::CompilerExpectedExpr;
+			compstate->error = arglist_node->span;
+			return nullptr;
+		}
+
 		const AstNode *identifier_node = arglist_node->left_child;
 
 		while (identifier_node != nullptr) {
@@ -1047,23 +1053,31 @@ Type *compile_ltethan(Compiler *compiler, CompilerState *compstate, const AstNod
 }
 
 using CompstateBuiltin = Type *(*)(Compiler *, CompilerState *, const AstNode *);
-CompstateBuiltin compiler_builtins[] = {
+
+// There are two kinds of "builtins", the ones allowed at top-level and the other ones
+const CompstateBuiltin compiler_top_builtins[] = {
 	compile_define,
+};
+const sv compiler_top_builtins_str[] = {
+	sv_from_null_terminated("define"),
+};
+static_assert(ARRAY_LENGTH(compiler_top_builtins_str) == ARRAY_LENGTH(compiler_top_builtins));
+
+const CompstateBuiltin compiler_expr_builtins[] = {
 	compile_if,
 	compile_let,
 	compile_begin,
 	compile_iadd,
 	compile_ltethan,
 };
-sv compstate_builtins_str[] = {
-	sv_from_null_terminated("define"),
+const sv compiler_expr_builtins_str[] = {
 	sv_from_null_terminated("if"),
 	sv_from_null_terminated("let"),
 	sv_from_null_terminated("begin"),
 	sv_from_null_terminated("+"),
 	sv_from_null_terminated("<="),
 };
-static_assert(ARRAY_LENGTH(Result_str) == uint64_t(Result::Count));
+static_assert(ARRAY_LENGTH(compiler_expr_builtins_str) == ARRAY_LENGTH(compiler_expr_builtins));
 
 // (<identifier> <expr>*)
 Type *compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode *function_node)
@@ -1079,10 +1093,10 @@ Type *compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode 
 	sv identifier_str = sv_substr(compstate->input.text, identifier.span);
 
 	// Dispatch to the correct builtin compile function (define, iadd, etc)
-	const uint64_t compstate_builtin_length = ARRAY_LENGTH(compiler_builtins);
+	const uint64_t compstate_builtin_length = ARRAY_LENGTH(compiler_expr_builtins);
 	for (uint64_t i = 0; i < compstate_builtin_length; ++i) {
-		if (sv_equals(identifier_str, compstate_builtins_str[i])) {
-			return compiler_builtins[i](compiler, compstate, function_node);
+		if (sv_equals(identifier_str, compiler_expr_builtins_str[i])) {
+			return compiler_expr_builtins[i](compiler, compstate, function_node);
 		}
 	}
 
@@ -1118,9 +1132,15 @@ void compile_module(Compiler *compiler, CompilerState *compstate)
 			return;
 		}
 
-		compile_sexpr(compiler, compstate, root_expr);
-		if (compstate->result != Result::Ok) {
-			return;
+		sv identifier_str = sv_substr(compstate->input.text, first_sexpr_member->atom_token->span);
+
+		for (uint64_t i_builtin = 0; i_builtin < ARRAY_LENGTH(compiler_top_builtins); ++i_builtin) {
+			if (sv_equals(identifier_str, compiler_top_builtins_str[i_builtin])) {
+				compiler_top_builtins[i_builtin](compiler, compstate, root_expr);
+				if (compstate->result != Result::Ok) {
+					break;
+				}
+			}
 		}
 
 		root_expr = root_expr->right_sibling;
