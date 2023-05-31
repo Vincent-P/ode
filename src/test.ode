@@ -1,4 +1,8 @@
-(define (add1 i32) (n i32) (+ 1 n))
+(struct Point
+	(x i32)
+	(y i32))
+
+(define (add1 i32) (p Point) (+ 1 p))
 
 (define (main2 i32) (n bool) n (begin 1 2 3))
 

@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "compiler.h"
+#include "cross.h"
 
 sv read_entire_file(FILE *file)
 {
@@ -18,7 +19,7 @@ sv read_entire_file(FILE *file)
 	return sv{file_content, uint64_t(fsize)};
 }
 
-int load_file(sv path)
+int compile_file_to_module(Compiler *compiler, sv path)
 {
 	if (path.chars == nullptr) {
 		return 1;
@@ -57,7 +58,6 @@ int load_file(sv path)
 	fprintf(stdout, "module: %.*s\n", int(module_name.length), module_name.chars);
 	fprintf(stdout, "%s\n", file_content.chars);
 
-	Compiler *compiler = compiler_init();
 	Result res = compile_module(compiler, module_name, file_content);
 	return res != Result::Ok;
 }
@@ -69,7 +69,27 @@ int main(int argc, const char *argv[])
 		return 1;
 	}
 
-	const char *path = argv[1];
-	int res = load_file(sv{path, strlen(path)});
-	return res;
+	// Disable stdout buffering
+	setvbuf(stdout, (char *)NULL, _IONBF, 0);
+
+	const char *const path = argv[1];
+	const sv path_str = sv{path, strlen(path)};
+
+	Compiler *compiler = compiler_init();
+
+	uint64_t last_compilation = 0;
+
+	while (true) {
+		const uint64_t last_write = cross::get_file_last_write(path_str.chars, path_str.length);
+		if (last_write != last_compilation) {
+			printf("Last file write: %llu\n", last_write);
+			last_compilation = last_write;
+			int res = compile_file_to_module(compiler, path_str);
+			printf("Compilation returned: %d\n", res);
+		}
+
+		cross::sleep_ms(100);
+	}
+
+	return 0;
 }

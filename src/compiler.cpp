@@ -5,6 +5,7 @@
 #include <stdlib.h>
 
 inline constexpr uint64_t MAX_ARGUMENTS = 8;
+inline constexpr uint64_t MAX_STRUCT_FIELDS = 32;
 
 struct TextInput
 {
@@ -130,7 +131,7 @@ struct Type
 	{
 		Type *pointee;
 		StructType structure;
-	};
+	} data;
 };
 
 struct Function
@@ -533,11 +534,11 @@ bool type_similar(Type *lhs, Type *rhs)
 	if (lhs->kind != rhs->kind) {
 		return false;
 	} else if (lhs->kind == TypeKind::Pointer) {
-		return type_similar(lhs->pointee, rhs->pointee);
+		return type_similar(lhs->data.pointee, rhs->data.pointee);
 	} else if (lhs->kind == TypeKind::Struct) {
-		bool same_layout = lhs->structure.field_count == rhs->structure.field_count;
-		for (uint64_t i = 0; same_layout && i < lhs->structure.field_count; ++i) {
-			same_layout = type_similar(lhs->structure.field_types[i], rhs->structure.field_types[i]);
+		bool same_layout = lhs->data.structure.field_count == rhs->data.structure.field_count;
+		for (uint64_t i = 0; same_layout && i < lhs->data.structure.field_count; ++i) {
+			same_layout = type_similar(lhs->data.structure.field_types[i], rhs->data.structure.field_types[i]);
 		}
 		return same_layout;
 	} else {
@@ -601,8 +602,6 @@ bool compiler_push_variable(
 	current_scope->variables_name[i_new_variable] = name_str;
 	current_scope->variables_type[i_new_variable] = i_type;
 
-	fprintf(stdout, "Defining new local: %.*s\n", int(name_str.length), name_str.chars);
-
 	*i_variable_out = i_new_variable;
 	return true;
 }
@@ -654,6 +653,7 @@ Type *parse_type(Compiler *, CompilerState *compstate, const AstNode *node)
 	const Token identifier = *node->atom_token;
 	sv identifier_str = sv_substr(compstate->input.text, identifier.span);
 
+	// Search builtin types
 	if (sv_equals(identifier_str, sv_from_null_terminated(TypeKind_str[static_cast<uint32_t>(TypeKind::Int)]))) {
 		Type *ty = compiler_type_new(compstate);
 		ty->kind = TypeKind::Int;
@@ -668,11 +668,22 @@ Type *parse_type(Compiler *, CompilerState *compstate, const AstNode *node)
 		Type *ty = compiler_type_new(compstate);
 		ty->kind = TypeKind::Float;
 		return ty;
-	} else {
-		compstate->result = Result::CompilerUnknownSymbol;
-		compstate->error = node->span;
-		return nullptr;
 	}
+
+	// Search named types
+	for (uint32_t i_type = 0; i_type < compstate->types_length; ++i_type) {
+		if (compstate->types[i_type].kind == TypeKind::Struct)
+		{
+			if (sv_equals(compstate->types[i_type].data.structure.name, identifier_str))
+			{
+				return compstate->types + i_type;
+			}
+		}
+	}
+
+	compstate->result = Result::CompilerUnknownSymbol;
+	compstate->error = node->span;
+	return nullptr;
 }
 
 Type *compile_atom(Compiler *compiler, CompilerState *compstate, const AstNode *expr_node)
@@ -811,12 +822,6 @@ Type *compile_define(Compiler *compiler, CompilerState *compstate, const AstNode
 
 	// -- Type checking
 	Module *current_module = compiler->modules + compstate->i_current_module;
-	fprintf(stdout,
-		"Defining new function: %.*s (arity %zu)\n",
-		int(name_token_str.length),
-		name_token_str.chars,
-		args_length);
-
 	for (uint64_t i_function = 0; i_function < current_module->functions_length; ++i_function) {
 		Function *function = current_module->functions + i_function;
 		if (sv_equals(function->name, name_token_str)) {
@@ -892,6 +897,111 @@ Type *compile_define(Compiler *compiler, CompilerState *compstate, const AstNode
 	}
 
 	return nullptr;
+}
+
+// Defines a new struct
+// (struct <name> (<field name> <field type>)+)
+Type *compile_struct(Compiler *compiler, CompilerState *compstate, const AstNode *node)
+{
+	// -- Parsing
+	const AstNode *struct_token_node = node->left_child;
+
+	const AstNode *identifier_node = struct_token_node->right_sibling;
+	if (identifier_node == nullptr || identifier_node->atom_token == nullptr) {
+		compstate->result = Result::CompilerExpectedIdentifier;
+		compstate->error = node->span;
+		return nullptr;
+	}
+	Token name_token = *identifier_node->atom_token;
+
+	Token field_identifiers[MAX_STRUCT_FIELDS] = {};
+	const AstNode *field_type_nodes[MAX_STRUCT_FIELDS] = {};
+	uint64_t fields_length = 0;
+
+	const AstNode *field_node = identifier_node->right_sibling;
+	if (field_node == nullptr) {
+		compstate->result = Result::CompilerExpectedExpr;
+		compstate->error = node->span;
+		return nullptr;
+	}
+
+	while (field_node != nullptr) {
+		const AstNode *field_identifier_node = field_node->left_child;
+
+		if (field_identifier_node == nullptr || field_identifier_node->atom_token == nullptr) {
+			compstate->result = Result::CompilerExpectedIdentifier;
+			compstate->error = field_identifier_node->span;
+			return nullptr;
+		}
+
+		const AstNode *type_node = field_identifier_node->right_sibling;
+		if (type_node == nullptr) {
+			compstate->result = Result::CompilerExpectedExpr;
+			compstate->error = field_node->span;
+			return nullptr;
+		}
+
+		if (fields_length > MAX_STRUCT_FIELDS) {
+			compstate->result = Result::Fatal;
+			compstate->error = field_node->span;
+			return nullptr;
+		}
+
+		field_identifiers[fields_length] = *field_identifier_node->atom_token;
+		field_type_nodes[fields_length] = type_node;
+		fields_length += 1;
+
+		field_node = field_node->right_sibling;
+	}
+
+	sv name_token_str = sv_substr(compstate->input.text, name_token.span);
+
+	// -- Type checking
+	for (uint64_t i_type = 0; i_type < compstate->types_length; ++i_type) {
+		Type *type = compstate->types + i_type;
+		if (type->kind == TypeKind::Struct &&  sv_equals(type->data.structure.name, name_token_str)) {
+			compstate->result = Result::CompilerDuplicateSymbol;
+			compstate->error = node->span;
+			// Actually it should be possible to recompile a function if signature has not changed.
+			return nullptr;
+		}
+	}
+
+	if (compstate->types_length + 1 >= compstate->types_capacity) {
+		compstate->result = Result::Fatal;
+		compstate->error = node->span;
+		return nullptr;
+	}
+
+	// Create a new structure type
+
+	Type *struct_type = compiler_type_new(compstate);
+	struct_type->kind = TypeKind::Struct;
+	struct_type->size = 0;
+	struct_type->data.structure = {};
+	struct_type->data.structure.name = name_token_str;
+
+	// -- Compiling
+	uint64_t struct_size = 0;
+	for (uint64_t i_field = 0; i_field < fields_length; ++i_field) {
+		Type *field_type = parse_type(compiler, compstate, field_type_nodes[i_field]);
+		if (field_type == nullptr) {
+			return nullptr;
+		}
+
+		// Invalid type?
+		uint64_t i_expr_type = uint64_t(field_type - compstate->types);
+		if (i_expr_type >= compstate->types_length) {
+			compstate->result = Result::Fatal;
+			compstate->error = node->span;
+			return nullptr;
+		}
+
+		struct_size += field_type->size;
+	}
+	struct_type->size = struct_size;
+
+	return struct_type;
 }
 
 // Conditional branch
@@ -1057,9 +1167,11 @@ using CompstateBuiltin = Type *(*)(Compiler *, CompilerState *, const AstNode *)
 // There are two kinds of "builtins", the ones allowed at top-level and the other ones
 const CompstateBuiltin compiler_top_builtins[] = {
 	compile_define,
+	compile_struct,
 };
 const sv compiler_top_builtins_str[] = {
 	sv_from_null_terminated("define"),
+	sv_from_null_terminated("struct"),
 };
 static_assert(ARRAY_LENGTH(compiler_top_builtins_str) == ARRAY_LENGTH(compiler_top_builtins));
 
@@ -1102,7 +1214,6 @@ Type *compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode 
 
 	// If the identifier is not a builtin, generate a function call
 	// -- Type checking / Compiling
-	fprintf(stdout, "Calling function '%.*s'\n", int(identifier_str.length), identifier_str.chars);
 	compstate->result = Result::CompilerUnknownSymbol;
 	compstate->error = identifier.span;
 
@@ -1265,8 +1376,11 @@ Result compile_module(Compiler *compiler, sv module_name, sv input)
 
 		return parser.result;
 	}
+
+#if 0
 	fprintf(stdout, "\nParsing success:\n");
 	print_ast(input, parser.ast_nodes);
+#endif
 
 	// Find module
 	uint64_t i_module = 0;
