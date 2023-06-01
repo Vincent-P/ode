@@ -672,10 +672,8 @@ Type *parse_type(Compiler *, CompilerState *compstate, const AstNode *node)
 
 	// Search named types
 	for (uint32_t i_type = 0; i_type < compstate->types_length; ++i_type) {
-		if (compstate->types[i_type].kind == TypeKind::Struct)
-		{
-			if (sv_equals(compstate->types[i_type].data.structure.name, identifier_str))
-			{
+		if (compstate->types[i_type].kind == TypeKind::Struct) {
+			if (sv_equals(compstate->types[i_type].data.structure.name, identifier_str)) {
 				return compstate->types + i_type;
 			}
 		}
@@ -959,7 +957,7 @@ Type *compile_struct(Compiler *compiler, CompilerState *compstate, const AstNode
 	// -- Type checking
 	for (uint64_t i_type = 0; i_type < compstate->types_length; ++i_type) {
 		Type *type = compstate->types + i_type;
-		if (type->kind == TypeKind::Struct &&  sv_equals(type->data.structure.name, name_token_str)) {
+		if (type->kind == TypeKind::Struct && sv_equals(type->data.structure.name, name_token_str)) {
 			compstate->result = Result::CompilerDuplicateSymbol;
 			compstate->error = node->span;
 			// Actually it should be possible to recompile a function if signature has not changed.
@@ -997,8 +995,15 @@ Type *compile_struct(Compiler *compiler, CompilerState *compstate, const AstNode
 			return nullptr;
 		}
 
+		struct_type->data.structure.field_types[i_field] = field_type;
+		struct_type->data.structure.field_names[i_field] =
+			sv_substr(compstate->input.text, field_identifiers[i_field].span);
+		struct_type->data.structure.field_offsets[i_field] = struct_size;
+
 		struct_size += field_type->size;
 	}
+
+	struct_type->data.structure.field_count = fields_length;
 	struct_type->size = struct_size;
 
 	return struct_type;
@@ -1132,12 +1137,21 @@ Type *compile_binary_opcode(
 
 	bool lhs_valid = type_similar(lhs, type);
 	bool rhs_valid = type_similar(rhs, type);
-	bool valid_types = lhs_valid && rhs_valid;
-	if (!valid_types) {
 
+	if (!lhs_valid) {
 		compstate->result = Result::CompilerExpectedTypeGot;
 		compstate->expected_type = type;
-		compstate->got_type = lhs_valid ? rhs : lhs;
+		compstate->got_type = lhs;
+		compstate->error = lhs_node->span;
+		return nullptr;
+	}
+
+	if (!rhs_valid) {
+		compstate->result = Result::CompilerExpectedTypeGot;
+		compstate->expected_type = type;
+		compstate->got_type = rhs;
+		compstate->error = rhs_node->span;
+		return nullptr;
 	}
 
 	compiler_push_opcode(compiler, compstate, opcode);
@@ -1162,6 +1176,59 @@ Type *compile_ltethan(Compiler *compiler, CompilerState *compstate, const AstNod
 	return compile_binary_opcode(compiler, compstate, node, int_type, OpCode::ILessThanEq);
 }
 
+// Returns a field of a struct
+// (field <expr> <member identifier>)
+Type *compile_field(Compiler *compiler, CompilerState *compstate, const AstNode *node)
+{
+	const AstNode *field_token_node = node->left_child;
+	if (field_token_node == nullptr || field_token_node->atom_token == nullptr) {
+		compstate->result = Result::CompilerExpectedIdentifier;
+		compstate->error = node->span;
+		return nullptr;
+	}
+
+	const AstNode *expr_node = field_token_node->right_sibling;
+	if (expr_node == nullptr) {
+		compstate->result = Result::CompilerExpectedExpr;
+		compstate->error = node->span;
+		return nullptr;
+	}
+
+	const AstNode *field_identifier_node = expr_node->right_sibling;
+	if (field_identifier_node == nullptr || field_identifier_node->atom_token == nullptr) {
+		compstate->result = Result::CompilerExpectedIdentifier;
+		compstate->error = node->span;
+		return nullptr;
+	}
+
+	// Typecheck
+	Type *expr_type = compile_expr(compiler, compstate, expr_node);
+	if (expr_type == nullptr) {
+		return nullptr;
+	}
+
+	if (expr_type->kind != TypeKind::Struct) {
+		compstate->result = Result::CompilerExpectedStruct;
+		compstate->error = node->span;
+		return nullptr;
+	}
+
+	const Token field_id = *field_identifier_node->atom_token;
+	const sv field_id_str = sv_substr(compstate->input.text, field_id.span);
+
+	uint64_t field_count = expr_type->data.structure.field_count;
+	for (uint64_t i_field = 0; i_field < field_count; ++i_field) {
+		if (sv_equals(expr_type->data.structure.field_names[i_field], field_id_str)) {
+			Type *field_type = expr_type->data.structure.field_types[i_field];
+			return field_type;
+		}
+	}
+
+	compstate->result = Result::CompilerUnknownField;
+	compstate->error = node->span;
+	return nullptr;
+}
+
 using CompstateBuiltin = Type *(*)(Compiler *, CompilerState *, const AstNode *);
 
 // There are two kinds of "builtins", the ones allowed at top-level and the other ones
@@ -1181,6 +1248,7 @@ const CompstateBuiltin compiler_expr_builtins[] = {
 	compile_begin,
 	compile_iadd,
 	compile_ltethan,
+	compile_field,
 };
 const sv compiler_expr_builtins_str[] = {
 	sv_from_null_terminated("if"),
@@ -1188,6 +1256,7 @@ const sv compiler_expr_builtins_str[] = {
 	sv_from_null_terminated("begin"),
 	sv_from_null_terminated("+"),
 	sv_from_null_terminated("<="),
+	sv_from_null_terminated("field"),
 };
 static_assert(ARRAY_LENGTH(compiler_expr_builtins_str) == ARRAY_LENGTH(compiler_expr_builtins));
 
