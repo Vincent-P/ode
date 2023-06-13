@@ -1,0 +1,11 @@
+- Typed or untyped?
+OpCode like GetField? GetMethod? SetField?
+
+- Reflection not needed for now
+
+
+- Manual Memory management (mandatory)
+
+let machin = 3                       -- (stack allocator)
+let machdeux = 2
+arena

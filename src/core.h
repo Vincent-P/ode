@@ -69,9 +69,9 @@ inline bool sv_equals(sv a, sv b)
 	return true;
 }
 
-inline int sv_to_int(sv string)
+inline int32_t sv_to_int(sv string)
 {
-	int n = 0;
+	int32_t n = 0;
 	const char *cursor = string.chars;
 	const char *end = cursor + string.length;
 	while (cursor < end) {

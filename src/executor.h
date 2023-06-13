@@ -1,15 +1,8 @@
 #pragma once
+#include "core.h"
 
-/*
-multiple "functions" in form of bytecode
-instruction_banks = [MemoryBlock]
-data = MemoryBlock
-
-"calling" a function MAY results in a instruction_bank switch + jump
-current_bank/ip per callframe?
-
-compiler stitches all function (or module) bytecode into multiple banks, and execute
-*/
-
+struct Image;
 struct ExecutorState;
-void execute(ExecutorState *state);
+ExecutorState *executor_init();
+void executor_load_image(ExecutorState *state, Image *image);
+void executor_execute_module_entrypoint(ExecutorState *state, sv module_name);

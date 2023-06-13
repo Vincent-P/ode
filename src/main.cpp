@@ -5,6 +5,7 @@
 
 #include "compiler.h"
 #include "cross.h"
+#include "executor.h"
 
 sv read_entire_file(FILE *file)
 {
@@ -19,7 +20,7 @@ sv read_entire_file(FILE *file)
 	return sv{file_content, uint64_t(fsize)};
 }
 
-int compile_file_to_module(Compiler *compiler, sv path)
+int compile_file_to_module(Compiler *compiler, sv path, sv *out_module_name = nullptr)
 {
 	if (path.chars == nullptr) {
 		return 1;
@@ -59,6 +60,12 @@ int compile_file_to_module(Compiler *compiler, sv path)
 	fprintf(stdout, "%s\n", file_content.chars);
 
 	Result res = compile_module(compiler, module_name, file_content);
+	if (res == Result::Ok) {
+		if (out_module_name) {
+			*out_module_name = module_name;
+		}
+	}
+
 	return res != Result::Ok;
 }
 
@@ -76,19 +83,26 @@ int main(int argc, const char *argv[])
 	const sv path_str = sv{path, strlen(path)};
 
 	Compiler *compiler = compiler_init();
+	Image image = {};
+	ExecutorState *executor = executor_init();
 
 	uint64_t last_compilation = 0;
+	sv last_compiled_module_name = {};
 
 	while (true) {
 		const uint64_t last_write = cross::get_file_last_write(path_str.chars, path_str.length);
 		if (last_write != last_compilation) {
 			printf("Last file write: %llu\n", last_write);
 			last_compilation = last_write;
-			int res = compile_file_to_module(compiler, path_str);
+			int res = compile_file_to_module(compiler, path_str, &last_compiled_module_name);
 			printf("Compilation returned: %d\n", res);
+			compiler_update_image(compiler, &image);
+			executor_load_image(executor, &image);
 		}
 
-		cross::sleep_ms(100);
+		executor_execute_module_entrypoint(executor, last_compiled_module_name);
+
+		cross::sleep_ms(5000);
 	}
 
 	return 0;

@@ -2,7 +2,7 @@
 	(x i32)
 	(y i32))
 
-(define (add1 i32) (p Point) (+ 1 (field p x)))
+(define (add_1x i32) (p Point) (+ 1 (field p x)))
 
 (define (main2 i32) (n bool) n (begin 1 2 3))
 

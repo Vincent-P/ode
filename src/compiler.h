@@ -69,4 +69,4 @@ main loop exemple
 struct Compiler;
 Compiler *compiler_init();
 Result compile_module(Compiler *compiler, sv module_name, sv input);
-Result compiler_make_image(Compiler *compiler, Image *image);
+Result compiler_update_image(Compiler *compiler, Image *image);
