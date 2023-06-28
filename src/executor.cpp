@@ -131,7 +131,7 @@ void executor_execute_module_at(ExecutorState *state, Module *module, uint64_t i
 		OpCodeKind opcode_kind = OpCodeKind(opcode);
 		fprintf(stdout, "\tTRACE(%zu) Executing %s\n", ip, OpCode_str[uint8_t(opcode_kind)]);
 
-		switch (opcode) {
+		switch (opcode_kind) {
 		// Stack manipulation
 		case Constant: {
 			int32_t value = bytecode_read_i32(module->bytecode, bytecode_len, &ip);
@@ -146,6 +146,16 @@ void executor_execute_module_at(ExecutorState *state, Module *module, uint64_t i
 			break;
 		}
 		case Ret: {
+			break;
+		}
+		case ConditionalJump: {
+			int32_t value = bytecode_read_i32(module->bytecode, bytecode_len, &ip);
+			fprintf(stdout, "\tTRACE(%zu) %d\n", ip, value);
+			break;
+		}
+		case Jump: {
+			int32_t value = bytecode_read_i32(module->bytecode, bytecode_len, &ip);
+			fprintf(stdout, "\tTRACE(%zu) %d\n", ip, value);
 			break;
 		}
 		// Struct
@@ -178,6 +188,9 @@ void executor_execute_module_at(ExecutorState *state, Module *module, uint64_t i
 		}
 		// Maths
 		case IAdd: {
+			break;
+		}
+		case ISub: {
 			break;
 		}
 		case ILessThanEq: {

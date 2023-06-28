@@ -1,4 +1,5 @@
 #include "compiler.h"
+#include <corecrt_wstdio.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -465,19 +466,20 @@ void compiler_push_u32(Compiler *, CompilerState *compstate, uint32_t value)
 	current_module->bytecode_length += to_write;
 }
 
-void compiler_push_i32(Compiler *, CompilerState *compstate, int32_t value)
+int32_t *compiler_push_i32(Compiler *, CompilerState *compstate, int32_t value)
 {
 	Module *current_module = compstate->current_module;
 	uint64_t to_write = sizeof(int32_t);
 	if (current_module->bytecode_length + to_write >= current_module->bytecode_capacity) {
 		compstate->result = Result::Fatal;
 		SET_RESULT(compstate->result);
-		return;
+		return nullptr;
 	}
 
 	int32_t *bytecode_i32 = reinterpret_cast<int32_t *>(current_module->bytecode + current_module->bytecode_length);
 	bytecode_i32[0] = value;
 	current_module->bytecode_length += to_write;
+	return bytecode_i32;
 }
 
 void compiler_push_sv(Compiler *, CompilerState *compstate, sv value)
@@ -873,14 +875,7 @@ Type *compile_define(Compiler *compiler, CompilerState *compstate, const AstNode
 	if (return_type == nullptr) {
 		return nullptr;
 	}
-	uint64_t i_return_type = uint64_t(return_type - compstate->types);
-	if (i_return_type >= compstate->types_length) {
-		compstate->result = Result::Fatal;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
-		return nullptr;
-	}
-	function->return_type = i_return_type;
+	function->return_type = return_type;
 
 	compiler_push_opcode(compiler, compstate, OpCodeKind::DebugLabel);
 	compiler_push_sv(compiler, compstate, name_token_str);
@@ -888,12 +883,16 @@ Type *compile_define(Compiler *compiler, CompilerState *compstate, const AstNode
 
 	for (uint64_t i_arg = 0; i_arg < args_length; ++i_arg) {
 		Type *arg_type = parse_type(compiler, compstate, arg_nodes[i_arg]);
+		function->arg_types[function->arg_count] = arg_type;
+		function->arg_count += 1;
+
 		uint64_t i_variable = 0;
 		if (!compiler_push_variable(compstate, &arg_identifiers[i_arg], arg_type, &i_variable)) {
 			return nullptr;
 		}
 	}
 
+	// <-- Compile the body
 	Type *body_type = compile_sexprs_return_last(compiler, compstate, body_node);
 
 	compiler_pop_scope(compiler, compstate);
@@ -1044,24 +1043,50 @@ Type *compile_if(Compiler *compiler, CompilerState *compstate, const AstNode *no
 {
 	// -- Parsing
 	const AstNode *if_token_node = node->left_child;
+	// TODO: How to write this better?
+	if (if_token_node == nullptr || if_token_node->right_sibling == nullptr ||
+		if_token_node->right_sibling->right_sibling == nullptr ||
+		if_token_node->right_sibling->right_sibling->right_sibling == nullptr) {
+		compstate->result = Result::CompilerExpectedExpr;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return nullptr;
+	}
 
 	const AstNode *cond_expr_node = if_token_node->right_sibling;
+	const AstNode *then_expr_node = cond_expr_node->right_sibling;
+	const AstNode *else_expr_node = then_expr_node->right_sibling;
+
+	// Compile the condition first,
 	Type *cond_expr = compile_expr(compiler, compstate, cond_expr_node);
 	if (cond_expr == nullptr) {
 		return nullptr;
 	}
 
-	const AstNode *then_expr_node = if_token_node->right_sibling;
+	// If true, jump to the true branch (patch the jump adress later)
+	compiler_push_opcode(compiler, compstate, OpCodeKind::ConditionalJump);
+	int32_t *jump_to_true_branch = compiler_push_i32(compiler, compstate, 0);
+
+	// Then compile the else branch, because the condition was false
+	Type *else_expr = compile_expr(compiler, compstate, else_expr_node);
+	if (else_expr == nullptr) {
+		return nullptr;
+	}
+
+	// Jump over the true branch (patch the jump adress later)
+	compiler_push_opcode(compiler, compstate, OpCodeKind::Jump);
+	int32_t *jump_to_end = compiler_push_i32(compiler, compstate, 0);
+
+	// Compile the true branch
+	const uint64_t then_branch_address = compstate->current_module->bytecode_length;
 	Type *then_expr = compile_expr(compiler, compstate, then_expr_node);
 	if (then_expr == nullptr) {
 		return nullptr;
 	}
 
-	const AstNode *else_expr_node = if_token_node->right_sibling;
-	Type *else_expr = compile_expr(compiler, compstate, else_expr_node);
-	if (else_expr == nullptr) {
-		return nullptr;
-	}
+	const uint64_t end_address = compstate->current_module->bytecode_length;
+	*jump_to_true_branch = int32_t(then_branch_address);
+	*jump_to_end = int32_t(end_address);
 
 	bool valid_return_type = type_similar(then_expr, else_expr);
 	if (!valid_return_type) {
@@ -1196,6 +1221,14 @@ Type *compile_iadd(Compiler *compiler, CompilerState *compstate, const AstNode *
 	return compile_binary_opcode(compiler, compstate, node, int_type, OpCodeKind::IAdd);
 }
 
+// Substract two integers
+Type *compile_isub(Compiler *compiler, CompilerState *compstate, const AstNode *node)
+{
+	Type *int_type = compiler_type_new(compstate);
+	int_type->kind = TypeKind::Int;
+	return compile_binary_opcode(compiler, compstate, node, int_type, OpCodeKind::ISub);
+}
+
 // Compare two integers
 // (<= <lhs> <rhs>)
 Type *compile_ltethan(Compiler *compiler, CompilerState *compstate, const AstNode *node)
@@ -1291,6 +1324,7 @@ const CompstateBuiltin compiler_expr_builtins[] = {
 	compile_let,
 	compile_begin,
 	compile_iadd,
+	compile_isub,
 	compile_ltethan,
 	compile_field,
 };
@@ -1299,6 +1333,7 @@ const sv compiler_expr_builtins_str[] = {
 	sv_from_null_terminated("let"),
 	sv_from_null_terminated("begin"),
 	sv_from_null_terminated("+"),
+	sv_from_null_terminated("-"),
 	sv_from_null_terminated("<="),
 	sv_from_null_terminated("field"),
 };
@@ -1307,7 +1342,6 @@ static_assert(ARRAY_LENGTH(compiler_expr_builtins_str) == ARRAY_LENGTH(compiler_
 // (<identifier> <expr>*)
 Type *compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode *function_node)
 {
-	// -- Parsing
 	const AstNode *identifier_node = function_node->left_child;
 	if (identifier_node->atom_token == nullptr) {
 		compstate->result = Result::CompilerExpectedIdentifier;
@@ -1327,18 +1361,68 @@ Type *compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode 
 	}
 
 	// If the identifier is not a builtin, generate a function call
-	// -- Type checking / Compiling
-	compstate->result = Result::CompilerUnknownSymbol;
-	SET_RESULT(compstate->result);
-	compstate->error = identifier.span;
-
-	const AstNode *arg_node = identifier_node->right_sibling;
-	while (arg_node != nullptr) {
-		compile_expr(compiler, compstate, arg_node);
-		arg_node = arg_node->right_sibling;
+	Module *current_module = compstate->current_module;
+	Function *found_function = nullptr;
+	for (uint64_t i_function = 0; i_function < current_module->functions_length; ++i_function) {
+		Function *function = current_module->functions + i_function;
+		if (sv_equals(function->name, identifier_str)) {
+			found_function = function;
+			break;
+		}
 	}
 
-	return nullptr;
+	// Function not found
+	if (found_function == nullptr) {
+		compstate->result = Result::CompilerUnknownSymbol;
+		SET_RESULT(compstate->result);
+		compstate->error = identifier.span;
+		return nullptr;
+	}
+
+	// Typecheck arguments
+	uint32_t i_sig_arg_type = 0;
+	const AstNode *arg_node = identifier_node->right_sibling;
+	while (arg_node != nullptr) {
+		// There is an expr but the signature has ended
+		if (i_sig_arg_type >= found_function->arg_count) {
+			compstate->result = Result::CompilerUnexpectedExpression;
+			SET_RESULT(compstate->result);
+			compstate->error = arg_node->span;
+			return nullptr;
+		}
+
+		Type *arg_type = compile_expr(compiler, compstate, arg_node);
+		if (arg_type == nullptr) {
+			return nullptr;
+		}
+
+		if (!type_similar(arg_type, found_function->arg_types[i_sig_arg_type])) {
+			compstate->result = Result::CompilerExpectedTypeGot;
+			SET_RESULT(compstate->result);
+			compstate->error = arg_node->span;
+			compstate->expected_type = found_function->arg_types[i_sig_arg_type];
+			compstate->got_type = arg_type;
+		}
+
+		arg_node = arg_node->right_sibling;
+		i_sig_arg_type += 1;
+	}
+
+	// There is an argument left in the signature
+	if (i_sig_arg_type < found_function->arg_count) {
+		compstate->result = Result::CompilerExpectedExpr;
+		SET_RESULT(compstate->result);
+		compstate->error = function_node->span;
+		compstate->expected_type = found_function->arg_types[i_sig_arg_type];
+		compstate->got_type = nullptr;
+		return nullptr;
+	}
+
+	// The found function signature matched
+	compiler_push_opcode(compiler, compstate, OpCodeKind::Call);
+	// TODO: How to tell which function we are calling?
+
+	return found_function->return_type;
 }
 
 // A module is the "root" of a script, a series of S-expression
@@ -1380,7 +1464,7 @@ Compiler *compiler_init()
 	compiler->modules_capacity = 8;
 	compiler->modules = static_cast<Module *>(calloc(compiler->modules_capacity, sizeof(Module)));
 	return compiler;
-};
+}
 
 void module_init(Module *new_module, sv module_name)
 {
@@ -1588,6 +1672,9 @@ Result compile_module(Compiler *compiler, sv module_name, sv input)
 			offset += sv_length;
 
 			fprintf(stdout, " %s", buffer);
+		} else {
+			fprintf(stderr, "Unkown opcode, breaking.");
+			break;
 		}
 
 		fprintf(stdout, "\n");

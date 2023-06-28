@@ -11,6 +11,8 @@ enum OpCodeKind : uint8_t
 	// Control flow
 	Call,
 	Ret,
+	ConditionalJump,
+	Jump,
 	// Struct
 	GetField,
 	SetField,
@@ -21,6 +23,7 @@ enum OpCodeKind : uint8_t
 	GetLocal,
 	// Maths
 	IAdd,
+	ISub,
 	ILessThanEq,
 	Halt,
 	// Debug
@@ -32,6 +35,8 @@ inline const char *OpCode_str[] = {
 	"Push",
 	"Call",
 	"Ret",
+	"ConditionalJump",
+	"Jump",
 	"GetField",
 	"SetField",
 	"BeginScope",
@@ -39,6 +44,7 @@ inline const char *OpCode_str[] = {
 	"SetLocal",
 	"GetLocal",
 	"IAdd",
+	"ISub",
 	"ILessThanEq",
 	"Halt",
 	"DebugLabel",
@@ -98,7 +104,8 @@ struct Function
 	sv name;
 	uint64_t address; // offset into the compiler bytecode
 	Type *arg_types[MAX_ARGUMENTS];
-	uint64_t return_type;
+	uint64_t arg_count;
+	Type *return_type;
 };
 
 struct Module
