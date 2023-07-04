@@ -1,4 +1,7 @@
 #define _CRT_SECURE_NO_WARNINGS
+#define SOKOL_IMPL
+#include "sokol_time.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -76,6 +79,8 @@ int main(int argc, const char *argv[])
 		return 1;
 	}
 
+	stm_setup();
+
 	// Disable stdout buffering
 	setvbuf(stdout, (char *)NULL, _IONBF, 0);
 
@@ -98,11 +103,16 @@ int main(int argc, const char *argv[])
 			printf("Compilation returned: %d\n", res);
 			compiler_update_image(compiler, &image);
 			executor_load_image(executor, &image);
+
+			uint64_t before = stm_now();
+			executor_execute_module_entrypoint(executor, last_compiled_module_name);
+			uint64_t after = stm_now();
+			uint64_t delta = stm_diff(after, before);
+			double delta_ms = stm_ms(delta);
+			printf("Execution lasted %f ms.\n", delta_ms);
 		}
 
-		executor_execute_module_entrypoint(executor, last_compiled_module_name);
-
-		cross::sleep_ms(5000);
+		cross::sleep_ms(33);
 	}
 
 	return 0;

@@ -451,19 +451,20 @@ void compiler_push_opcode(Compiler *, CompilerState *compstate, OpCodeKind opcod
 	current_module->bytecode_length += 1;
 }
 
-void compiler_push_u32(Compiler *, CompilerState *compstate, uint32_t value)
+uint32_t *compiler_push_u32(Compiler *, CompilerState *compstate, uint32_t value)
 {
 	Module *current_module = compstate->current_module;
 	uint64_t to_write = sizeof(uint32_t);
 	if (current_module->bytecode_length + to_write >= current_module->bytecode_capacity) {
 		compstate->result = Result::Fatal;
 		SET_RESULT(compstate->result);
-		return;
+		return nullptr;
 	}
 
 	uint32_t *bytecode_u32 = reinterpret_cast<uint32_t *>(current_module->bytecode + current_module->bytecode_length);
 	bytecode_u32[0] = value;
 	current_module->bytecode_length += to_write;
+	return bytecode_u32;
 }
 
 int32_t *compiler_push_i32(Compiler *, CompilerState *compstate, int32_t value)
@@ -877,9 +878,18 @@ Type *compile_define(Compiler *compiler, CompilerState *compstate, const AstNode
 	}
 	function->return_type = return_type;
 
+	// Add a debug label to identify functions easily in the bytecode
 	compiler_push_opcode(compiler, compstate, OpCodeKind::DebugLabel);
 	compiler_push_sv(compiler, compstate, name_token_str);
+
+	// Create a variable scope
 	compiler_push_scope(compiler, compstate);
+	// All arguments are in the stack in opposite order.
+	// Pop them into local slots
+	for (uint64_t i_arg = 0; i_arg < args_length; ++i_arg) {
+		compiler_push_opcode(compiler, compstate, OpCodeKind::SetLocal);
+		compiler_push_u32(compiler, compstate, uint32_t(args_length - 1 - i_arg));
+	}
 
 	for (uint64_t i_arg = 0; i_arg < args_length; ++i_arg) {
 		Type *arg_type = parse_type(compiler, compstate, arg_nodes[i_arg]);
@@ -1065,7 +1075,7 @@ Type *compile_if(Compiler *compiler, CompilerState *compstate, const AstNode *no
 
 	// If true, jump to the true branch (patch the jump adress later)
 	compiler_push_opcode(compiler, compstate, OpCodeKind::ConditionalJump);
-	int32_t *jump_to_true_branch = compiler_push_i32(compiler, compstate, 0);
+	uint32_t *jump_to_true_branch = compiler_push_u32(compiler, compstate, 0);
 
 	// Then compile the else branch, because the condition was false
 	Type *else_expr = compile_expr(compiler, compstate, else_expr_node);
@@ -1075,7 +1085,7 @@ Type *compile_if(Compiler *compiler, CompilerState *compstate, const AstNode *no
 
 	// Jump over the true branch (patch the jump adress later)
 	compiler_push_opcode(compiler, compstate, OpCodeKind::Jump);
-	int32_t *jump_to_end = compiler_push_i32(compiler, compstate, 0);
+	uint32_t *jump_to_end = compiler_push_u32(compiler, compstate, 0);
 
 	// Compile the true branch
 	const uint64_t then_branch_address = compstate->current_module->bytecode_length;
@@ -1085,8 +1095,8 @@ Type *compile_if(Compiler *compiler, CompilerState *compstate, const AstNode *no
 	}
 
 	const uint64_t end_address = compstate->current_module->bytecode_length;
-	*jump_to_true_branch = int32_t(then_branch_address);
-	*jump_to_end = int32_t(end_address);
+	*jump_to_true_branch = uint32_t(then_branch_address);
+	*jump_to_end = uint32_t(end_address);
 
 	bool valid_return_type = type_similar(then_expr, else_expr);
 	if (!valid_return_type) {
@@ -1363,7 +1373,8 @@ Type *compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode 
 	// If the identifier is not a builtin, generate a function call
 	Module *current_module = compstate->current_module;
 	Function *found_function = nullptr;
-	for (uint64_t i_function = 0; i_function < current_module->functions_length; ++i_function) {
+	uint64_t i_function = 0;
+	for (; i_function < current_module->functions_length; ++i_function) {
 		Function *function = current_module->functions + i_function;
 		if (sv_equals(function->name, identifier_str)) {
 			found_function = function;
@@ -1420,7 +1431,7 @@ Type *compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode 
 
 	// The found function signature matched
 	compiler_push_opcode(compiler, compstate, OpCodeKind::Call);
-	// TODO: How to tell which function we are calling?
+	compiler_push_u32(compiler, compstate, uint32_t(i_function));
 
 	return found_function->return_type;
 }
@@ -1645,9 +1656,11 @@ Result compile_module(Compiler *compiler, sv module_name, sv input)
 		fprintf(stdout, "%zu\t%s", offset, OpCode_str[uint8_t(opcode_kind)]);
 
 		bool is_unary_u32 = opcode_kind == OpCodeKind::SetLocal || opcode_kind == OpCodeKind::GetLocal ||
-		                    opcode_kind == OpCodeKind::GetField || opcode_kind == OpCodeKind::SetField;
+		                    opcode_kind == OpCodeKind::GetField || opcode_kind == OpCodeKind::SetField ||
+		                    opcode_kind == OpCodeKind::Call;
 
-		bool is_unary_i32 = opcode_kind == OpCodeKind::Constant;
+		bool is_unary_i32 = opcode_kind == OpCodeKind::Constant || opcode_kind == OpCodeKind::Jump ||
+		                    opcode_kind == OpCodeKind::ConditionalJump;
 
 		bool is_unary_sv = opcode_kind == OpCodeKind::DebugLabel;
 
@@ -1672,9 +1685,6 @@ Result compile_module(Compiler *compiler, sv module_name, sv input)
 			offset += sv_length;
 
 			fprintf(stdout, " %s", buffer);
-		} else {
-			fprintf(stderr, "Unkown opcode, breaking.");
-			break;
 		}
 
 		fprintf(stdout, "\n");
