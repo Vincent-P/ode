@@ -129,3 +129,10 @@ struct Image
 	uint64_t modules_length;
 	uint64_t modules_capacity;
 };
+
+struct RuntimeError
+{
+	sv message;
+	sv file;
+	int line;
+};

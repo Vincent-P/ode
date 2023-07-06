@@ -9,6 +9,7 @@
 
 struct ExecutorState
 {
+	ExecutorConfig config;
 	Image image;
 	bool failed;
 	sv error_msg;
@@ -34,9 +35,10 @@ struct VariableScope
 	uint64_t variables_length;
 };
 
-ExecutorState *executor_init()
+ExecutorState *executor_init(ExecutorConfig config)
 {
 	ExecutorState *state = reinterpret_cast<ExecutorState *>(calloc(1, sizeof(ExecutorState)));
+	state->config = config;
 	return state;
 }
 
@@ -138,18 +140,25 @@ static sv bytecode_read_sv(uint8_t *bytecode, uint64_t bytecode_len, uint64_t *i
 	return result;
 }
 
-void executor_assert(ExecutorState *state, bool condition, sv condition_str, sv file, int line)
+void executor_assert_trigger(ExecutorState *state, sv condition_str, sv file, int line)
 {
-	if (!condition) {
-		state->failed = true;
-		state->error_msg = condition_str;
-		state->error_file = file;
-		state->error_line = line;
-	}
+	state->failed = true;
+	state->error_msg = condition_str;
+	state->error_file = file;
+	state->error_line = line;
 }
 
 #define EXEC_ASSERT(state, condition)                                                                                  \
-	executor_assert(state, condition, sv_from_null_terminated(#condition), sv_from_null_terminated(__FILE__), __LINE__)
+	if ((condition) == false) {                                                                                        \
+		executor_assert_trigger(state,                                                                                 \
+			sv_from_null_terminated(#condition),                                                                       \
+			sv_from_null_terminated(__FILE__),                                                                         \
+			__LINE__);                                                                                                 \
+	}
+#define EXEC_JUMP_IF_FAILED(state, label)                                                                              \
+	if (state->failed) {                                                                                               \
+		goto label;                                                                                                    \
+	}
 
 void executor_execute_module_at(ExecutorState *state, Module *module, uint64_t ip)
 {
@@ -205,12 +214,15 @@ void executor_execute_module_at(ExecutorState *state, Module *module, uint64_t i
 			printf("Pushed %d\n", value);
 
 			EXEC_ASSERT(state, stack_current + 1 < stack_end);
+			EXEC_JUMP_IF_FAILED(state, EXEC_FAILED);
+
 			stack_current += 1;
 			stack_current->i32 = value;
 			break;
 		}
 		case Push: {
 			EXEC_ASSERT(state, false);
+			EXEC_JUMP_IF_FAILED(state, EXEC_FAILED);
 			break;
 		}
 		// Control flow
@@ -218,6 +230,7 @@ void executor_execute_module_at(ExecutorState *state, Module *module, uint64_t i
 			uint32_t i_function = bytecode_read_u32(module->bytecode, bytecode_len, &ip);
 			EXEC_ASSERT(state, i_function < module->functions_length);
 			EXEC_ASSERT(state, callstack_current + 1 < callstack_end);
+			EXEC_JUMP_IF_FAILED(state, EXEC_FAILED);
 
 			Function *function = module->functions + i_function;
 
@@ -245,6 +258,7 @@ void executor_execute_module_at(ExecutorState *state, Module *module, uint64_t i
 		}
 		case ConditionalJump: {
 			EXEC_ASSERT(state, stack_current >= stack_begin);
+			EXEC_JUMP_IF_FAILED(state, EXEC_FAILED);
 
 			auto popped = *stack_current;
 			stack_current -= 1;
@@ -269,23 +283,27 @@ void executor_execute_module_at(ExecutorState *state, Module *module, uint64_t i
 			uint32_t i_field = bytecode_read_u32(module->bytecode, bytecode_len, &ip);
 			fprintf(stdout, "\tTRACE(%zu): %u\n", ip, i_field);
 			EXEC_ASSERT(state, false);
+			EXEC_JUMP_IF_FAILED(state, EXEC_FAILED);
 			break;
 		}
 		case SetField: {
 			uint32_t i_field = bytecode_read_u32(module->bytecode, bytecode_len, &ip);
 			fprintf(stdout, "\tTRACE(%zu) %u\n", ip, i_field);
 			EXEC_ASSERT(state, false);
+			EXEC_JUMP_IF_FAILED(state, EXEC_FAILED);
 			break;
 		}
 		// Variables storage
 		case BeginScope: {
 			EXEC_ASSERT(state, scopes_current < scopes_end);
+			EXEC_JUMP_IF_FAILED(state, EXEC_FAILED);
 			scopes_current += 1;
 			scopes_current->variables_length = 0;
 			break;
 		}
 		case EndScope: {
 			EXEC_ASSERT(state, scopes_current >= scopes_begin);
+			EXEC_JUMP_IF_FAILED(state, EXEC_FAILED);
 			scopes_current -= 1;
 			break;
 		}
@@ -295,6 +313,7 @@ void executor_execute_module_at(ExecutorState *state, Module *module, uint64_t i
 			EXEC_ASSERT(state, scopes_current >= scopes_begin);
 			EXEC_ASSERT(state, stack_current >= stack_begin);
 			EXEC_ASSERT(state, i_local < VARSCOPE_CAPACITY);
+			EXEC_JUMP_IF_FAILED(state, EXEC_FAILED);
 
 			print_indent(callstack_current - callstack_begin);
 			printf("Popped %d (local #%u)\n", stack_current->i32, i_local);
@@ -309,6 +328,7 @@ void executor_execute_module_at(ExecutorState *state, Module *module, uint64_t i
 			EXEC_ASSERT(state, scopes_current >= scopes_begin);
 			EXEC_ASSERT(state, stack_current + 1 < stack_end);
 			EXEC_ASSERT(state, i_local < VARSCOPE_CAPACITY);
+			EXEC_JUMP_IF_FAILED(state, EXEC_FAILED);
 
 			stack_current += 1;
 			*stack_current = scopes_current->variables[i_local];
@@ -321,6 +341,7 @@ void executor_execute_module_at(ExecutorState *state, Module *module, uint64_t i
 		// Maths
 		case IAdd: {
 			EXEC_ASSERT(state, stack_current >= stack_begin + 1);
+			EXEC_JUMP_IF_FAILED(state, EXEC_FAILED);
 			StackValue rhs = *stack_current;
 			stack_current -= 1;
 			StackValue lhs = *stack_current;
@@ -333,6 +354,7 @@ void executor_execute_module_at(ExecutorState *state, Module *module, uint64_t i
 		}
 		case ISub: {
 			EXEC_ASSERT(state, stack_current >= stack_begin + 1);
+			EXEC_JUMP_IF_FAILED(state, EXEC_FAILED);
 			StackValue rhs = *stack_current;
 			stack_current -= 1;
 			StackValue lhs = *stack_current;
@@ -345,6 +367,7 @@ void executor_execute_module_at(ExecutorState *state, Module *module, uint64_t i
 		}
 		case ILessThanEq: {
 			EXEC_ASSERT(state, stack_current >= stack_begin + 1);
+			EXEC_JUMP_IF_FAILED(state, EXEC_FAILED);
 			StackValue rhs = *stack_current;
 			stack_current -= 1;
 			StackValue lhs = *stack_current;
@@ -357,6 +380,7 @@ void executor_execute_module_at(ExecutorState *state, Module *module, uint64_t i
 		}
 		case Halt: {
 			EXEC_ASSERT(state, false);
+			EXEC_JUMP_IF_FAILED(state, EXEC_FAILED);
 			state->error_msg = sv_from_null_terminated("Halt");
 			break;
 		}
@@ -369,18 +393,25 @@ void executor_execute_module_at(ExecutorState *state, Module *module, uint64_t i
 		}
 		case Count: {
 			EXEC_ASSERT(state, false);
+			EXEC_JUMP_IF_FAILED(state, EXEC_FAILED);
 			break;
 		}
 		}
 	}
 
-	if (state->failed) {
-		if (state->error_file.chars != nullptr) {
-			fprintf(stderr, "%.*s:%d  ", int(state->error_file.length), state->error_file.chars, state->error_line);
-		}
-		fprintf(stderr, "EXECUTOR FAILED: %.*s\n", int(state->error_msg.length), state->error_msg.chars);
+	goto EXEC_SUCCESS;
+
+EXEC_FAILED:
+	EXEC_ASSERT(state, state->failed == false);
+	if (state->config.error_callback != nullptr) {
+		RuntimeError err = {};
+		err.message = state->error_msg;
+		err.file = state->error_file;
+		err.line = state->error_line;
+		state->config.error_callback(state, err);
 	}
 
+EXEC_SUCCESS:
 	fprintf(stdout, "End of execution. Stack:\n");
 	uint32_t i = 0;
 	for (StackValue *s = stack_begin; s <= stack_current; ++s) {

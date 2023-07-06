@@ -72,6 +72,14 @@ int compile_file_to_module(Compiler *compiler, sv path, sv *out_module_name = nu
 	return res != Result::Ok;
 }
 
+void on_error(ExecutorState * /*executor*/, RuntimeError err)
+{
+	if (err.file.chars != nullptr) {
+		fprintf(stderr, "%.*s:%d  ", int(err.file.length), err.file.chars, err.line);
+	}
+	fprintf(stderr, "EXECUTOR FAILED: %.*s\n", int(err.message.length), err.message.chars);
+}
+
 int main(int argc, const char *argv[])
 {
 	if (argc < 2) {
@@ -89,7 +97,10 @@ int main(int argc, const char *argv[])
 
 	Compiler *compiler = compiler_init();
 	Image image = {};
-	ExecutorState *executor = executor_init();
+
+	ExecutorConfig exec_config = {};
+	exec_config.error_callback = on_error;
+	ExecutorState *executor = executor_init(exec_config);
 
 	uint64_t last_compilation = 0;
 	sv last_compiled_module_name = {};
