@@ -13,5 +13,5 @@
 
 (define (main i32) ()
 	(begin
-		(let toto (fib 6))
+		(let toto (fib 12))
 		(+ 0 toto)))
