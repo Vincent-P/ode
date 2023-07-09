@@ -10,6 +10,7 @@ enum OpCodeKind : uint8_t
 	Push,
 	// Control flow
 	Call,
+	CallForeign,
 	Ret,
 	ConditionalJump,
 	Jump,
@@ -34,6 +35,7 @@ inline const char *OpCode_str[] = {
 	"Constant",
 	"Push",
 	"Call",
+	"CallForeign",
 	"Ret",
 	"ConditionalJump",
 	"Jump",
@@ -53,6 +55,7 @@ static_assert(ARRAY_LENGTH(OpCode_str) == uint8_t(OpCodeKind::Count));
 
 enum struct TypeKind : uint8_t
 {
+	Unit,
 	Int,
 	Bool,
 	Float,
@@ -61,6 +64,7 @@ enum struct TypeKind : uint8_t
 	Count,
 };
 inline constexpr const char *TypeKind_str[] = {
+	"()",
 	"i32",
 	"bool",
 	"f32",
@@ -70,6 +74,7 @@ inline constexpr const char *TypeKind_str[] = {
 static_assert(ARRAY_LENGTH(TypeKind_str) == uint64_t(TypeKind::Count));
 
 inline constexpr uint64_t TypeKind_size[] = {
+	0,
 	4,
 	1,
 	4,
@@ -106,6 +111,7 @@ struct Function
 	Type *arg_types[MAX_ARGUMENTS];
 	uint64_t arg_count;
 	Type *return_type;
+	bool is_foreign;
 };
 
 struct Module
@@ -121,13 +127,6 @@ struct Module
 	Type *types;
 	uint64_t types_capacity;
 	uint64_t types_length;
-};
-
-struct Image
-{
-	Module *modules;
-	uint64_t modules_length;
-	uint64_t modules_capacity;
 };
 
 struct RuntimeError

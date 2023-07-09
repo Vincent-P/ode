@@ -23,10 +23,10 @@ sv read_entire_file(FILE *file)
 	return sv{file_content, uint64_t(fsize)};
 }
 
-int compile_file_to_module(Compiler *compiler, sv path, sv *out_module_name = nullptr)
+Module *compile_file_to_module(Compiler *compiler, sv path, sv *out_module_name = nullptr)
 {
 	if (path.chars == nullptr) {
-		return 1;
+		return nullptr;
 	}
 
 	sv path_extension = {path.chars + path.length - 4, 4};
@@ -34,7 +34,7 @@ int compile_file_to_module(Compiler *compiler, sv path, sv *out_module_name = nu
 	const bool ends_with_ode = path.length >= 4 && sv_equals(path_extension, sv{".ode", 4});
 	if (!ends_with_ode) {
 		fprintf(stderr, "Input file should have extension '.ode'\n");
-		return 1;
+		return nullptr;
 	}
 
 	sv module_name = path_extension;
@@ -52,7 +52,7 @@ int compile_file_to_module(Compiler *compiler, sv path, sv *out_module_name = nu
 	FILE *input_file = fopen(path.chars, "r");
 	if (input_file == nullptr) {
 		fprintf(stderr, "Cannot open file %.*s\n", int(path.length), path.chars);
-		return 1;
+		return nullptr;
 	}
 
 	sv file_content = read_entire_file(input_file);
@@ -62,14 +62,31 @@ int compile_file_to_module(Compiler *compiler, sv path, sv *out_module_name = nu
 	fprintf(stdout, "module: %.*s\n", int(module_name.length), module_name.chars);
 	fprintf(stdout, "%s\n", file_content.chars);
 
-	Result res = compile_module(compiler, module_name, file_content);
+	Module *module = nullptr;
+	Result res = compile_module(compiler, module_name, file_content, &module);
 	if (res == Result::Ok) {
 		if (out_module_name) {
 			*out_module_name = module_name;
 		}
 	}
 
-	return res != Result::Ok;
+	return module;
+}
+
+void dummy_foreign_func()
+{
+	printf("Dummy foreign func.\n");
+}
+
+ForeignFn on_foreign(sv module_name, sv function_name)
+{
+	printf("On foreign function: module %.*s function %.*s\n",
+		int(module_name.length),
+		module_name.chars,
+		int(function_name.length),
+		function_name.chars);
+
+	return dummy_foreign_func;
 }
 
 void on_error(ExecutorState * /*executor*/, RuntimeError err)
@@ -96,10 +113,11 @@ int main(int argc, const char *argv[])
 	const sv path_str = sv{path, strlen(path)};
 
 	Compiler *compiler = compiler_init();
-	Image image = {};
 
 	ExecutorConfig exec_config = {};
 	exec_config.error_callback = on_error;
+	exec_config.foreign_callback = on_foreign;
+
 	ExecutorState *executor = executor_init(exec_config);
 
 	uint64_t last_compilation = 0;
@@ -110,17 +128,18 @@ int main(int argc, const char *argv[])
 		if (last_write != last_compilation) {
 			printf("Last file write: %llu\n", last_write);
 			last_compilation = last_write;
-			int res = compile_file_to_module(compiler, path_str, &last_compiled_module_name);
-			printf("Compilation returned: %d\n", res);
-			compiler_update_image(compiler, &image);
-			executor_load_image(executor, &image);
+			Module *module = compile_file_to_module(compiler, path_str, &last_compiled_module_name);
+			printf("Compilation returned: %p\n", static_cast<void *>(module));
+			if (module != nullptr) {
+				executor_load_module(executor, module);
 
-			uint64_t before = stm_now();
-			executor_execute_module_entrypoint(executor, last_compiled_module_name);
-			uint64_t after = stm_now();
-			uint64_t delta = stm_diff(after, before);
-			double delta_ms = stm_ms(delta);
-			printf("Execution lasted %f ms.\n", delta_ms);
+				uint64_t before = stm_now();
+				executor_execute_module_entrypoint(executor, last_compiled_module_name);
+				uint64_t after = stm_now();
+				uint64_t delta = stm_diff(after, before);
+				double delta_ms = stm_ms(delta);
+				printf("Execution lasted %f ms.\n", delta_ms);
+			}
 		}
 
 		cross::sleep_ms(33);

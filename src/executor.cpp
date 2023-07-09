@@ -1,5 +1,3 @@
-// TODO: Set arguments to locals when calling functions
-
 #include "executor.h"
 #include "image.h"
 #include <corecrt_wstdio.h>
@@ -7,10 +5,28 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+struct FunctionInstance
+{
+	ForeignFn foreign;
+};
+
+struct ModuleInstance
+{
+	FunctionInstance *functions;
+	uint64_t functions_capacity;
+	uint64_t functions_length;
+};
+
 struct ExecutorState
 {
 	ExecutorConfig config;
-	Image image;
+	Module *modules;
+	uint64_t modules_length;
+	uint64_t modules_capacity;
+	ModuleInstance *module_instances;
+	uint64_t module_instances_length;
+	uint64_t module_instances_capacity;
+
 	bool failed;
 	sv error_msg;
 	sv error_file;
@@ -20,6 +36,7 @@ struct ExecutorState
 
 struct CallFrame
 {
+	uint64_t i_current_function;
 	uint64_t return_ip;
 };
 
@@ -39,21 +56,63 @@ ExecutorState *executor_init(ExecutorConfig config)
 {
 	ExecutorState *state = reinterpret_cast<ExecutorState *>(calloc(1, sizeof(ExecutorState)));
 	state->config = config;
+	state->modules_capacity = 8;
+	state->modules = static_cast<Module *>(calloc(state->modules_capacity, sizeof(Module)));
+	state->module_instances_capacity = 8;
+	state->module_instances =
+		static_cast<ModuleInstance *>(calloc(state->module_instances_capacity, sizeof(ModuleInstance)));
 	return state;
 }
 
-void executor_load_image(ExecutorState *state, Image *image)
+void executor_load_module(ExecutorState *state, Module *module)
 {
-	state->image = *image;
+	uint64_t i_module = 0;
+	for (; i_module < state->modules_length; ++i_module) {
+		if (sv_equals(state->modules[i_module].name, module->name)) {
+			break;
+		}
+	}
+
+	// No more space to add the module!
+	if (i_module >= state->modules_capacity || i_module >= state->module_instances_capacity) {
+		return;
+	}
+
+	// The module was not found. Add it.
+	if (i_module == state->modules_length) {
+		state->modules_length += 1;
+		state->module_instances_length += 1;
+	}
+
+	// TODO: deep copy?
+	state->modules[i_module] = *module;
+
+	ModuleInstance *module_instance = state->module_instances + i_module;
+	if (module_instance->functions_capacity == 0) {
+		module_instance->functions_capacity = 8;
+		module_instance->functions =
+			static_cast<FunctionInstance *>(calloc(module_instance->functions_capacity, sizeof(FunctionInstance)));
+	} else {
+		memset(module_instance->functions, 0, sizeof(FunctionInstance) * module_instance->functions_capacity);
+	}
+	module_instance->functions_length = module->functions_length;
+
+	for (uint64_t i_function = 0; i_function < module->functions_length; ++i_function) {
+		if (module->functions[i_function].is_foreign) {
+			const sv module_name = module->name;
+			const sv function_name = module->functions[i_function].name;
+			module_instance->functions[i_function].foreign = state->config.foreign_callback(module_name, function_name);
+		}
+	}
 }
 
-void executor_execute_module_at(ExecutorState *state, Module *module, uint64_t ip);
+static void executor_execute_module_at(ExecutorState *state, uint64_t i_module, uint64_t ip);
 void executor_execute_module_entrypoint(ExecutorState *state, sv module_name)
 {
-	const uint64_t modules_len = state->image.modules_length;
+	const uint64_t modules_len = state->modules_length;
 	uint64_t i_module = 0;
 	for (; i_module < modules_len; ++i_module) {
-		if (sv_equals(state->image.modules[i_module].name, module_name)) {
+		if (sv_equals(state->modules[i_module].name, module_name)) {
 			break;
 		}
 	}
@@ -64,7 +123,7 @@ void executor_execute_module_entrypoint(ExecutorState *state, sv module_name)
 		return;
 	}
 
-	Module *module = state->image.modules + i_module;
+	Module *module = state->modules + i_module;
 
 	const uint64_t functions_len = module->functions_length;
 	const sv entrypoint_name = sv_from_null_terminated("main");
@@ -84,7 +143,7 @@ void executor_execute_module_entrypoint(ExecutorState *state, sv module_name)
 	const Function *entrypoint = module->functions + i_entrypoint;
 
 	uint64_t ip = entrypoint->address;
-	executor_execute_module_at(state, module, ip);
+	executor_execute_module_at(state, i_module, ip);
 }
 
 static uint32_t bytecode_read_u32(uint8_t *bytecode, uint64_t bytecode_len, uint64_t *ip)
@@ -160,12 +219,15 @@ void executor_assert_trigger(ExecutorState *state, sv condition_str, sv file, in
 		goto label;                                                                                                    \
 	}
 
-void executor_execute_module_at(ExecutorState *state, Module *module, uint64_t ip)
+static void executor_execute_module_at(ExecutorState *state, uint64_t i_module, uint64_t ip)
 {
 	state->failed = false;
 	state->error_msg = {};
 	state->error_file = {};
 	state->error_line = {};
+
+	Module *module = state->modules + i_module;
+	ModuleInstance *module_instance = state->module_instances + i_module;
 
 	const uint64_t bytecode_len = module->bytecode_length;
 
@@ -240,7 +302,23 @@ void executor_execute_module_at(ExecutorState *state, Module *module, uint64_t i
 			// Push a new call frame with the saved up return address
 			callstack_current += 1;
 			callstack_current->return_ip = ip;
+			callstack_current->i_current_function = i_function;
 			ip = function->address;
+			break;
+		}
+		case CallForeign: {
+			EXEC_ASSERT(state, callstack_begin <= callstack_current && callstack_current < callstack_end);
+			EXEC_JUMP_IF_FAILED(state, EXEC_FAILED);
+			EXEC_ASSERT(state, callstack_current->i_current_function < module_instance->functions_length);
+			EXEC_JUMP_IF_FAILED(state, EXEC_FAILED);
+
+			FunctionInstance *function = module_instance->functions + callstack_current->i_current_function;
+
+			EXEC_ASSERT(state, function->foreign != nullptr);
+			EXEC_JUMP_IF_FAILED(state, EXEC_FAILED);
+
+			function->foreign();
+
 			break;
 		}
 		case Ret: {
@@ -402,7 +480,8 @@ void executor_execute_module_at(ExecutorState *state, Module *module, uint64_t i
 	goto EXEC_SUCCESS;
 
 EXEC_FAILED:
-	EXEC_ASSERT(state, state->failed == false);
+	// Cannot declare variables here.
+	EXEC_ASSERT(state, state->failed);
 	if (state->config.error_callback != nullptr) {
 		RuntimeError err = {};
 		err.message = state->error_msg;

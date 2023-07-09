@@ -658,11 +658,20 @@ Type *compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode 
 
 Type *parse_type(Compiler *, CompilerState *compstate, const AstNode *node)
 {
-	if (node == nullptr || node->atom_token == nullptr) {
+	const bool is_token = node != nullptr && node->atom_token != nullptr;
+	const bool is_unit = node != nullptr && node->left_child == nullptr && node->atom_token == nullptr;
+	const bool is_type = is_token || is_unit;
+	if (node == nullptr || !is_type) {
 		compstate->result = Result::CompilerExpectedIdentifier;
 		SET_RESULT(compstate->result);
 		compstate->error = node->span;
 		return nullptr;
+	}
+
+	if (is_unit) {
+		Type *ty = compiler_type_new(compstate);
+		ty->kind = TypeKind::Unit;
+		return ty;
 	}
 
 	const Token identifier = *node->atom_token;
@@ -747,9 +756,10 @@ Type *compile_expr(Compiler *compiler, CompilerState *compstate, const AstNode *
 	} else if (expr_node->left_child != nullptr) {
 		return compile_sexpr(compiler, compstate, expr_node);
 	} else {
-		compstate->result = Result::Fatal;
-		SET_RESULT(compstate->result);
-		return nullptr;
+		// () unit value
+		Type *ty = compiler_type_new(compstate);
+		ty->kind = TypeKind::Unit;
+		return ty;
 	}
 }
 
@@ -773,7 +783,7 @@ Type *compile_sexprs_return_last(Compiler *compiler, CompilerState *compstate, c
 }
 
 // Defines a new function
-// (define <name> <return_type> <expression>+)
+// (define (<name> <return_type>) (<args>*) <expression>+)
 Type *compile_define(Compiler *compiler, CompilerState *compstate, const AstNode *node)
 {
 	Token name_token = {};
@@ -841,6 +851,12 @@ Type *compile_define(Compiler *compiler, CompilerState *compstate, const AstNode
 	}
 
 	const AstNode *body_node = arglist_node->right_sibling;
+	if (body_node == nullptr) {
+		compstate->result = Result::CompilerExpectedExpr;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return nullptr;
+	}
 
 	sv name_token_str = sv_substr(compstate->input.text, name_token.span);
 
@@ -868,6 +884,7 @@ Type *compile_define(Compiler *compiler, CompilerState *compstate, const AstNode
 	Function *function = current_module->functions + current_module->functions_length;
 	function->name = name_token_str;
 	function->address = current_module->bytecode_length;
+	function->is_foreign = false;
 
 	current_module->functions_length += 1;
 
@@ -923,6 +940,151 @@ Type *compile_define(Compiler *compiler, CompilerState *compstate, const AstNode
 	}
 
 	return nullptr;
+}
+
+// Defines a new foreign function
+// (define-foreign (<name> <return_type>) (<args>))
+Type *compile_define_foreign(Compiler *compiler, CompilerState *compstate, const AstNode *node)
+{
+	Token name_token = {};
+	Token arg_identifiers[MAX_ARGUMENTS] = {};
+	const AstNode *arg_nodes[MAX_ARGUMENTS] = {};
+	uint64_t args_length = 0;
+
+	// -- Parsing
+	const AstNode *define_token_node = node->left_child;
+
+	const AstNode *name_node = define_token_node->right_sibling;
+	const AstNode *return_type_node = nullptr;
+	{
+		const AstNode *identifier_node = name_node->left_child;
+		if (identifier_node == nullptr || identifier_node->atom_token == nullptr) {
+			compstate->result = Result::CompilerExpectedIdentifier;
+			SET_RESULT(compstate->result);
+			compstate->error = node->span;
+			return nullptr;
+		}
+		name_token = *identifier_node->atom_token;
+
+		return_type_node = identifier_node->right_sibling;
+		if (return_type_node == nullptr) {
+			compstate->result = Result::CompilerExpectedExpr;
+			SET_RESULT(compstate->result);
+			compstate->error = node->span;
+			return nullptr;
+		}
+	}
+
+	const AstNode *arglist_node = name_node->right_sibling;
+	{
+		if (arglist_node->atom_token != nullptr) {
+			compstate->result = Result::CompilerExpectedExpr;
+			SET_RESULT(compstate->result);
+			compstate->error = arglist_node->span;
+			return nullptr;
+		}
+
+		const AstNode *identifier_node = arglist_node->left_child;
+
+		while (identifier_node != nullptr) {
+			if (identifier_node == nullptr || identifier_node->atom_token == nullptr) {
+				compstate->result = Result::CompilerExpectedIdentifier;
+				SET_RESULT(compstate->result);
+				compstate->error = arglist_node->span;
+				return nullptr;
+			}
+
+			const AstNode *type_node = identifier_node->right_sibling;
+			if (type_node == nullptr) {
+				compstate->result = Result::CompilerExpectedExpr;
+				SET_RESULT(compstate->result);
+				compstate->error = arglist_node->span;
+				return nullptr;
+			}
+
+			arg_identifiers[args_length] = *identifier_node->atom_token;
+			arg_nodes[args_length] = type_node;
+			args_length += 1;
+
+			identifier_node = type_node->left_child;
+		}
+	}
+
+	if (arglist_node->right_sibling != nullptr) {
+		compstate->result = Result::CompilerUnexpectedExpression;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return nullptr;
+	}
+
+	sv name_token_str = sv_substr(compstate->input.text, name_token.span);
+
+	// -- Type checking
+	Module *current_module = compstate->current_module;
+	for (uint64_t i_function = 0; i_function < current_module->functions_length; ++i_function) {
+		Function *function = current_module->functions + i_function;
+		if (sv_equals(function->name, name_token_str)) {
+			compstate->result = Result::CompilerDuplicateSymbol;
+			SET_RESULT(compstate->result);
+			compstate->error = node->span;
+			// Actually it should be possible to recompile a function if signature has not changed.
+			return nullptr;
+		}
+	}
+
+	if (current_module->functions_length + 1 >= current_module->functions_capacity) {
+		compstate->result = Result::Fatal;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return nullptr;
+	}
+
+	// Create a new function symbol
+	Function *function = current_module->functions + current_module->functions_length;
+	function->name = name_token_str;
+	function->address = current_module->bytecode_length;
+	function->is_foreign = true;
+
+	current_module->functions_length += 1;
+
+	// -- Compiling
+	Type *return_type = parse_type(compiler, compstate, return_type_node);
+	if (return_type == nullptr) {
+		return nullptr;
+	}
+	function->return_type = return_type;
+
+	// Add a debug label to identify functions easily in the bytecode
+	compiler_push_opcode(compiler, compstate, OpCodeKind::DebugLabel);
+	compiler_push_sv(compiler, compstate, name_token_str);
+
+	// Create a variable scope
+	compiler_push_scope(compiler, compstate);
+	// All arguments are in the stack in opposite order.
+	// Pop them into local slots
+	for (uint64_t i_arg = 0; i_arg < args_length; ++i_arg) {
+		compiler_push_opcode(compiler, compstate, OpCodeKind::SetLocal);
+		compiler_push_u32(compiler, compstate, uint32_t(args_length - 1 - i_arg));
+	}
+
+	for (uint64_t i_arg = 0; i_arg < args_length; ++i_arg) {
+		Type *arg_type = parse_type(compiler, compstate, arg_nodes[i_arg]);
+		function->arg_types[function->arg_count] = arg_type;
+		function->arg_count += 1;
+
+		uint64_t i_variable = 0;
+		if (!compiler_push_variable(compstate, &arg_identifiers[i_arg], arg_type, &i_variable)) {
+			return nullptr;
+		}
+	}
+
+	compiler_push_opcode(compiler, compstate, OpCodeKind::CallForeign);
+
+	// <-- Compile the body
+	compiler_pop_scope(compiler, compstate);
+	compiler_push_opcode(compiler, compstate, OpCodeKind::Ret);
+
+	return return_type;
 }
 
 // Defines a new struct
@@ -1321,10 +1483,12 @@ using CompstateBuiltin = Type *(*)(Compiler *, CompilerState *, const AstNode *)
 // There are two kinds of "builtins", the ones allowed at top-level and the other ones
 const CompstateBuiltin compiler_top_builtins[] = {
 	compile_define,
+	compile_define_foreign,
 	compile_struct,
 };
 const sv compiler_top_builtins_str[] = {
 	sv_from_null_terminated("define"),
+	sv_from_null_terminated("define-foreign"),
 	sv_from_null_terminated("struct"),
 };
 static_assert(ARRAY_LENGTH(compiler_top_builtins_str) == ARRAY_LENGTH(compiler_top_builtins));
@@ -1443,7 +1607,6 @@ void compile_module(Compiler *compiler, CompilerState *compstate)
 
 	const AstNode *root_expr = root_node->left_child;
 	while (root_expr != nullptr) {
-
 		const AstNode *first_sexpr_member = root_expr->left_child;
 
 		const bool not_an_atom = first_sexpr_member == nullptr || first_sexpr_member->atom_token == nullptr;
@@ -1456,13 +1619,18 @@ void compile_module(Compiler *compiler, CompilerState *compstate)
 
 		sv identifier_str = sv_substr(compstate->input.text, first_sexpr_member->atom_token->span);
 
-		for (uint64_t i_builtin = 0; i_builtin < ARRAY_LENGTH(compiler_top_builtins); ++i_builtin) {
+		uint64_t i_builtin = 0;
+		for (; i_builtin < ARRAY_LENGTH(compiler_top_builtins); ++i_builtin) {
 			if (sv_equals(identifier_str, compiler_top_builtins_str[i_builtin])) {
 				compiler_top_builtins[i_builtin](compiler, compstate, root_expr);
-				if (compstate->result != Result::Ok) {
-					break;
-				}
+				break;
 			}
+		}
+
+		if (i_builtin >= ARRAY_LENGTH(compiler_top_builtins)) {
+			compstate->result = Result::CompilerUnknownSymbol;
+			SET_RESULT(compstate->result);
+			compstate->error = first_sexpr_member->span;
 		}
 
 		root_expr = root_expr->right_sibling;
@@ -1494,7 +1662,7 @@ void module_init(Module *new_module, sv module_name)
 	new_module->name = module_name;
 }
 
-Result compile_module(Compiler *compiler, sv module_name, sv input)
+Result compile_module(Compiler *compiler, sv module_name, sv input, Module **out_module)
 {
 	// Build text input
 	TextInput text_input = {};
@@ -1710,15 +1878,7 @@ Result compile_module(Compiler *compiler, sv module_name, sv input)
 	}
 
 	compiler->modules[i_module] = new_module;
+	*out_module = compiler->modules + i_module;
 
-	return Result::Ok;
-}
-
-Result compiler_update_image(Compiler *compiler, Image *image)
-{
-	// TODO: Add compiled module to the image instead of rebuilding it from scratch
-	image->modules = compiler->modules;
-	image->modules_length = compiler->modules_length;
-	image->modules_capacity = compiler->modules_capacity;
 	return Result::Ok;
 }
