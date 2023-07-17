@@ -73,9 +73,15 @@ Module *compile_file_to_module(Compiler *compiler, sv path, sv *out_module_name 
 	return module;
 }
 
-void dummy_foreign_func()
+void dummy_foreign_func(ExecutionContext *)
 {
 	printf("Dummy foreign func.\n");
+}
+
+void log_foreign_func(ExecutionContext *ctx)
+{
+	StackValue n = execution_get_local(ctx, 0);
+	printf("Foreign: log(%d)\n", n.i32);
 }
 
 ForeignFn on_foreign(sv module_name, sv function_name)
@@ -86,13 +92,17 @@ ForeignFn on_foreign(sv module_name, sv function_name)
 		int(function_name.length),
 		function_name.chars);
 
+	if (sv_equals(function_name, sv_from_null_terminated("log"))) {
+		return log_foreign_func;
+	}
+
 	return dummy_foreign_func;
 }
 
 void on_error(ExecutorState * /*executor*/, RuntimeError err)
 {
 	if (err.file.chars != nullptr) {
-		fprintf(stderr, "%.*s:%d  ", int(err.file.length), err.file.chars, err.line);
+		fprintf(stderr, "%.*s:%d:0: error:  ", int(err.file.length), err.file.chars, err.line);
 	}
 	fprintf(stderr, "EXECUTOR FAILED: %.*s\n", int(err.message.length), err.message.chars);
 }
@@ -102,6 +112,17 @@ int main(int argc, const char *argv[])
 	if (argc < 2) {
 		fprintf(stderr, "Usage: ode.exe <input_file>\n");
 		return 1;
+	}
+
+	const sv watch_arg = sv_from_null_terminated("-w");
+	bool watch_opt = false;
+
+	for (int i_arg = 2; i_arg < argc; ++i_arg) {
+		sv arg = sv_from_null_terminated(argv[i_arg]);
+
+		if (sv_equals(arg, watch_arg)) {
+			watch_opt = true;
+		}
 	}
 
 	stm_setup();
@@ -123,7 +144,8 @@ int main(int argc, const char *argv[])
 	uint64_t last_compilation = 0;
 	sv last_compiled_module_name = {};
 
-	while (true) {
+	bool stop = !watch_opt;
+	do {
 		const uint64_t last_write = cross::get_file_last_write(path_str.chars, path_str.length);
 		if (last_write != last_compilation) {
 			printf("Last file write: %llu\n", last_write);
@@ -143,7 +165,7 @@ int main(int argc, const char *argv[])
 		}
 
 		cross::sleep_ms(33);
-	}
+	} while (!stop);
 
 	return 0;
 }

@@ -5,9 +5,8 @@ inline constexpr uint64_t MAX_ARGUMENTS = 8;
 
 enum OpCodeKind : uint8_t
 {
-	// Stack manipulation
+	// Operand stack manipulation
 	Constant,
-	Push,
 	// Control flow
 	Call,
 	CallForeign,
@@ -17,11 +16,12 @@ enum OpCodeKind : uint8_t
 	// Struct
 	GetField,
 	SetField,
-	// Variables storage
+	// Local storage
 	BeginScope,
 	EndScope,
 	SetLocal,
 	GetLocal,
+	MakeStruct,
 	// Maths
 	IAdd,
 	ISub,
@@ -33,7 +33,6 @@ enum OpCodeKind : uint8_t
 };
 inline const char *OpCode_str[] = {
 	"Constant",
-	"Push",
 	"Call",
 	"CallForeign",
 	"Ret",
@@ -45,6 +44,7 @@ inline const char *OpCode_str[] = {
 	"EndScope",
 	"SetLocal",
 	"GetLocal",
+	"MakeStruct",
 	"IAdd",
 	"ISub",
 	"ILessThanEq",
@@ -83,13 +83,14 @@ inline constexpr uint64_t TypeKind_size[] = {
 };
 static_assert(ARRAY_LENGTH(TypeKind_size) == uint64_t(TypeKind::Count));
 
+inline constexpr uint32_t MAX_STRUCT_FIELD = 8;
 struct Type;
 struct StructType
 {
 	sv name;
-	sv field_names[8];
-	Type *field_types[8];
-	uint64_t field_offsets[8];
+	sv field_names[MAX_STRUCT_FIELD];
+	Type *field_types[MAX_STRUCT_FIELD];
+	uint64_t field_offsets[MAX_STRUCT_FIELD];
 	uint64_t field_count;
 };
 

@@ -5,8 +5,9 @@ struct RuntimeError;
 struct Image;
 struct ExecutorState;
 struct Module;
+struct ExecutionContext;
 
-using ForeignFn = void (*)();
+using ForeignFn = void (*)(ExecutionContext *);
 
 struct ExecutorConfig
 {
@@ -17,3 +18,14 @@ struct ExecutorConfig
 ExecutorState *executor_init(ExecutorConfig config);
 void executor_load_module(ExecutorState *state, Module *module);
 void executor_execute_module_entrypoint(ExecutorState *state, sv module_name);
+
+// Operand stack
+union StackValue
+{
+	bool b8;
+	float f32;
+	int32_t i32;
+	uint8_t *local_storage_offset;
+};
+
+StackValue execution_get_local(ExecutionContext *ctx, uint32_t i_local);

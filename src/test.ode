@@ -4,17 +4,12 @@
 	(x i32)
 	(y i32))
 
-(define (add_1x i32) (p Point) (+ 1 (field p x)))
-
-(define (main2 i32) (n bool) n (begin 1 2 3))
-
-(define (fib i32) (n i32)
-	(log n)
-	(if (<= n 1)
-		n
-		(+ (fib (- n 1)) (fib (- n 2)))))
+(define (log-point ()) (p Point)
+	(log (field p x))
+	(log (field p y)))
 
 (define (main i32) ()
 	(begin
-		(let toto (fib 3))
-		(+ 0 toto)))
+		(let p (Point 3 2))
+		(log-point p)
+		0))

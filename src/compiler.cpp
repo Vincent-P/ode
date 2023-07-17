@@ -1,3 +1,6 @@
+// TODO: impl field in executor
+// TODO: pass local as variable ref
+
 #include "compiler.h"
 #include <corecrt_wstdio.h>
 #include <stdint.h>
@@ -516,7 +519,7 @@ Type *compiler_type_new(CompilerState *compstate)
 	return new_type;
 }
 
-Type *compiler_save_type_to_module(CompilerState *compstate, Type *type)
+Type *compiler_save_type_to_module(CompilerState *compstate, Type *type, uint32_t *out_type_index = nullptr)
 {
 	Module *current_module = compstate->current_module;
 	if (current_module->types_length + 1 >= current_module->types_capacity) {
@@ -524,10 +527,95 @@ Type *compiler_save_type_to_module(CompilerState *compstate, Type *type)
 		SET_RESULT(compstate->result);
 		return nullptr;
 	}
+	if (out_type_index != nullptr) {
+		*out_type_index = uint32_t(current_module->types_length);
+	}
 	Type *module_type = current_module->types + current_module->types_length;
 	*module_type = *type;
 	current_module->types_length += 1;
 	return module_type;
+}
+
+template <typename Lambda>
+static Function *compiler_compile_function(Compiler *compiler,
+	CompilerState *compstate,
+	sv function_name,
+	Type *return_type,
+	Token *arg_identifiers,
+	Type **arg_types,
+	uint64_t args_length,
+	Lambda compile_body_fn)
+{
+	Module *current_module = compstate->current_module;
+	for (uint64_t i_function = 0; i_function < current_module->functions_length; ++i_function) {
+		Function *function = current_module->functions + i_function;
+		if (sv_equals(function->name, function_name)) {
+			compstate->result = Result::CompilerDuplicateSymbol;
+			SET_RESULT(compstate->result);
+			// Actually it should be possible to recompile a function if signature has not changed.
+			return nullptr;
+		}
+	}
+
+	if (current_module->functions_length + 1 >= current_module->functions_capacity) {
+		compstate->result = Result::Fatal;
+		SET_RESULT(compstate->result);
+		return nullptr;
+	}
+
+	// Create a new function symbol
+	Function *function = current_module->functions + current_module->functions_length;
+	function->name = function_name;
+	function->address = current_module->bytecode_length;
+	function->is_foreign = false;
+	function->return_type = return_type;
+
+	current_module->functions_length += 1;
+
+	// Add a debug label to identify functions easily in the bytecode
+	compiler_push_opcode(compiler, compstate, OpCodeKind::DebugLabel);
+	compiler_push_sv(compiler, compstate, function_name);
+
+	// Create a variable scope
+	compiler_push_scope(compiler, compstate);
+	// All arguments are in the stack in opposite order.
+	// Pop them into local slots
+	for (uint64_t i_arg = 0; i_arg < args_length; ++i_arg) {
+		compiler_push_opcode(compiler, compstate, OpCodeKind::SetLocal);
+		compiler_push_u32(compiler, compstate, uint32_t(args_length - 1 - i_arg));
+	}
+
+	for (uint64_t i_arg = 0; i_arg < args_length; ++i_arg) {
+		Type *arg_type = arg_types[i_arg];
+		function->arg_types[function->arg_count] = arg_types[i_arg];
+		function->arg_count += 1;
+
+		uint64_t i_variable = 0;
+		if (!compiler_push_variable(compstate, &arg_identifiers[i_arg], arg_type, &i_variable)) {
+			return nullptr;
+		}
+	}
+
+	// <-- Compile the body
+	Type *body_type = compile_body_fn();
+
+	compiler_pop_scope(compiler, compstate);
+	compiler_push_opcode(compiler, compstate, OpCodeKind::Ret);
+
+	// Return an error if body_type compilation failed
+	if (body_type == nullptr) {
+		return nullptr;
+	}
+
+	bool valid_return_type = type_similar(return_type, body_type);
+	if (!valid_return_type) {
+		compstate->result = Result::CompilerExpectedTypeGot;
+		SET_RESULT(compstate->result);
+		compstate->expected_type = return_type;
+		compstate->got_type = body_type;
+	}
+
+	return function;
 }
 
 bool type_similar(Type *lhs, Type *rhs)
@@ -681,16 +769,19 @@ Type *parse_type(Compiler *, CompilerState *compstate, const AstNode *node)
 	if (sv_equals(identifier_str, sv_from_null_terminated(TypeKind_str[static_cast<uint32_t>(TypeKind::Int)]))) {
 		Type *ty = compiler_type_new(compstate);
 		ty->kind = TypeKind::Int;
+		ty->size = sizeof(int32_t);
 		return ty;
 	} else if (sv_equals(identifier_str,
 				   sv_from_null_terminated(TypeKind_str[static_cast<uint32_t>(TypeKind::Bool)]))) {
 		Type *ty = compiler_type_new(compstate);
 		ty->kind = TypeKind::Bool;
+		ty->size = sizeof(bool);
 		return ty;
 	} else if (sv_equals(identifier_str,
 				   sv_from_null_terminated(TypeKind_str[static_cast<uint32_t>(TypeKind::Float)]))) {
 		Type *ty = compiler_type_new(compstate);
 		ty->kind = TypeKind::Float;
+		ty->size = sizeof(float);
 		return ty;
 	}
 
@@ -843,6 +934,7 @@ Type *compile_define(Compiler *compiler, CompilerState *compstate, const AstNode
 			}
 
 			arg_identifiers[args_length] = *identifier_node->atom_token;
+
 			arg_nodes[args_length] = type_node;
 			args_length += 1;
 
@@ -861,85 +953,29 @@ Type *compile_define(Compiler *compiler, CompilerState *compstate, const AstNode
 	sv name_token_str = sv_substr(compstate->input.text, name_token.span);
 
 	// -- Type checking
-	Module *current_module = compstate->current_module;
-	for (uint64_t i_function = 0; i_function < current_module->functions_length; ++i_function) {
-		Function *function = current_module->functions + i_function;
-		if (sv_equals(function->name, name_token_str)) {
-			compstate->result = Result::CompilerDuplicateSymbol;
-			SET_RESULT(compstate->result);
-			compstate->error = node->span;
-			// Actually it should be possible to recompile a function if signature has not changed.
-			return nullptr;
-		}
-	}
-
-	if (current_module->functions_length + 1 >= current_module->functions_capacity) {
-		compstate->result = Result::Fatal;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
-		return nullptr;
-	}
-
-	// Create a new function symbol
-	Function *function = current_module->functions + current_module->functions_length;
-	function->name = name_token_str;
-	function->address = current_module->bytecode_length;
-	function->is_foreign = false;
-
-	current_module->functions_length += 1;
-
-	// -- Compiling
 	Type *return_type = parse_type(compiler, compstate, return_type_node);
-	if (return_type == nullptr) {
+	Type *arg_types[MAX_ARGUMENTS] = {};
+	for (uint64_t i_arg = 0; i_arg < args_length; ++i_arg) {
+		arg_types[i_arg] = parse_type(compiler, compstate, arg_nodes[i_arg]);
+	}
+
+	Function *new_function = compiler_compile_function(compiler,
+		compstate,
+		name_token_str,
+		return_type,
+		arg_identifiers,
+		arg_types,
+		args_length,
+		[&]() -> Type * {
+			// <-- Compile the body
+			Type *body_type = compile_sexprs_return_last(compiler, compstate, body_node);
+			return body_type;
+		});
+
+	if (new_function == nullptr) {
 		return nullptr;
 	}
-	function->return_type = return_type;
-
-	// Add a debug label to identify functions easily in the bytecode
-	compiler_push_opcode(compiler, compstate, OpCodeKind::DebugLabel);
-	compiler_push_sv(compiler, compstate, name_token_str);
-
-	// Create a variable scope
-	compiler_push_scope(compiler, compstate);
-	// All arguments are in the stack in opposite order.
-	// Pop them into local slots
-	for (uint64_t i_arg = 0; i_arg < args_length; ++i_arg) {
-		compiler_push_opcode(compiler, compstate, OpCodeKind::SetLocal);
-		compiler_push_u32(compiler, compstate, uint32_t(args_length - 1 - i_arg));
-	}
-
-	for (uint64_t i_arg = 0; i_arg < args_length; ++i_arg) {
-		Type *arg_type = parse_type(compiler, compstate, arg_nodes[i_arg]);
-		function->arg_types[function->arg_count] = arg_type;
-		function->arg_count += 1;
-
-		uint64_t i_variable = 0;
-		if (!compiler_push_variable(compstate, &arg_identifiers[i_arg], arg_type, &i_variable)) {
-			return nullptr;
-		}
-	}
-
-	// <-- Compile the body
-	Type *body_type = compile_sexprs_return_last(compiler, compstate, body_node);
-
-	compiler_pop_scope(compiler, compstate);
-	compiler_push_opcode(compiler, compstate, OpCodeKind::Ret);
-
-	// Return an error if body_type compilation failed
-	if (body_type == nullptr) {
-		return nullptr;
-	}
-
-	bool valid_return_type = type_similar(return_type, body_type);
-	if (!valid_return_type) {
-		compstate->result = Result::CompilerExpectedTypeGot;
-		SET_RESULT(compstate->result);
-		compstate->error = body_node->span;
-		compstate->expected_type = return_type;
-		compstate->got_type = body_type;
-	}
-
-	return nullptr;
+	return new_function->return_type;
 }
 
 // Defines a new foreign function
@@ -1168,7 +1204,8 @@ Type *compile_struct(Compiler *compiler, CompilerState *compstate, const AstNode
 		return nullptr;
 	}
 
-	// Create a new structure type
+	// -- Create a new structure type
+	Type *fields_type[MAX_STRUCT_FIELD] = {};
 
 	Type *struct_type = compiler_type_new(compstate);
 	struct_type->kind = TypeKind::Struct;
@@ -1176,20 +1213,10 @@ Type *compile_struct(Compiler *compiler, CompilerState *compstate, const AstNode
 	struct_type->data.structure = {};
 	struct_type->data.structure.name = name_token_str;
 
-	// -- Compiling
 	uint64_t struct_size = 0;
 	for (uint64_t i_field = 0; i_field < fields_length; ++i_field) {
 		Type *field_type = parse_type(compiler, compstate, field_type_nodes[i_field]);
 		if (field_type == nullptr) {
-			return nullptr;
-		}
-
-		// Invalid type?
-		uint64_t i_expr_type = uint64_t(field_type - compstate->types);
-		if (i_expr_type >= compstate->types_length) {
-			compstate->result = Result::Fatal;
-			SET_RESULT(compstate->result);
-			compstate->error = node->span;
 			return nullptr;
 		}
 
@@ -1199,12 +1226,63 @@ Type *compile_struct(Compiler *compiler, CompilerState *compstate, const AstNode
 		struct_type->data.structure.field_offsets[i_field] = struct_size;
 
 		struct_size += field_type->size;
+		fields_type[i_field] = field_type;
 	}
 
 	struct_type->data.structure.field_count = fields_length;
 	struct_type->size = struct_size;
 
-	/*Type *saved_type =*/compiler_save_type_to_module(compstate, struct_type);
+	uint32_t struct_type_index = 0;
+	struct_type = compiler_save_type_to_module(compstate, struct_type, &struct_type_index);
+
+	// -- Compile builtin-functions for the struct
+	sv ctor_name = name_token_str;
+	/*Function *ctor =*/compiler_compile_function(compiler,
+		compstate,
+		ctor_name,
+		struct_type,
+		field_identifiers,
+		fields_type,
+		fields_length,
+		[&]() -> Type * {
+			/*
+		            result = struct_type{}
+		            result.field0 = arg0
+		            result.field1 = arg1
+		            result.field2 = arg2
+		            return local0
+		    */
+
+			uint32_t struct_local_index = uint32_t(fields_length);
+
+			// result = MyStruct{}
+			compiler_push_opcode(compiler, compstate, OpCodeKind::MakeStruct);
+			compiler_push_u32(compiler, compstate, struct_type_index);
+			compiler_push_opcode(compiler, compstate, OpCodeKind::SetLocal);
+			compiler_push_u32(compiler, compstate, struct_local_index);
+
+			for (uint64_t i_field = 0; i_field < fields_length; ++i_field) {
+				// result.field = arg_i
+
+				// result
+				compiler_push_opcode(compiler, compstate, OpCodeKind::GetLocal);
+				compiler_push_u32(compiler, compstate, struct_local_index);
+
+				// arg_i
+				compiler_push_opcode(compiler, compstate, OpCodeKind::GetLocal);
+				compiler_push_u32(compiler, compstate, uint32_t(i_field));
+
+				// set field
+				compiler_push_opcode(compiler, compstate, OpCodeKind::SetField);
+				compiler_push_u32(compiler, compstate, uint32_t(i_field));
+			}
+
+			// return result
+			compiler_push_opcode(compiler, compstate, OpCodeKind::GetLocal);
+			compiler_push_u32(compiler, compstate, struct_local_index);
+
+			return struct_type;
+		});
 
 	return struct_type;
 }
@@ -1825,7 +1903,7 @@ Result compile_module(Compiler *compiler, sv module_name, sv input, Module **out
 
 		bool is_unary_u32 = opcode_kind == OpCodeKind::SetLocal || opcode_kind == OpCodeKind::GetLocal ||
 		                    opcode_kind == OpCodeKind::GetField || opcode_kind == OpCodeKind::SetField ||
-		                    opcode_kind == OpCodeKind::Call;
+		                    opcode_kind == OpCodeKind::Call || opcode_kind == OpCodeKind::MakeStruct;
 
 		bool is_unary_i32 = opcode_kind == OpCodeKind::Constant || opcode_kind == OpCodeKind::Jump ||
 		                    opcode_kind == OpCodeKind::ConditionalJump;

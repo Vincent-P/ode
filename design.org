@@ -1,4 +1,5 @@
 - Typed or untyped?
+  Typed seems easy
 OpCode like GetField? GetMethod? SetField?
 
 - Reflection not needed for now
@@ -9,3 +10,26 @@ OpCode like GetField? GetMethod? SetField?
 let machin = 3                       -- (stack allocator)
 let machdeux = 2
 arena
+
+
+* V0 features
+** Structs
+#+begin_src
+(struct Point
+	(x i32)
+	(y i32))
+
+(let p1 (Point 1 2))
+(let x1 (field p1 x))
+#+end_src
+** Host functions
+#+begin_src
+(define-foreign (log ()) (n i32))
+(log 1)
+#+end_src
+** Functions
+All parameters are passed by value, and copied
+#+begin_src
+(define (addonetopoint i32) (p Point)
+    (+ (field p x) 1))
+#+end_src
