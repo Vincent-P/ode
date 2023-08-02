@@ -4,12 +4,20 @@
 	(x i32)
 	(y i32))
 
+(struct Point3D
+	(xy Point)
+	(z i32))
+
 (define (log-point ()) (p Point)
 	(log (field p x))
 	(log (field p y)))
 
+(define (log-point3d ()) (p Point3D)
+	(log-point (field p xy))
+	(log (field p z)))
+
 (define (main i32) ()
 	(begin
-		(let p (Point 3 2))
-		(log-point p)
+		(let p (Point3D (Point 3 2) 7))
+		(log-point3d p)
 		0))

@@ -81,7 +81,8 @@ void dummy_foreign_func(ExecutionContext *)
 void log_foreign_func(ExecutionContext *ctx)
 {
 	StackValue n = execution_get_local(ctx, 0);
-	printf("Foreign: log(%d)\n", n.i32);
+	puts("==== HOST ====");
+	printf("Foreign: log(%d)\n\n", n.i32);
 }
 
 ForeignFn on_foreign(sv module_name, sv function_name)

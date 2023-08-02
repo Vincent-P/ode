@@ -1,5 +1,6 @@
 #pragma once
 #include "core.h"
+#include "image.h"
 
 struct RuntimeError;
 struct Image;
@@ -20,12 +21,18 @@ void executor_load_module(ExecutorState *state, Module *module);
 void executor_execute_module_entrypoint(ExecutorState *state, sv module_name);
 
 // Operand stack
+struct TypedPointer
+{
+	TypeID type_id;
+	uint32_t offset;
+};
+
 union StackValue
 {
 	bool b8;
 	float f32;
 	int32_t i32;
-	uint8_t *local_storage_offset;
+	TypedPointer local_storage_ptr;
 };
 
 StackValue execution_get_local(ExecutionContext *ctx, uint32_t i_local);

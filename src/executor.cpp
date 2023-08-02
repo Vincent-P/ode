@@ -74,11 +74,6 @@ struct ExecutionContext
 	uint64_t ip;
 };
 
-struct StructHeader
-{
-	uint32_t i_struct_type;
-};
-
 ExecutorState *executor_init(ExecutorConfig config)
 {
 	ExecutorState *state = reinterpret_cast<ExecutorState *>(calloc(1, sizeof(ExecutorState)));
@@ -107,6 +102,27 @@ static void execution_init(ExecutionContext *context)
 	context->locals_storage_previous = context->locals_storage_current;
 	context->locals_storage_end = context->locals_storage_begin + 128;
 }
+
+void executor_assert_trigger(ExecutorState *state, sv condition_str, sv file, int line)
+{
+	// Don't hide errors
+	if (state->failed == true) {
+		return;
+	}
+
+	state->failed = true;
+	state->error_msg = condition_str;
+	state->error_file = file;
+	state->error_line = line;
+}
+
+#define EXEC_ASSERT(state, condition)                                                                                  \
+	if ((condition) == false) {                                                                                        \
+		executor_assert_trigger(state,                                                                                 \
+			sv_from_null_terminated(#condition),                                                                       \
+			sv_from_null_terminated(__FILE__),                                                                         \
+			__LINE__);                                                                                                 \
+	}
 
 void executor_load_module(ExecutorState *state, Module *module)
 {
@@ -190,11 +206,39 @@ void executor_execute_module_entrypoint(ExecutorState *state, sv module_name)
 	executor_execute_module_at(state, i_module, ip);
 }
 
+static TypeID bytecode_read_type_id(ExecutorState *state, ExecutionContext *ctx)
+{
+	uint64_t bytecode_len = ctx->module->bytecode_length;
+	uint8_t *bytecode = ctx->module->bytecode;
+
+	if (ctx->ip + sizeof(TypeID) > bytecode_len) {
+		fprintf(stderr, "Invalid bytecode (read TypeID)\n");
+		ctx->ip = bytecode_len;
+		return type_id_new_builtin(BuiltinTypeKind::Unit);
+	}
+	TypeID *bytecode_type_id = reinterpret_cast<TypeID *>(bytecode + ctx->ip);
+	ctx->ip = ctx->ip + sizeof(TypeID);
+	return *bytecode_type_id;
+
+	TypeID id = *bytecode_type_id;
+
+	if (type_id_is_pointer(id)) {
+		// TODO: Validate pointer types
+	} else if (type_id_is_builtin(id)) {
+		EXEC_ASSERT(state, id.builtin.kind < BuiltinTypeKind::Count);
+	} else {
+		EXEC_ASSERT(state, type_id_is_user_defined(id));
+		EXEC_ASSERT(state, id.user_defined.index < ctx->module->types_length);
+	}
+
+	return id;
+}
+
 static uint32_t bytecode_read_u32(ExecutionContext *ctx)
 {
 	uint64_t bytecode_len = ctx->module->bytecode_length;
 	uint8_t *bytecode = ctx->module->bytecode;
-	
+
 	if (ctx->ip + sizeof(uint32_t) > bytecode_len) {
 		fprintf(stderr, "Invalid bytecode (read u32)\n");
 		ctx->ip = bytecode_len;
@@ -250,27 +294,6 @@ static sv bytecode_read_sv(ExecutionContext *ctx)
 
 	return result;
 }
-
-void executor_assert_trigger(ExecutorState *state, sv condition_str, sv file, int line)
-{
-	// Don't hide errors
-	if (state->failed == true) {
-		return;
-	}
-
-	state->failed = true;
-	state->error_msg = condition_str;
-	state->error_file = file;
-	state->error_line = line;
-}
-
-#define EXEC_ASSERT(state, condition)                                                                                  \
-	if ((condition) == false) {                                                                                        \
-		executor_assert_trigger(state,                                                                                 \
-			sv_from_null_terminated(#condition),                                                                       \
-			sv_from_null_terminated(__FILE__),                                                                         \
-			__LINE__);                                                                                                 \
-	}
 
 // Returns a pointer to the pushed value
 uint8_t *execution_push_local(ExecutionContext *ctx, uint64_t local_size)
@@ -451,186 +474,166 @@ static void execute_get_field(ExecutorState *state, ExecutionContext *ctx)
 		return;
 	}
 
-	StackValue struct_local_offset = *ctx->stack_current;
-
+	StackValue struct_ptr = *ctx->stack_current;
+	TypeID struct_type_id = struct_ptr.local_storage_ptr.type_id;
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
-	printf("GetField #%u (struct %u)\n", i_field, struct_local_offset.i32);
+	printf("GetField #%u (struct at %u type %u)\n",
+		i_field,
+		struct_ptr.local_storage_ptr.offset,
+		struct_ptr.local_storage_ptr.type_id.raw);
 
-	// Assert that the struct local offset is valid
-	EXEC_ASSERT(state, ctx->locals_storage_begin <= struct_local_offset.local_storage_offset);
-	EXEC_ASSERT(state, struct_local_offset.local_storage_offset < ctx->locals_storage_end);
+	// Check thast the struct ptr is valid
+	EXEC_ASSERT(state,
+		struct_ptr.local_storage_ptr.offset < uint32_t(ctx->locals_storage_end - ctx->locals_storage_begin));
+	EXEC_ASSERT(state, type_id_is_user_defined(struct_type_id));
+	EXEC_ASSERT(state, struct_type_id.user_defined.index < ctx->module->types_length);
 	if (state->failed) {
 		return;
 	}
 
-	uint8_t *struct_pointer = struct_local_offset.local_storage_offset;
-	StructHeader *struct_header = reinterpret_cast<StructHeader *>(struct_pointer);
-
-	// Assert that the struct header is valid
-	EXEC_ASSERT(state, struct_header->i_struct_type < module->types_length);
-	if (state->failed) {
-		return;
-	}
-
-	Type *struct_type = module->types + struct_header->i_struct_type;
+	UserDefinedType *struct_type = module->types + struct_type_id.user_defined.index;
+	uint8_t *struct_pointer = ctx->locals_storage_begin + struct_ptr.local_storage_ptr.offset;
 
 	// Assert that the field is valid
-	EXEC_ASSERT(state, i_field < struct_type->data.structure.field_count);
+	EXEC_ASSERT(state, i_field < struct_type->field_count);
 	if (state->failed) {
 		return;
 	}
 
-	uint64_t field_offset = struct_type->data.structure.field_offsets[i_field];
-	Type *field_type = struct_type->data.structure.field_types[i_field];
-	uint64_t field_size = field_type->size;
-	TypeKind field_kind = field_type->kind;
-	uint8_t *field_pointer = struct_pointer + sizeof(StructHeader) + field_offset;
+	uint64_t field_offset = struct_type->field_offsets[i_field];
+	TypeID field_type = struct_type->field_types[i_field];
+	uint8_t *field_pointer = struct_pointer + field_offset;
 
-	switch (field_kind) {
-	case TypeKind::Unit: {
-		break;
-	}
-	case TypeKind::Int: {
-		EXEC_ASSERT(state, field_size == 4);
+	if (type_id_is_user_defined(field_type)) {
+		// Assert that the type is in the same module
+		EXEC_ASSERT(state, field_type.user_defined.index < module->types_length);
 		if (state->failed) {
 			return;
 		}
-		ctx->stack_current->i32 = *reinterpret_cast<int32_t *>(field_pointer);
-		break;
-	}
-	case TypeKind::Bool: {
-		EXEC_ASSERT(state, field_size == 1);
-		if (state->failed) {
-			return;
+
+		ctx->stack_current->local_storage_ptr.type_id = field_type;
+		ctx->stack_current->local_storage_ptr.offset = uint32_t(struct_ptr.local_storage_ptr.offset + field_offset);
+	} else {
+		switch (field_type.builtin.kind) {
+		case BuiltinTypeKind::Unit: {
+			break;
 		}
-		ctx->stack_current->b8 = *reinterpret_cast<bool *>(field_pointer);
-		break;
-	}
-	case TypeKind::Float: {
-		EXEC_ASSERT(state, field_size == 4);
-		if (state->failed) {
-			return;
+		case BuiltinTypeKind::Int: {
+			ctx->stack_current->i32 = *reinterpret_cast<int32_t *>(field_pointer);
+			break;
 		}
-		ctx->stack_current->f32 = *reinterpret_cast<float *>(field_pointer);
-		break;
-	}
-	case TypeKind::Pointer: {
-		EXEC_ASSERT(state, field_size == 8);
-		if (state->failed) {
-			return;
+		case BuiltinTypeKind::Bool: {
+			ctx->stack_current->b8 = *reinterpret_cast<bool *>(field_pointer);
+			break;
 		}
-		ctx->stack_current->local_storage_offset = *reinterpret_cast<uint8_t **>(field_pointer);
-		break;
-	}
-	case TypeKind::Struct: {
-		// TODO: Implement struct copies
-		EXEC_ASSERT(state, field_size == 99);
-		if (state->failed) {
-			return;
+		case BuiltinTypeKind::Float: {
+			ctx->stack_current->f32 = *reinterpret_cast<float *>(field_pointer);
+			break;
 		}
-		break;
+		case BuiltinTypeKind::Pointer: {
+			ctx->stack_current->local_storage_ptr = *reinterpret_cast<TypedPointer *>(field_pointer);
+			break;
+		}
+		case BuiltinTypeKind::Count: {
+			break;
+		}
+		}
 	}
-	case TypeKind::Count: {
-		break;
-	}
-	}
+
+	StackValue field_value = *ctx->stack_current;
+	print_indent(ctx->callstack_current - ctx->callstack_begin);
+	printf("Field value: int(%u) ptr(struct at %u type %u)\n",
+		field_value.i32,
+		field_value.local_storage_ptr.offset,
+		field_value.local_storage_ptr.type_id.raw);
 }
 
 static void execute_set_field(ExecutorState *state, ExecutionContext *ctx)
 {
 	Module *module = ctx->module;
+
 	uint32_t i_field = bytecode_read_u32(ctx);
 
-	// Assert that there is 2 values on the stack
+	// Assert that there are at least 2  values on the stack
 	EXEC_ASSERT(state, ctx->stack_current >= ctx->stack_begin + 1);
 	if (state->failed) {
 		return;
 	}
 
 	StackValue field_value = *ctx->stack_current;
+
 	ctx->stack_current -= 1;
-	StackValue struct_local_offset = *ctx->stack_current;
+
+	StackValue struct_ptr = *ctx->stack_current;
+	TypeID struct_type_id = struct_ptr.local_storage_ptr.type_id;
 
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
-	printf("SetField #%u (struct %u) (value %u)\n", i_field, struct_local_offset.i32, field_value.i32);
+	printf("SetField #%u (struct at %u type %u)\n", i_field, struct_ptr.local_storage_ptr.offset, struct_type_id.raw);
+	printf("Field value: int(%u) ptr(struct at %u type %u)\n",
+		field_value.i32,
+		field_value.local_storage_ptr.offset,
+		field_value.local_storage_ptr.type_id.raw);
 
-	// Assert that the struct local offset is valid
-	EXEC_ASSERT(state, ctx->locals_storage_begin <= struct_local_offset.local_storage_offset);
-	EXEC_ASSERT(state, struct_local_offset.local_storage_offset < ctx->locals_storage_end);
+	// Check thast the struct ptr is valid
+	EXEC_ASSERT(state,
+		struct_ptr.local_storage_ptr.offset < uint32_t(ctx->locals_storage_end - ctx->locals_storage_begin));
+	EXEC_ASSERT(state, type_id_is_user_defined(struct_type_id));
+	EXEC_ASSERT(state, struct_type_id.user_defined.index < ctx->module->types_length);
 	if (state->failed) {
 		return;
 	}
 
-	uint8_t *struct_pointer = struct_local_offset.local_storage_offset;
-	StructHeader *struct_header = reinterpret_cast<StructHeader *>(struct_pointer);
-
-	// Assert that the struct header is valid
-	EXEC_ASSERT(state, struct_header->i_struct_type < module->types_length);
-	if (state->failed) {
-		return;
-	}
-
-	Type *struct_type = module->types + struct_header->i_struct_type;
+	UserDefinedType *struct_type = module->types + struct_type_id.user_defined.index;
+	uint8_t *struct_pointer = ctx->locals_storage_begin + struct_ptr.local_storage_ptr.offset;
 
 	// Assert that the field is valid
-	EXEC_ASSERT(state, i_field < struct_type->data.structure.field_count);
+	EXEC_ASSERT(state, i_field < struct_type->field_count);
 	if (state->failed) {
 		return;
 	}
 
-	uint64_t field_offset = struct_type->data.structure.field_offsets[i_field];
-	Type *field_type = struct_type->data.structure.field_types[i_field];
-	uint64_t field_size = field_type->size;
-	TypeKind field_kind = field_type->kind;
-	uint8_t *field_pointer = struct_pointer + sizeof(StructHeader) + field_offset;
+	uint64_t field_offset = struct_type->field_offsets[i_field];
+	TypeID field_type_id = struct_type->field_types[i_field];
+	uint8_t *field_pointer = struct_pointer + field_offset;
 
-	switch (field_kind) {
-	case TypeKind::Unit: {
-		break;
-	}
-	case TypeKind::Int: {
-		EXEC_ASSERT(state, field_size == 4);
+	if (type_id_is_user_defined(field_type_id)) {
+
+		// Check that the pointer on the stack is valid.
+		EXEC_ASSERT(state, field_type_id.user_defined.index < module->types_length);
+		EXEC_ASSERT(state, field_type_id.raw == field_value.local_storage_ptr.type_id.raw);
+		EXEC_ASSERT(state,
+			field_value.local_storage_ptr.offset < uint32_t(ctx->locals_storage_end - ctx->locals_storage_begin));
 		if (state->failed) {
 			return;
 		}
-		memcpy(field_pointer, &field_value.i32, sizeof(field_value.i32));
-		break;
-	}
-	case TypeKind::Bool: {
-		EXEC_ASSERT(state, field_size == 1);
-		if (state->failed) {
-			return;
+
+		UserDefinedType *field_type = module->types + field_type_id.user_defined.index;
+		memcpy(field_pointer, ctx->locals_storage_begin + field_value.local_storage_ptr.offset, field_type->size);
+	} else {
+		switch (field_type_id.builtin.kind) {
+		case BuiltinTypeKind::Unit: {
+			break;
 		}
-		memcpy(field_pointer, &field_value.b8, sizeof(field_value.b8));
-		break;
-	}
-	case TypeKind::Float: {
-		EXEC_ASSERT(state, field_size == 4);
-		if (state->failed) {
-			return;
+		case BuiltinTypeKind::Int: {
+			memcpy(field_pointer, &field_value.i32, sizeof(field_value.i32));
+			break;
 		}
-		memcpy(field_pointer, &field_value.f32, sizeof(field_value.f32));
-		break;
-	}
-	case TypeKind::Pointer: {
-		EXEC_ASSERT(state, field_size == 8);
-		if (state->failed) {
-			return;
+		case BuiltinTypeKind::Bool: {
+			memcpy(field_pointer, &field_value.b8, sizeof(field_value.b8));
+			break;
 		}
-		memcpy(field_pointer, &field_value.local_storage_offset, sizeof(field_value.local_storage_offset));
-		break;
-	}
-	case TypeKind::Struct: {
-		// TODO: Implement struct copies
-		EXEC_ASSERT(state, field_size == 99);
-		if (state->failed) {
-			return;
+		case BuiltinTypeKind::Float: {
+			memcpy(field_pointer, &field_value.f32, sizeof(field_value.f32));
+			break;
 		}
-		break;
-	}
-	case TypeKind::Count: {
-		break;
-	}
+		case BuiltinTypeKind::Pointer: {
+			memcpy(field_pointer, &field_value.local_storage_ptr, sizeof(field_value.local_storage_ptr));
+			break;
+		}
+		case BuiltinTypeKind::Count: {
+			break;
+		}
+		}
 	}
 }
 
@@ -657,7 +660,6 @@ static void execute_end_scope(ExecutorState *state, ExecutionContext *ctx)
 static void execute_set_local(ExecutorState *state, ExecutionContext *ctx)
 {
 	uint32_t i_local = bytecode_read_u32(ctx);
-
 	EXEC_ASSERT(state, ctx->scopes_current >= ctx->scopes_begin);
 	EXEC_ASSERT(state, ctx->stack_current >= ctx->stack_begin);
 	EXEC_ASSERT(state, i_local < VARSCOPE_CAPACITY);
@@ -696,32 +698,34 @@ static void execute_get_local(ExecutorState *state, ExecutionContext *ctx)
 
 static void execute_make_struct(ExecutorState *state, ExecutionContext *ctx)
 {
-	uint32_t i_struct_type = bytecode_read_u32(ctx);
-
-	// Assert that the struct type is valid
-	EXEC_ASSERT(state, i_struct_type < ctx->module->types_length);
+	// Get the type from the bytecode
+	TypeID struct_type_id = bytecode_read_type_id(state, ctx);
+	EXEC_ASSERT(state, type_id_is_user_defined(struct_type_id));
 	if (state->failed) {
 		return;
 	}
+	UserDefinedType *struct_type = ctx->module->types + struct_type_id.user_defined.index;
 
-	Type *struct_type = ctx->module->types + i_struct_type;
-
-	// Assert that the type is a struct type
-	EXEC_ASSERT(state, struct_type->kind == TypeKind::Struct);
-	// Assert that we can push a value on the operand stack
+	// Check that we can push a value on the operand stack
 	EXEC_ASSERT(state, ctx->stack_current + 1 < ctx->stack_end);
 	if (state->failed) {
 		return;
 	}
 
-	// Reserve space in the local storage for both the StructHeader and the struct data
-	uint8_t *local_struct_storage = execution_push_local(ctx, struct_type->size + sizeof(StructHeader));
+	// Reserve space in the local storage for the struct data
+	uint8_t *local_struct_storage = execution_push_local(ctx, struct_type->size);
+	EXEC_ASSERT(state, local_struct_storage != nullptr);
+	if (state->failed) {
+		return;
+	}
+
 	// TODO: When are we going to pop this? scope end? :|
 	ctx->stack_current += 1;
-	ctx->stack_current->local_storage_offset = local_struct_storage;
+	ctx->stack_current->local_storage_ptr.type_id = struct_type_id;
+	ctx->stack_current->local_storage_ptr.offset = uint32_t(local_struct_storage - ctx->locals_storage_begin);
 
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
-	printf("Pushed struct (type %u) (offset %u)\n", i_struct_type, ctx->stack_current->i32);
+	printf("Pushed struct (type %u) (offset %u)\n", struct_type_id.raw, ctx->stack_current->i32);
 }
 
 template <typename Lambda>
@@ -781,7 +785,7 @@ static void executor_execute_module_at(ExecutorState *state, uint64_t i_module, 
 
 	Module *module = ctx.module;
 
-	using ExecuteOpCode = void(*)(ExecutorState*, ExecutionContext*);
+	using ExecuteOpCode = void (*)(ExecutorState *, ExecutionContext *);
 	ExecuteOpCode execute_opcodes[OpCodeKind::Count] = {
 		execute_constant,
 		execute_call,
@@ -803,7 +807,7 @@ static void executor_execute_module_at(ExecutorState *state, uint64_t i_module, 
 		execute_debug_label,
 	};
 	static_assert(ARRAY_LENGTH(execute_opcodes) == OpCodeKind::Count);
-	
+
 	const uint64_t bytecode_len = module->bytecode_length;
 	while (ctx.ip < bytecode_len) {
 		if (state->failed) {
