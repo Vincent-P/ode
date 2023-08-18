@@ -3,10 +3,30 @@
 
 inline constexpr uint64_t MAX_ARGUMENTS = 8;
 
-enum OpCodeKind : uint8_t
+// TODO: How to distinguish between GetField (which returns the field by value) and "taking the address of a field"
+// - Make GetField returns an lvale and shit happens
+// - Make a field-addr instead? Passing struct as parameters should be formalized! Should we pass implicitly by ptr? Should we always pass (addr my-struct-value) to functions??
+// Should we disable passing structs entirely?? (and make a special case to pass "small" structs by value in the operand stack. So in the compiler we only allow struct of GIVEN size of max
+// If we want enums, we will have "small" structs!
+
+// TODO: Make function arguments read-only = Not addressable!!
+// TODO: Implement small struct inlining on the stack
+// TODO: Now we can only pass structs as arguments when they are small OR by pointer
+// TOOD: GetField should probably also works like this? or returns a ptr
+//       If not returning a ptr, add a field-addr             easy: (field-addr (addr p) x), nested structs: (field-addr (addr mat) row1 x), pointer field:(field-addr (field-addr (addr ext-mat) row-ptr) x)
+//       With such impl, get field just becomes a dereference of field-addr: (get-field p x)   <=> (read-i32 (field-addr p x))    <=> (memread (field-addr p x) (sizeof i32))
+//       Ditto for SetField                                                  (set-field p x 1) <=> (write-i32 (field-addr p x) 1) <=> (memset (field-addr p x) 1 (sizeof i32))
+
+
+// Maybe local struct objects should be convertible to ptr (because that's how they are passed to functions in StackValues)
+// But it is a bit weird, i have to figure out how to pass members also.
+
+// Opcode(<bytecode params>) ^_pop_^ v_push_v
+enum struct OpCodeKind : uint8_t
 {
 	// Operand stack manipulation
 	Constant,
+	ConstantStr,
 	// Control flow
 	Call,
 	CallForeign,
@@ -14,14 +34,19 @@ enum OpCodeKind : uint8_t
 	ConditionalJump,
 	Jump,
 	// Struct
-	GetField,
-	SetField,
+	GetField,  // GetField(i_field) ^_StructPtr_^ v_FieldValue_v
+	SetField,  // SetField(i_field) ^_FieldValue_^ ^_StructPtr_^
+	// Memory
 	// Local storage
 	BeginScope,
 	EndScope,
-	SetLocal,
-	GetLocal,
-	MakeStruct,
+	SetLocal,   // SetLocal(i_local) ^_Value_^ 
+	GetLocal,   // GetLocal(i_local) v_Local_v
+	MakeStruct, // MakeStruct(TypeID) v_StructPtr_v
+	// Pointers
+	Addr,       // Addr(TypeID) ^_Value_^ v_ValuePtr_v
+	Deref,      // Deref ^_ValuePtr_^ v_ValueAsObject_v 
+	WriteI32,   // WriteI32 ^_Value_^ ^_PointerToWrite_^
 	// Maths
 	IAdd,
 	ISub,
@@ -33,6 +58,7 @@ enum OpCodeKind : uint8_t
 };
 inline const char *OpCode_str[] = {
 	"Constant",
+	"ConstantStr",
 	"Call",
 	"CallForeign",
 	"Ret",
@@ -45,6 +71,9 @@ inline const char *OpCode_str[] = {
 	"SetLocal",
 	"GetLocal",
 	"MakeStruct",
+	"Addr",
+	"Deref",
+	"WriteI32",
 	"IAdd",
 	"ISub",
 	"ILessThanEq",
@@ -60,6 +89,7 @@ enum struct BuiltinTypeKind : uint32_t
 	Bool,
 	Float,
 	Pointer,
+	Str,
 	Count,
 };
 static_assert(uint8_t(BuiltinTypeKind::Count) < 16u, "Should fit on 4 bits.");
@@ -70,6 +100,7 @@ inline constexpr const char *BuiltinTypeKind_str[] = {
 	"bool",
 	"f32",
 	"ptr",
+	"str",
 };
 static_assert(ARRAY_LENGTH(BuiltinTypeKind_str) == uint64_t(BuiltinTypeKind::Count));
 
@@ -79,6 +110,7 @@ inline constexpr uint32_t BuiltinTypeKind_size[] = {
 	1,
 	4,
 	4,
+	8,
 };
 static_assert(ARRAY_LENGTH(BuiltinTypeKind_size) == uint64_t(BuiltinTypeKind::Count));
 
@@ -169,6 +201,11 @@ struct Function
 	bool is_foreign;
 };
 
+struct Constant
+{
+	sv str;
+};
+
 struct Module
 {
 	sv name;
@@ -181,6 +218,9 @@ struct Module
 	UserDefinedType *types;
 	uint32_t types_capacity;
 	uint32_t types_length;
+	Constant *constants;
+	uint32_t constants_capacity;
+	uint32_t constants_length;
 };
 
 struct RuntimeError

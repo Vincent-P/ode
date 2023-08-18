@@ -80,14 +80,20 @@ void dummy_foreign_func(ExecutionContext *)
 
 void log_foreign_func(ExecutionContext *ctx)
 {
+	StackValue arg0 = execution_get_local(ctx, 0);
+	sv arg0_sv = execution_get_str(ctx, arg0.str);
+	printf("\n=== HOST: log(\"%.*s\") ===\n", int(arg0_sv.length), arg0_sv.chars);
+}
+
+void logi_foreign_func(ExecutionContext *ctx)
+{
 	StackValue n = execution_get_local(ctx, 0);
-	puts("==== HOST ====");
-	printf("Foreign: log(%d)\n\n", n.i32);
+	printf("\n=== HOST: log(%d) ===\n", n.i32);
 }
 
 ForeignFn on_foreign(sv module_name, sv function_name)
 {
-	printf("On foreign function: module %.*s function %.*s\n",
+	printf("=== HOST: On foreign function: module %.*s function %.*s ===\n",
 		int(module_name.length),
 		module_name.chars,
 		int(function_name.length),
@@ -95,6 +101,8 @@ ForeignFn on_foreign(sv module_name, sv function_name)
 
 	if (sv_equals(function_name, sv_from_null_terminated("log"))) {
 		return log_foreign_func;
+	} else if (sv_equals(function_name, sv_from_null_terminated("logi"))) {
+		return logi_foreign_func;
 	}
 
 	return dummy_foreign_func;

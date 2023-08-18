@@ -39,6 +39,7 @@ enum struct TokenKind : uint64_t
 	RightParen,
 	Number,
 	Identifier,
+	StringLiteral,
 	Count,
 };
 
@@ -48,6 +49,7 @@ const char *TokenKind_str[] = {
 	"RightParen",
 	"Number",
 	"Identifier",
+	"StringLiteral",
 };
 static_assert(ARRAY_LENGTH(TokenKind_str) == uint64_t(TokenKind::Count));
 
@@ -187,6 +189,16 @@ void lexer_next_token(LexerState *lexer, Token *result)
 			token_length += 1;
 		}
 		result->kind = TokenKind::Identifier;
+	} else if (first_char == '"') {
+		while (token_length < lexer->input.text.length && lexer->input.text.chars[token_length] != '"') {
+			token_length += 1;
+		}
+		// TODO: Handle string to eof error
+		if (token_length >= lexer->input.text.length) {
+		}
+		// Eat the ending double-quote
+		token_length += 1;
+		result->kind = TokenKind::StringLiteral;
 	} else {
 		*result = {};
 		lexer->result = Result::LexerUnknownToken;
@@ -352,6 +364,11 @@ AstNode *parse_atom(ParserState *parser)
 		new_node->span = current_token.span;
 		parser->i_current_token += 1;
 		return new_node;
+	} else if (current_token.kind == TokenKind::StringLiteral) {
+		AstNode *new_node = parser_push_ast_node_atom(parser, parser->tokens + parser->i_current_token);
+		new_node->span = current_token.span;
+		parser->i_current_token += 1;
+		return new_node;
 	} else {
 		parser->result = Result::UnexpectedToken;
 		parser->error = current_token.span;
@@ -442,7 +459,7 @@ void compiler_push_opcode(Compiler *, CompilerState *compstate, OpCodeKind opcod
 		return;
 	}
 
-	current_module->bytecode[current_module->bytecode_length] = opcode_kind;
+	current_module->bytecode[current_module->bytecode_length] = uint8_t(opcode_kind);
 	current_module->bytecode_length += 1;
 }
 
@@ -525,7 +542,7 @@ static Function *compiler_compile_function(Compiler *compiler,
 		}
 	}
 
-	if (current_module->functions_length + 1 >= current_module->functions_capacity) {
+	if (current_module->functions_length + 1 > current_module->functions_capacity) {
 		compstate->result = Result::Fatal;
 		SET_RESULT(compstate->result);
 		return nullptr;
@@ -681,7 +698,7 @@ bool compiler_lookup_variable(
 	for (uint64_t i_scope = compstate->scopes_length - 1; i_scope < compstate->scopes_length; --i_scope) {
 		LexicalScope *scope = compstate->scopes + i_scope;
 
-		uint64_t i_found = 0;
+		uint64_t i_found = ~uint64_t(0);
 		TypeID found_type = UNIT_TYPE;
 		for (uint64_t i_variable = 0; i_variable < scope->variables_length; ++i_variable) {
 			sv variable_name = scope->variables_name[i_variable];
@@ -704,48 +721,112 @@ bool compiler_lookup_variable(
 // compiler
 TypeID compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode *node);
 
-TypeID parse_type(Compiler *, CompilerState *compstate, const AstNode *node)
+TypeID parse_type(Compiler *compiler, CompilerState *compstate, const AstNode *node)
 {
-	const bool is_token = node != nullptr && node->atom_token != nullptr;
-	const bool is_unit = node != nullptr && node->left_child == nullptr && node->atom_token == nullptr;
-	const bool is_type = is_token || is_unit;
-	if (node == nullptr || !is_type) {
+	if (node == nullptr) {
 		compstate->result = Result::CompilerExpectedIdentifier;
+		SET_RESULT(compstate->result);
+		return UNIT_TYPE;
+	}
+
+	if (node->atom_token == nullptr) {
+		const AstNode *child0 = node->left_child;
+		if (child0 == nullptr) {
+			// () is a unit type
+			return UNIT_TYPE;
+		}
+
+		// The type is a S-expr, either it is a unit type () or a form starting with a TOKEN
+		if (child0->atom_token == nullptr) {
+			compstate->result = Result::CompilerExpectedIdentifier;
+			SET_RESULT(compstate->result);
+			compstate->error = node->span;
+			return UNIT_TYPE;
+		}
+		// Assert that there is one argument only
+		const AstNode *child1 = child0->right_sibling;
+		if (child1 == nullptr) {
+			compstate->result = Result::CompilerExpectedExpr;
+			SET_RESULT(compstate->result);
+			compstate->error = node->span;
+			return UNIT_TYPE;
+		}
+		const AstNode *child2 = child1->right_sibling;
+		if (child2 != nullptr) {
+			compstate->result = Result::CompilerUnexpectedExpression;
+			SET_RESULT(compstate->result);
+			compstate->error = child2->span;
+			return UNIT_TYPE;
+		}
+
+		const Token token = *child0->atom_token;
+		const sv token_str = sv_substr(compstate->input.text, token.span);
+
+		// We only support type S-expr of the forms:
+		// (* <type>)
+		if (sv_equals(token_str, sv_from_null_terminated("*"))) {
+			TypeID inner_type = parse_type(compiler, compstate, child1);
+			if (type_id_is_pointer(inner_type)) {
+				inner_type.pointer.indirection_count += 1;
+				return inner_type;
+			} else if (type_id_is_builtin(inner_type)) {
+				TypeID pointer_type = {};
+				pointer_type.pointer = {};
+				pointer_type.pointer.builtin_kind = inner_type.builtin.kind;
+				pointer_type.pointer.pointee_builtin_kind = inner_type.builtin.kind;
+				pointer_type.pointer.indirection_count = 1;
+				return pointer_type;
+			} else if (type_id_is_user_defined(inner_type)) {
+				TypeID pointer_type = {};
+				pointer_type.pointer = {};
+				pointer_type.pointer.builtin_kind = BuiltinTypeKind::Pointer;
+				pointer_type.pointer.indirection_count = 1;
+				pointer_type.pointer.user_defined_index = inner_type.user_defined.index;
+				return pointer_type;
+			} else {
+				compstate->result = Result::Fatal;
+				SET_RESULT(compstate->result);
+				compstate->error = child1->span;
+				return UNIT_TYPE;
+			}
+		}
+
+		// We haven't found any builtin
+		compstate->result = Result::CompilerUnknownSymbol;
+		SET_RESULT(compstate->result);
+		compstate->error = token.span;
+		return UNIT_TYPE;
+	} else {
+		const Token identifier = *node->atom_token;
+		sv identifier_str = sv_substr(compstate->input.text, identifier.span);
+
+		// Search builtin types
+		if (sv_equals(identifier_str, sv_from_null_terminated(BuiltinTypeKind_str[uint32_t(BuiltinTypeKind::Int)]))) {
+			return type_id_new_builtin(BuiltinTypeKind::Int);
+		} else if (sv_equals(identifier_str,
+					   sv_from_null_terminated(BuiltinTypeKind_str[uint32_t(BuiltinTypeKind::Bool)]))) {
+			return type_id_new_builtin(BuiltinTypeKind::Bool);
+		} else if (sv_equals(identifier_str,
+					   sv_from_null_terminated(BuiltinTypeKind_str[uint32_t(BuiltinTypeKind::Float)]))) {
+			return type_id_new_builtin(BuiltinTypeKind::Float);
+		} else if (sv_equals(identifier_str,
+					   sv_from_null_terminated(BuiltinTypeKind_str[uint32_t(BuiltinTypeKind::Str)]))) {
+			return type_id_new_builtin(BuiltinTypeKind::Str);
+		}
+
+		// Search named types
+		for (uint32_t i_type = 0; i_type < compstate->current_module->types_length; ++i_type) {
+			if (sv_equals(compstate->current_module->types[i_type].name, identifier_str)) {
+				return type_id_new_user_defined(i_type);
+			}
+		}
+
+		// We haven't found any named type
+		compstate->result = Result::CompilerUnknownSymbol;
 		SET_RESULT(compstate->result);
 		compstate->error = node->span;
 		return UNIT_TYPE;
 	}
-
-	if (is_unit) {
-		return UNIT_TYPE;
-	}
-
-	const Token identifier = *node->atom_token;
-	sv identifier_str = sv_substr(compstate->input.text, identifier.span);
-
-	// Search builtin types
-	if (sv_equals(identifier_str,
-			sv_from_null_terminated(BuiltinTypeKind_str[static_cast<uint32_t>(BuiltinTypeKind::Int)]))) {
-		return type_id_new_builtin(BuiltinTypeKind::Int);
-	} else if (sv_equals(identifier_str,
-				   sv_from_null_terminated(BuiltinTypeKind_str[static_cast<uint32_t>(BuiltinTypeKind::Bool)]))) {
-		return type_id_new_builtin(BuiltinTypeKind::Bool);
-	} else if (sv_equals(identifier_str,
-				   sv_from_null_terminated(BuiltinTypeKind_str[static_cast<uint32_t>(BuiltinTypeKind::Float)]))) {
-		return type_id_new_builtin(BuiltinTypeKind::Float);
-	}
-
-	// Search named types
-	for (uint32_t i_type = 0; i_type < compstate->current_module->types_length; ++i_type) {
-		if (sv_equals(compstate->current_module->types[i_type].name, identifier_str)) {
-			return type_id_new_user_defined(i_type);
-		}
-	}
-
-	compstate->result = Result::CompilerUnknownSymbol;
-	SET_RESULT(compstate->result);
-	compstate->error = node->span;
-	return UNIT_TYPE;
 }
 
 TypeID compile_atom(Compiler *compiler, CompilerState *compstate, const AstNode *expr_node)
@@ -774,6 +855,37 @@ TypeID compile_atom(Compiler *compiler, CompilerState *compstate, const AstNode 
 		TypeID new_type_id = type_id_new_builtin(BuiltinTypeKind::Int);
 		compiler_push_opcode(compiler, compstate, OpCodeKind::Constant);
 		compiler_push_i32(compiler, compstate, token_number);
+		return new_type_id;
+	} else if (token.kind == TokenKind::StringLiteral) {
+		// A string literal
+		// "str"
+		sv value_sv = sv_substr(token_sv, span{1, token_sv.length - 2});
+
+		// TODO: It's slow.
+		uint32_t i_constant = 0;
+		uint32_t constants_length = compstate->current_module->constants_length;
+		for (; i_constant < constants_length; ++i_constant) {
+			sv constant_sv = compstate->current_module->constants[i_constant].str;
+			if (sv_equals(value_sv, constant_sv)) {
+				break;
+			}
+		}
+		// The constant string was not found, add it.
+		if (i_constant == constants_length) {
+			if (constants_length >= compstate->current_module->constants_capacity) {
+
+				compstate->result = Result::Fatal;
+				SET_RESULT(compstate->result);
+				return UNIT_TYPE;
+			}
+			compstate->current_module->constants_length += 1;
+			compstate->current_module->constants[i_constant].str = value_sv;
+		}
+
+		compiler_push_opcode(compiler, compstate, OpCodeKind::ConstantStr);
+		compiler_push_u32(compiler, compstate, i_constant);
+
+		TypeID new_type_id = type_id_new_builtin(BuiltinTypeKind::Str);
 		return new_type_id;
 	} else {
 		compstate->result = Result::Fatal;
@@ -883,7 +995,7 @@ TypeID compile_define(Compiler *compiler, CompilerState *compstate, const AstNod
 			arg_nodes[args_length] = type_node;
 			args_length += 1;
 
-			identifier_node = type_node->left_child;
+			identifier_node = type_node->right_sibling;
 		}
 	}
 
@@ -1500,6 +1612,177 @@ TypeID compile_field(Compiler *compiler, CompilerState *compstate, const AstNode
 	return field_type;
 }
 
+// Returns the address of an object
+// (addr <expr>)
+TypeID compile_addr(Compiler *compiler, CompilerState *compstate, const AstNode *node)
+{
+	const AstNode *addr_token_node = node->left_child;
+	if (addr_token_node == nullptr || addr_token_node->atom_token == nullptr) {
+		compstate->result = Result::CompilerExpectedIdentifier;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return UNIT_TYPE;
+	}
+
+	const AstNode *expr_node = addr_token_node->right_sibling;
+	if (expr_node == nullptr) {
+		compstate->result = Result::CompilerExpectedExpr;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return UNIT_TYPE;
+	}
+
+	// Typecheck
+	TypeID expr_type_id = compile_expr(compiler, compstate, expr_node);
+	if (compstate->result != Result::Ok) {
+		return UNIT_TYPE;
+	}
+
+	compiler_push_opcode(compiler, compstate, OpCodeKind::Addr);
+	compiler_push_type_id(compiler, compstate, expr_type_id);
+
+	TypeID pointer_to_expr_type_id = {};
+	if (type_id_is_pointer(expr_type_id)) {
+		pointer_to_expr_type_id = expr_type_id;
+		pointer_to_expr_type_id.pointer.indirection_count += 1;
+		return pointer_to_expr_type_id;
+	} else if (type_id_is_builtin(expr_type_id)) {
+		pointer_to_expr_type_id.pointer.builtin_kind = BuiltinTypeKind::Pointer;
+		pointer_to_expr_type_id.pointer.pointee_builtin_kind = expr_type_id.builtin.kind;
+		pointer_to_expr_type_id.pointer.indirection_count = 1;
+		return pointer_to_expr_type_id;
+	}
+	// It has to be a user defined type if it's not a pointer or a builtin
+	if (!type_id_is_user_defined(expr_type_id)) {
+		compstate->result = Result::Fatal;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return UNIT_TYPE;
+	}
+	pointer_to_expr_type_id.pointer.builtin_kind = BuiltinTypeKind::Pointer;
+	pointer_to_expr_type_id.pointer.indirection_count = 1;
+	pointer_to_expr_type_id.pointer.user_defined_index = expr_type_id.user_defined.index;
+	return pointer_to_expr_type_id;
+}
+
+// Dereference a pointer
+// (* <expr>)
+TypeID compile_deref(Compiler *compiler, CompilerState *compstate, const AstNode *node)
+{
+	const AstNode *addr_token_node = node->left_child;
+	if (addr_token_node == nullptr || addr_token_node->atom_token == nullptr) {
+		compstate->result = Result::CompilerExpectedIdentifier;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return UNIT_TYPE;
+	}
+
+	const AstNode *expr_node = addr_token_node->right_sibling;
+	if (expr_node == nullptr) {
+		compstate->result = Result::CompilerExpectedExpr;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return UNIT_TYPE;
+	}
+
+	// Typecheck
+	TypeID expr_type_id = compile_expr(compiler, compstate, expr_node);
+	if (compstate->result != Result::Ok) {
+		return UNIT_TYPE;
+	}
+
+	if (!type_id_is_pointer(expr_type_id)) {
+		compstate->result = Result::CompilerExpectedTypeGot;
+		SET_RESULT(compstate->result);
+		compstate->expected_type = {};
+		compstate->expected_type.pointer.builtin_kind = BuiltinTypeKind::Pointer;
+		compstate->got_type = expr_type_id;
+		return UNIT_TYPE;
+	}
+
+	compiler_push_opcode(compiler, compstate, OpCodeKind::Deref);
+	compiler_push_type_id(compiler, compstate, expr_type_id);
+
+	TypeID pointed_type_id = {};
+	if (expr_type_id.pointer.pointee_builtin_kind != BuiltinTypeKind::Unit) {
+		pointed_type_id = type_id_new_builtin(expr_type_id.pointer.pointee_builtin_kind);
+	} else {
+		// If the pointer is not pointing to a building, it has to be a valid user defined type
+		if (expr_type_id.pointer.user_defined_index >= compstate->current_module->types_length) {
+			compstate->result = Result::Fatal;
+			SET_RESULT(compstate->result);
+			return UNIT_TYPE;
+		}
+
+		pointed_type_id = type_id_new_user_defined(expr_type_id.pointer.user_defined_index);
+	}
+	return pointed_type_id;
+}
+
+// Write an int32_t at the given address
+// (write-i32 <addr> <value>)
+TypeID compile_write_i32(Compiler *compiler, CompilerState *compstate, const AstNode *node)
+{
+	const AstNode *write_token_node = node->left_child;
+	if (write_token_node == nullptr || write_token_node->atom_token == nullptr) {
+		compstate->result = Result::CompilerExpectedIdentifier;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return UNIT_TYPE;
+	}
+
+	const AstNode *addr_node = write_token_node->right_sibling;
+	if (addr_node == nullptr) {
+		compstate->result = Result::CompilerExpectedExpr;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return UNIT_TYPE;
+	}
+
+	const AstNode *expr_node = addr_node->right_sibling;
+	if (expr_node == nullptr) {
+		compstate->result = Result::CompilerExpectedExpr;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return UNIT_TYPE;
+	}
+
+	// Typecheck
+	TypeID addr_type_id = compile_expr(compiler, compstate, addr_node);
+	TypeID expr_type_id = compile_expr(compiler, compstate, expr_node);
+	if (compstate->result != Result::Ok) {
+		return UNIT_TYPE;
+	}
+
+	TypeID int_pointer_type = {};
+	int_pointer_type.pointer.builtin_kind = BuiltinTypeKind::Pointer;
+	int_pointer_type.pointer.pointee_builtin_kind = BuiltinTypeKind::Int;
+	int_pointer_type.pointer.indirection_count = 1;
+	if (!type_similar(compstate, int_pointer_type, addr_type_id)) {
+		compstate->result = Result::CompilerExpectedTypeGot;
+		SET_RESULT(compstate->result);
+		compstate->error = addr_node->span;
+		compstate->expected_type = int_pointer_type;
+		compstate->got_type = addr_type_id;
+		return UNIT_TYPE;
+	}
+
+	TypeID int_type = {};
+	int_type.builtin.kind = BuiltinTypeKind::Int;
+	if (!type_similar(compstate, int_type, expr_type_id)) {
+		compstate->result = Result::CompilerExpectedTypeGot;
+		SET_RESULT(compstate->result);
+		compstate->error = expr_node->span;
+		compstate->expected_type = int_type;
+		compstate->got_type = expr_type_id;
+		return UNIT_TYPE;
+	}
+
+	compiler_push_opcode(compiler, compstate, OpCodeKind::Addr);
+	compiler_push_type_id(compiler, compstate, expr_type_id);
+	return UNIT_TYPE;
+}
+
 using CompstateBuiltin = TypeID (*)(Compiler *, CompilerState *, const AstNode *);
 
 // There are two kinds of "builtins", the ones allowed at top-level and the other ones
@@ -1523,6 +1806,9 @@ const CompstateBuiltin compiler_expr_builtins[] = {
 	compile_isub,
 	compile_ltethan,
 	compile_field,
+	compile_addr,
+	compile_deref,
+	compile_write_i32,
 };
 const sv compiler_expr_builtins_str[] = {
 	sv_from_null_terminated("if"),
@@ -1532,6 +1818,9 @@ const sv compiler_expr_builtins_str[] = {
 	sv_from_null_terminated("-"),
 	sv_from_null_terminated("<="),
 	sv_from_null_terminated("field"),
+	sv_from_null_terminated("addr"),
+	sv_from_null_terminated("*"),
+	sv_from_null_terminated("write-i32"),
 };
 static_assert(ARRAY_LENGTH(compiler_expr_builtins_str) == ARRAY_LENGTH(compiler_expr_builtins));
 
@@ -1681,6 +1970,10 @@ void module_init(Module *new_module, sv module_name)
 	new_module->types_capacity = types_capacity;
 	new_module->types = static_cast<UserDefinedType *>(calloc(types_capacity, sizeof(UserDefinedType)));
 
+	const uint64_t constants_capacity = 16;
+	new_module->constants_capacity = constants_capacity;
+	new_module->constants = static_cast<Constant *>(calloc(constants_capacity, sizeof(Constant)));
+
 	new_module->name = module_name;
 }
 
@@ -1818,13 +2111,13 @@ Result compile_module(Compiler *compiler, sv module_name, sv input, Module **out
 		fprintf(stderr, "Error at (%zu:%zu): '%.*s'\n", error_line, error_col, int(error_str.length), error_str.chars);
 
 		const char *expected_type_str = "(struct)";
-		if (type_id_is_builtin(compstate.expected_type)) {
+		if (!type_id_is_user_defined(compstate.expected_type)) {
 			expected_type_str = BuiltinTypeKind_str[uint32_t(compstate.expected_type.builtin.kind)];
 		}
 		fprintf(stderr, "# expected type #%u %s\n", compstate.expected_type.raw, expected_type_str);
 
 		const char *got_type_str = "(struct)";
-		if (type_id_is_builtin(compstate.got_type)) {
+		if (!type_id_is_user_defined(compstate.got_type)) {
 			got_type_str = BuiltinTypeKind_str[uint32_t(compstate.got_type.builtin.kind)];
 		}
 		fprintf(stderr, "# got type #%u %s\n", compstate.got_type.raw, got_type_str);
@@ -1836,7 +2129,7 @@ Result compile_module(Compiler *compiler, sv module_name, sv input, Module **out
 	fprintf(stdout, "Exported types: %u\n", new_module.types_length);
 	for (uint64_t offset = 0; offset < new_module.bytecode_length; ++offset) {
 		uint8_t opcode = new_module.bytecode[offset];
-		if (opcode >= OpCodeKind::Count) {
+		if (opcode >= uint8_t(OpCodeKind::Count)) {
 			break;
 		}
 
@@ -1845,7 +2138,8 @@ Result compile_module(Compiler *compiler, sv module_name, sv input, Module **out
 
 		bool is_unary_u32 = opcode_kind == OpCodeKind::SetLocal || opcode_kind == OpCodeKind::GetLocal ||
 		                    opcode_kind == OpCodeKind::GetField || opcode_kind == OpCodeKind::SetField ||
-		                    opcode_kind == OpCodeKind::Call || opcode_kind == OpCodeKind::MakeStruct;
+		                    opcode_kind == OpCodeKind::Call || opcode_kind == OpCodeKind::MakeStruct ||
+		                    opcode_kind == OpCodeKind::ConstantStr;
 
 		bool is_unary_i32 = opcode_kind == OpCodeKind::Constant || opcode_kind == OpCodeKind::Jump ||
 		                    opcode_kind == OpCodeKind::ConditionalJump;

@@ -64,8 +64,6 @@ struct ExecutionContext
 	StackValue *stack_current;
 	const StackValue *stack_end;
 
-	// TODO: how to interpret the local storage? I think it should be interpred as bytes. And read depending on
-	// field_offset and field_type->size? and field_type->kind
 	uint8_t *locals_storage_begin;
 	uint8_t *locals_storage_current;
 	uint8_t *locals_storage_previous;
@@ -206,6 +204,19 @@ void executor_execute_module_entrypoint(ExecutorState *state, sv module_name)
 	executor_execute_module_at(state, i_module, ip);
 }
 
+static uint32_t type_get_size(ExecutorState *state, ExecutionContext *ctx, TypeID id)
+{
+	if (id.builtin.is_user_defined != 0) {
+		EXEC_ASSERT(state, id.user_defined.index < ctx->module->types_length);
+		if (state->failed) {
+			return 0;
+		}
+		return ctx->module->types[id.user_defined.index].size;
+	} else {
+		return BuiltinTypeKind_size[uint32_t(id.builtin.kind)];
+	}
+}
+
 static TypeID bytecode_read_type_id(ExecutorState *state, ExecutionContext *ctx)
 {
 	uint64_t bytecode_len = ctx->module->bytecode_length;
@@ -325,6 +336,16 @@ StackValue execution_get_local(ExecutionContext *ctx, uint32_t i_local)
 	return ctx->scopes_current->variables[i_local];
 }
 
+sv execution_get_str(ExecutionContext *ctx, Str str)
+{
+	if (str.is_constant == 1) {
+		if (str.offset < ctx->module->constants_length) {
+			return ctx->module->constants[str.offset].str;
+		}
+	}
+	return sv_from_null_terminated("<ERROR>");
+}
+
 static void print_indent(long long n)
 {
 	for (int32_t i = 0; i < n; ++i) {
@@ -347,6 +368,18 @@ StackValue *push_operand(ExecutorState *state, ExecutionContext *ctx, StackValue
 	return ctx->stack_current;
 }
 
+StackValue pop_operand(ExecutorState *state, ExecutionContext *ctx)
+{
+	EXEC_ASSERT(state, ctx->stack_current >= ctx->stack_begin);
+	if (state->failed) {
+		return {};
+	}
+
+	StackValue popped = *ctx->stack_current;
+	ctx->stack_current -= 1;
+	return popped;
+}
+
 CallFrame *push_callstack(ExecutorState *state, ExecutionContext *ctx)
 {
 	EXEC_ASSERT(state, ctx->callstack_current + 1 < ctx->callstack_end);
@@ -365,8 +398,27 @@ static void execute_constant(ExecutorState *state, ExecutionContext *ctx)
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
 	printf("Constant: pushed %d\n", value);
 
-	StackValue to_push = {};
-	to_push.i32 = value;
+	StackValue to_push = stack_value_i32(value);
+	push_operand(state, ctx, to_push);
+}
+
+static void execute_constant_str(ExecutorState *state, ExecutionContext *ctx)
+{
+	uint32_t i_constant = bytecode_read_u32(ctx);
+	EXEC_ASSERT(state, i_constant < ctx->module->constants_length);
+	if (state->failed) {
+		return;
+	}
+
+	sv value = ctx->module->constants[i_constant].str;
+	print_indent(ctx->callstack_current - ctx->callstack_begin);
+	printf("ConstantStr: pushed \"%.*s\"\n", int(value.length), value.chars);
+
+	Str str = {};
+	str.is_constant = 1;
+	str.offset = i_constant;
+	str.length = uint32_t(value.length);
+	StackValue to_push = stack_value_str(str);
 	push_operand(state, ctx, to_push);
 }
 
@@ -433,23 +485,18 @@ static void execute_ret(ExecutorState *, ExecutionContext *ctx)
 
 static void execute_conditional_jump(ExecutorState *state, ExecutionContext *ctx)
 {
-	// Check that there is a value for the condition in the stack
-	EXEC_ASSERT(state, ctx->stack_current >= ctx->stack_begin);
+	StackValue condition = pop_operand(state, ctx);
 	if (state->failed) {
 		return;
 	}
 
-	StackValue popped = *ctx->stack_current;
-	ctx->stack_current -= 1;
-
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
-	printf("Popped %d\n", popped.i32);
+	printf("Popped %d\n", condition.i32);
 
 	uint32_t jump_destination = bytecode_read_u32(ctx);
 	// Check that the jump destination is valid
 	EXEC_ASSERT(state, jump_destination < ctx->module->bytecode_length);
-
-	if (popped.i32 != 0) {
+	if (condition.i32 != 0) {
 		ctx->ip = uint64_t(jump_destination);
 	}
 }
@@ -467,24 +514,21 @@ static void execute_get_field(ExecutorState *state, ExecutionContext *ctx)
 	Module *module = ctx->module;
 
 	uint32_t i_field = bytecode_read_u32(ctx);
-
-	// Assert that there is 1 value on the stack
-	EXEC_ASSERT(state, ctx->stack_current >= ctx->stack_begin);
+	StackValue struct_ptr = pop_operand(state, ctx);
+	TypeID struct_type_id = struct_ptr.local_ptr.type_id;
 	if (state->failed) {
 		return;
 	}
 
-	StackValue struct_ptr = *ctx->stack_current;
-	TypeID struct_type_id = struct_ptr.local_storage_ptr.type_id;
+	// Debug print
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
 	printf("GetField #%u (struct at %u type %u)\n",
 		i_field,
-		struct_ptr.local_storage_ptr.offset,
-		struct_ptr.local_storage_ptr.type_id.raw);
+		struct_ptr.local_ptr.offset,
+		struct_ptr.local_ptr.type_id.raw);
 
 	// Check thast the struct ptr is valid
-	EXEC_ASSERT(state,
-		struct_ptr.local_storage_ptr.offset < uint32_t(ctx->locals_storage_end - ctx->locals_storage_begin));
+	EXEC_ASSERT(state, struct_ptr.local_ptr.offset < uint32_t(ctx->locals_storage_end - ctx->locals_storage_begin));
 	EXEC_ASSERT(state, type_id_is_user_defined(struct_type_id));
 	EXEC_ASSERT(state, struct_type_id.user_defined.index < ctx->module->types_length);
 	if (state->failed) {
@@ -492,7 +536,6 @@ static void execute_get_field(ExecutorState *state, ExecutionContext *ctx)
 	}
 
 	UserDefinedType *struct_type = module->types + struct_type_id.user_defined.index;
-	uint8_t *struct_pointer = ctx->locals_storage_begin + struct_ptr.local_storage_ptr.offset;
 
 	// Assert that the field is valid
 	EXEC_ASSERT(state, i_field < struct_type->field_count);
@@ -502,50 +545,26 @@ static void execute_get_field(ExecutorState *state, ExecutionContext *ctx)
 
 	uint64_t field_offset = struct_type->field_offsets[i_field];
 	TypeID field_type = struct_type->field_types[i_field];
-	uint8_t *field_pointer = struct_pointer + field_offset;
 
+	// Check that the user defined type is valid
 	if (type_id_is_user_defined(field_type)) {
-		// Assert that the type is in the same module
 		EXEC_ASSERT(state, field_type.user_defined.index < module->types_length);
 		if (state->failed) {
 			return;
 		}
-
-		ctx->stack_current->local_storage_ptr.type_id = field_type;
-		ctx->stack_current->local_storage_ptr.offset = uint32_t(struct_ptr.local_storage_ptr.offset + field_offset);
-	} else {
-		switch (field_type.builtin.kind) {
-		case BuiltinTypeKind::Unit: {
-			break;
-		}
-		case BuiltinTypeKind::Int: {
-			ctx->stack_current->i32 = *reinterpret_cast<int32_t *>(field_pointer);
-			break;
-		}
-		case BuiltinTypeKind::Bool: {
-			ctx->stack_current->b8 = *reinterpret_cast<bool *>(field_pointer);
-			break;
-		}
-		case BuiltinTypeKind::Float: {
-			ctx->stack_current->f32 = *reinterpret_cast<float *>(field_pointer);
-			break;
-		}
-		case BuiltinTypeKind::Pointer: {
-			ctx->stack_current->local_storage_ptr = *reinterpret_cast<TypedPointer *>(field_pointer);
-			break;
-		}
-		case BuiltinTypeKind::Count: {
-			break;
-		}
-		}
 	}
 
-	StackValue field_value = *ctx->stack_current;
+	// Push the member by value (addressable local object)
+	TypedPointer local_ptr = {};
+	local_ptr.type_id = field_type;
+	local_ptr.offset = uint32_t(struct_ptr.local_ptr.offset + field_offset);
+	StackValue field_ptr = stack_value_local_object(local_ptr);
+	push_operand(state, ctx, field_ptr);
+
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
-	printf("Field value: int(%u) ptr(struct at %u type %u)\n",
-		field_value.i32,
-		field_value.local_storage_ptr.offset,
-		field_value.local_storage_ptr.type_id.raw);
+	printf("Field value: ptr(struct at offset %u type %u)\n",
+		field_ptr.local_ptr.offset,
+		field_ptr.local_ptr.type_id.raw);
 }
 
 static void execute_set_field(ExecutorState *state, ExecutionContext *ctx)
@@ -554,29 +573,23 @@ static void execute_set_field(ExecutorState *state, ExecutionContext *ctx)
 
 	uint32_t i_field = bytecode_read_u32(ctx);
 
-	// Assert that there are at least 2  values on the stack
-	EXEC_ASSERT(state, ctx->stack_current >= ctx->stack_begin + 1);
+	StackValue field_value = pop_operand(state, ctx);
+	StackValue struct_ptr = pop_operand(state, ctx);
+	TypeID struct_type_id = struct_ptr.local_ptr.type_id;
 	if (state->failed) {
 		return;
 	}
 
-	StackValue field_value = *ctx->stack_current;
-
-	ctx->stack_current -= 1;
-
-	StackValue struct_ptr = *ctx->stack_current;
-	TypeID struct_type_id = struct_ptr.local_storage_ptr.type_id;
-
+	// Debug print
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
-	printf("SetField #%u (struct at %u type %u)\n", i_field, struct_ptr.local_storage_ptr.offset, struct_type_id.raw);
+	printf("SetField #%u (struct at %u type %u)\n", i_field, struct_ptr.local_ptr.offset, struct_type_id.raw);
 	printf("Field value: int(%u) ptr(struct at %u type %u)\n",
 		field_value.i32,
-		field_value.local_storage_ptr.offset,
-		field_value.local_storage_ptr.type_id.raw);
+		field_value.local_ptr.offset,
+		field_value.local_ptr.type_id.raw);
 
 	// Check thast the struct ptr is valid
-	EXEC_ASSERT(state,
-		struct_ptr.local_storage_ptr.offset < uint32_t(ctx->locals_storage_end - ctx->locals_storage_begin));
+	EXEC_ASSERT(state, struct_ptr.local_ptr.offset < uint32_t(ctx->locals_storage_end - ctx->locals_storage_begin));
 	EXEC_ASSERT(state, type_id_is_user_defined(struct_type_id));
 	EXEC_ASSERT(state, struct_type_id.user_defined.index < ctx->module->types_length);
 	if (state->failed) {
@@ -584,7 +597,7 @@ static void execute_set_field(ExecutorState *state, ExecutionContext *ctx)
 	}
 
 	UserDefinedType *struct_type = module->types + struct_type_id.user_defined.index;
-	uint8_t *struct_pointer = ctx->locals_storage_begin + struct_ptr.local_storage_ptr.offset;
+	uint8_t *struct_pointer = ctx->locals_storage_begin + struct_ptr.local_ptr.offset;
 
 	// Assert that the field is valid
 	EXEC_ASSERT(state, i_field < struct_type->field_count);
@@ -592,49 +605,22 @@ static void execute_set_field(ExecutorState *state, ExecutionContext *ctx)
 		return;
 	}
 
-	uint64_t field_offset = struct_type->field_offsets[i_field];
 	TypeID field_type_id = struct_type->field_types[i_field];
-	uint8_t *field_pointer = struct_pointer + field_offset;
+	uint8_t *field_pointer = struct_pointer + struct_type->field_offsets[i_field];
 
 	if (type_id_is_user_defined(field_type_id)) {
-
 		// Check that the pointer on the stack is valid.
 		EXEC_ASSERT(state, field_type_id.user_defined.index < module->types_length);
-		EXEC_ASSERT(state, field_type_id.raw == field_value.local_storage_ptr.type_id.raw);
+		EXEC_ASSERT(state, field_type_id.raw == field_value.local_ptr.type_id.raw);
 		EXEC_ASSERT(state,
-			field_value.local_storage_ptr.offset < uint32_t(ctx->locals_storage_end - ctx->locals_storage_begin));
+			field_value.local_ptr.offset < uint32_t(ctx->locals_storage_end - ctx->locals_storage_begin));
 		if (state->failed) {
 			return;
 		}
-
-		UserDefinedType *field_type = module->types + field_type_id.user_defined.index;
-		memcpy(field_pointer, ctx->locals_storage_begin + field_value.local_storage_ptr.offset, field_type->size);
-	} else {
-		switch (field_type_id.builtin.kind) {
-		case BuiltinTypeKind::Unit: {
-			break;
-		}
-		case BuiltinTypeKind::Int: {
-			memcpy(field_pointer, &field_value.i32, sizeof(field_value.i32));
-			break;
-		}
-		case BuiltinTypeKind::Bool: {
-			memcpy(field_pointer, &field_value.b8, sizeof(field_value.b8));
-			break;
-		}
-		case BuiltinTypeKind::Float: {
-			memcpy(field_pointer, &field_value.f32, sizeof(field_value.f32));
-			break;
-		}
-		case BuiltinTypeKind::Pointer: {
-			memcpy(field_pointer, &field_value.local_storage_ptr, sizeof(field_value.local_storage_ptr));
-			break;
-		}
-		case BuiltinTypeKind::Count: {
-			break;
-		}
-		}
 	}
+
+	uint32_t field_size = type_get_size(state, ctx, field_type_id);
+	memcpy(field_pointer, ctx->locals_storage_begin + field_value.local_ptr.offset, field_size);
 }
 
 static void execute_begin_scope(ExecutorState *state, ExecutionContext *ctx)
@@ -661,7 +647,6 @@ static void execute_set_local(ExecutorState *state, ExecutionContext *ctx)
 {
 	uint32_t i_local = bytecode_read_u32(ctx);
 	EXEC_ASSERT(state, ctx->scopes_current >= ctx->scopes_begin);
-	EXEC_ASSERT(state, ctx->stack_current >= ctx->stack_begin);
 	EXEC_ASSERT(state, i_local < VARSCOPE_CAPACITY);
 	if (state->failed) {
 		return;
@@ -670,9 +655,12 @@ static void execute_set_local(ExecutorState *state, ExecutionContext *ctx)
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
 	printf("Popped %d (local #%u)\n", ctx->stack_current->i32, i_local);
 
+	// If the value is a constant, we need to promote it in memory
+
+	// Otherwise we need to deep copy it
+
 	// Pop the value to set
-	StackValue local_value = *ctx->stack_current;
-	ctx->stack_current -= 1;
+	StackValue local_value = pop_operand(state, ctx);
 
 	// Set the local value
 	ctx->scopes_current->variables[i_local] = local_value;
@@ -683,17 +671,15 @@ static void execute_get_local(ExecutorState *state, ExecutionContext *ctx)
 	uint32_t i_local = bytecode_read_u32(ctx);
 
 	EXEC_ASSERT(state, ctx->scopes_current >= ctx->scopes_begin);
-	EXEC_ASSERT(state, ctx->stack_current + 1 < ctx->stack_end);
 	EXEC_ASSERT(state, i_local < VARSCOPE_CAPACITY);
 	if (state->failed) {
 		return;
 	}
 
-	ctx->stack_current += 1;
-	*ctx->stack_current = ctx->scopes_current->variables[i_local];
+	StackValue *pushed = push_operand(state, ctx, ctx->scopes_current->variables[i_local]);
 
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
-	printf("Pushed %d (local #%u)\n", ctx->stack_current->i32, i_local);
+	printf("Pushed %d (local #%u)\n", pushed->i32, i_local);
 }
 
 static void execute_make_struct(ExecutorState *state, ExecutionContext *ctx)
@@ -706,12 +692,6 @@ static void execute_make_struct(ExecutorState *state, ExecutionContext *ctx)
 	}
 	UserDefinedType *struct_type = ctx->module->types + struct_type_id.user_defined.index;
 
-	// Check that we can push a value on the operand stack
-	EXEC_ASSERT(state, ctx->stack_current + 1 < ctx->stack_end);
-	if (state->failed) {
-		return;
-	}
-
 	// Reserve space in the local storage for the struct data
 	uint8_t *local_struct_storage = execution_push_local(ctx, struct_type->size);
 	EXEC_ASSERT(state, local_struct_storage != nullptr);
@@ -719,13 +699,75 @@ static void execute_make_struct(ExecutorState *state, ExecutionContext *ctx)
 		return;
 	}
 
-	// TODO: When are we going to pop this? scope end? :|
-	ctx->stack_current += 1;
-	ctx->stack_current->local_storage_ptr.type_id = struct_type_id;
-	ctx->stack_current->local_storage_ptr.offset = uint32_t(local_struct_storage - ctx->locals_storage_begin);
+	// TODO: Keep a pointer to pop this on scope end
+	StackValue new_struct = {};
+	new_struct.kind = StackValueKind::LocalPtr;
+	new_struct.local_ptr.type_id = struct_type_id;
+	new_struct.local_ptr.offset = uint32_t(local_struct_storage - ctx->locals_storage_begin);
+	push_operand(state, ctx, new_struct);
 
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
 	printf("Pushed struct (type %u) (offset %u)\n", struct_type_id.raw, ctx->stack_current->i32);
+}
+
+static void execute_addr(ExecutorState *state, ExecutionContext *ctx)
+{
+	const TypeID inner_type = bytecode_read_type_id(state, ctx);
+	StackValue operand = pop_operand(state, ctx);
+
+	// It's not valid to take the address of a constant
+	EXEC_ASSERT(state, !stack_value_is_constant(operand));
+	if (state->failed) {
+		return;
+	}
+	// We have either an object or a ptr
+
+	// Verify that the type of the operand matches the type of the addr return type
+	EXEC_ASSERT(state, operand.local_ptr.type_id.raw == inner_type.raw);
+
+	// Because we can only take the address of addressable objects,
+	// and that addressable objects are represented by their address in the operand stack,
+	// the value on the stack is already a pointer.
+	operand.kind = StackValueKind::LocalPtr;
+	push_operand(state, ctx, operand);
+}
+
+static void execute_deref(ExecutorState *state, ExecutionContext *ctx)
+{
+	const TypeID pointer_type = bytecode_read_type_id(state, ctx);
+	StackValue operand = pop_operand(state, ctx);
+
+	EXEC_ASSERT(state, operand.kind == StackValueKind::LocalPtr);
+	if (state->failed) {
+		return;
+	}
+
+	// Verify that the type of the operand matches the type of the addr return type
+	EXEC_ASSERT(state, operand.local_ptr.type_id.raw == pointer_type.raw);
+
+	// Local pointer and addressable objects are represented the same way
+	operand.kind = StackValueKind::LocalObject;
+	push_operand(state, ctx, operand);
+}
+
+static void execute_write_i32(ExecutorState *state, ExecutionContext *ctx)
+{
+	StackValue value_to_write = pop_operand(state, ctx);
+	StackValue pointer_to_write = pop_operand(state, ctx);
+	uint8_t *address = ctx->locals_storage_begin + pointer_to_write.local_ptr.offset;
+
+	// Check the type of operands and that the pointer is valid
+	EXEC_ASSERT(state, value_to_write.kind == StackValueKind::I32);
+	EXEC_ASSERT(state, pointer_to_write.kind == StackValueKind::LocalPtr);
+	EXEC_ASSERT(state, address + sizeof(value_to_write.i32) <= ctx->locals_storage_end);
+	if (type_id_is_user_defined(pointer_to_write.local_ptr.type_id)) {
+		EXEC_ASSERT(state, pointer_to_write.local_ptr.type_id.user_defined.index < ctx->module->types_length);
+	}
+	if (state->failed) {
+		return;
+	}
+
+	memcpy(address, &value_to_write.i32, sizeof(value_to_write.i32));
 }
 
 template <typename Lambda>
@@ -735,6 +777,8 @@ static void execute_binop(ExecutorState *state, ExecutionContext *ctx, Lambda &&
 	if (state->failed) {
 		return;
 	}
+
+	// TODO: Fetch integers from memory
 	StackValue rhs = *ctx->stack_current;
 	ctx->stack_current -= 1;
 	StackValue lhs = *ctx->stack_current;
@@ -786,8 +830,9 @@ static void executor_execute_module_at(ExecutorState *state, uint64_t i_module, 
 	Module *module = ctx.module;
 
 	using ExecuteOpCode = void (*)(ExecutorState *, ExecutionContext *);
-	ExecuteOpCode execute_opcodes[OpCodeKind::Count] = {
+	ExecuteOpCode execute_opcodes[] = {
 		execute_constant,
+		execute_constant_str,
 		execute_call,
 		execute_call_foreign,
 		execute_ret,
@@ -800,13 +845,16 @@ static void executor_execute_module_at(ExecutorState *state, uint64_t i_module, 
 		execute_set_local,
 		execute_get_local,
 		execute_make_struct,
+		execute_addr,
+		execute_deref,
+		execute_write_i32,
 		execute_iadd,
 		execute_isub,
 		execute_iless_than_eq,
 		execute_halt,
 		execute_debug_label,
 	};
-	static_assert(ARRAY_LENGTH(execute_opcodes) == OpCodeKind::Count);
+	static_assert(ARRAY_LENGTH(execute_opcodes) == uint8_t(OpCodeKind::Count));
 
 	const uint64_t bytecode_len = module->bytecode_length;
 	while (ctx.ip < bytecode_len) {
@@ -817,13 +865,13 @@ static void executor_execute_module_at(ExecutorState *state, uint64_t i_module, 
 		uint8_t opcode = module->bytecode[ctx.ip];
 		ctx.ip += 1;
 
-		if (opcode >= OpCodeKind::Count) {
+		if (opcode >= uint8_t(OpCodeKind::Count)) {
 			fprintf(stderr, "Invalid opcode %u\n", opcode);
 			break;
 		}
 
 		OpCodeKind opcode_kind = OpCodeKind(opcode);
-		execute_opcodes[opcode_kind](state, &ctx);
+		execute_opcodes[uint8_t(opcode_kind)](state, &ctx);
 	}
 
 	// Call user callback if the execution failed

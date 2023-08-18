@@ -1,4 +1,5 @@
-(define-foreign (log ()) (n i32))
+(define-foreign (log ()) (s str))
+(define-foreign (logi ()) (n i32))
 
 (struct Point
 	(x i32)
@@ -9,12 +10,17 @@
 	(z i32))
 
 (define (log-point ()) (p Point)
-	(log (field p x))
-	(log (field p y)))
+	(log "Logging point.")
+	(logi (field p x))
+	(logi (field p y)))
 
 (define (log-point3d ()) (p Point3D)
 	(log-point (field p xy))
-	(log (field p z)))
+	(log "Logging point3d.")
+	(logi (field p z)))
+
+(define (set-point-x ()) (p (* Point) n i32)
+	(write-i32 (addr (field (* p) x)) n))
 
 (define (main i32) ()
 	(begin
