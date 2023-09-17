@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.23)
 project(playground LANGUAGES CXX)
 
-add_executable(ode src/main.cpp src/compiler.cpp src/stack_allocator.cpp src/executor.cpp)
+add_executable(ode src/main.cpp src/lexer.cpp src/parser.cpp src/compiler.cpp src/stack_allocator.cpp) #src/executor.cpp)
 
 target_compile_options(ode PRIVATE
     $<$<CXX_COMPILER_ID:Clang,GNU>:-march=native>

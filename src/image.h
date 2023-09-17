@@ -1,7 +1,7 @@
 #pragma once
 #include "core.h"
 
-inline constexpr uint64_t MAX_ARGUMENTS = 8;
+inline constexpr uint32_t MAX_ARGUMENTS = 8;
 
 // TODO: How to distinguish between GetField (which returns the field by value) and "taking the address of a field"
 // - Make GetField returns an lvale and shit happens
@@ -102,7 +102,7 @@ inline constexpr const char *BuiltinTypeKind_str[] = {
 	"ptr",
 	"str",
 };
-static_assert(ARRAY_LENGTH(BuiltinTypeKind_str) == uint64_t(BuiltinTypeKind::Count));
+static_assert(ARRAY_LENGTH(BuiltinTypeKind_str) == uint32_t(BuiltinTypeKind::Count));
 
 inline constexpr uint32_t BuiltinTypeKind_size[] = {
 	0,
@@ -112,7 +112,7 @@ inline constexpr uint32_t BuiltinTypeKind_size[] = {
 	4,
 	8,
 };
-static_assert(ARRAY_LENGTH(BuiltinTypeKind_size) == uint64_t(BuiltinTypeKind::Count));
+static_assert(ARRAY_LENGTH(BuiltinTypeKind_size) == uint32_t(BuiltinTypeKind::Count));
 
 inline constexpr uint32_t TYPE_MAX_INDIRECTION = 4;
 inline constexpr uint32_t TYPE_MAX_USER_DEFINED = (1 << 19); // match the user_defined_index
@@ -194,9 +194,9 @@ struct UserDefinedType
 struct Function
 {
 	sv name;
-	uint64_t address; // offset into the compiler bytecode
+	uint32_t address; // offset into the compiler bytecode
 	TypeID arg_types[MAX_ARGUMENTS];
-	uint64_t arg_count;
+	uint32_t arg_count;
 	TypeID return_type;
 	bool is_foreign;
 };
@@ -210,11 +210,11 @@ struct Module
 {
 	sv name;
 	Function *functions;
-	uint64_t functions_capacity;
-	uint64_t functions_length;
+	uint32_t functions_capacity;
+	uint32_t functions_length;
 	uint8_t *bytecode;
-	uint64_t bytecode_capacity;
-	uint64_t bytecode_length;
+	uint32_t bytecode_capacity;
+	uint32_t bytecode_length;
 	UserDefinedType *types;
 	uint32_t types_capacity;
 	uint32_t types_length;
