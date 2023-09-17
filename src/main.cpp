@@ -8,7 +8,7 @@
 
 #include "compiler.h"
 #include "cross.h"
-// #include "executor.h"
+#include "executor.h"
 
 sv read_entire_file(FILE *file)
 {
@@ -73,7 +73,6 @@ Module *compile_file_to_module(Compiler *compiler, sv path, sv *out_module_name 
 	return module;
 }
 
-#if 0
 void dummy_foreign_func(ExecutionContext *)
 {
 	printf("Dummy foreign func.\n");
@@ -117,7 +116,7 @@ void on_error(ExecutorState * /*executor*/, RuntimeError err)
 	}
 	fprintf(stderr, "EXECUTOR FAILED: %.*s\n", int(err.message.length), err.message.chars);
 }
-#endif
+
 
 int main(int argc, const char *argv[])
 {
@@ -147,13 +146,13 @@ int main(int argc, const char *argv[])
 
 	Compiler *compiler = compiler_init();
 
-#if 0
+
 	ExecutorConfig exec_config = {};
 	exec_config.error_callback = on_error;
 	exec_config.foreign_callback = on_foreign;
 
 	ExecutorState *executor = executor_init(exec_config);
-#endif
+
 
 	uint64_t last_compilation = 0;
 	sv last_compiled_module_name = {};
@@ -167,7 +166,7 @@ int main(int argc, const char *argv[])
 			Module *module = compile_file_to_module(compiler, path_str, &last_compiled_module_name);
 			printf("Compilation returned: %p\n", static_cast<void *>(module));
 			if (module != nullptr) {
-#if 0
+
 				executor_load_module(executor, module);
 
 				uint64_t before = stm_now();
@@ -176,7 +175,7 @@ int main(int argc, const char *argv[])
 				uint64_t delta = stm_diff(after, before);
 				double delta_ms = stm_ms(delta);
 				printf("Execution lasted %f ms.\n", delta_ms);
-#endif
+
 			}
 		}
 

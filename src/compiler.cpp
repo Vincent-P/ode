@@ -5,9 +5,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-// TODO:
-// Clean 16/09/23: Split all compile functions into "parse_xxx"/"compile_xxx"
-
 #define SET_RESULT(x)                                                                                                  \
 	__debugbreak();                                                                                                    \
 	x##_file = __FILE__;                                                                                               \
@@ -69,7 +66,450 @@ struct CompilerState
 	TypeID got_type;
 };
 
+// parsing functions
+
+TypeID parse_type(Compiler *compiler, CompilerState *compstate, const AstNode *node)
+{
+	if (ast_is_atom(node)) {
+		// The type is just an identifier, find the corresponding builtin type or named type
+		const Token *identifier = ast_get_token(&compstate->tokens, node);
+		sv identifier_str = sv_substr(compstate->input.text, identifier->span);
+
+		// Search builtin types
+		for (uint32_t i_builtin_type = 0; i_builtin_type < ARRAY_LENGTH(BuiltinTypeKind_str); ++i_builtin_type) {
+			const char *builtin_str = BuiltinTypeKind_str[i_builtin_type];
+			if (sv_equals(identifier_str, sv_from_null_terminated(builtin_str))) {
+				return type_id_new_builtin(BuiltinTypeKind(i_builtin_type));
+			}
+		}
+
+		// Search named types
+		for (uint32_t i_type = 0; i_type < compstate->current_module->types_length; ++i_type) {
+			if (sv_equals(compstate->current_module->types[i_type].name, identifier_str)) {
+				return type_id_new_user_defined(i_type);
+			}
+		}
+
+		// We haven't found any named type
+		compstate->result = Result::CompilerUnknownSymbol;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return UNIT_TYPE;
+	} else {
+		// The compiler is a S-expression
+		if (!ast_has_left_child(node)) {
+			// () is a unit type
+			return UNIT_TYPE;
+		}
+
+		const AstNode *child0 = ast_get_left_child(&compstate->nodes, node);
+		// The type is a S-expr, either it is a unit type () or a form starting with a TOKEN
+		if (!ast_is_atom(child0)) {
+			compstate->result = Result::CompilerExpectedIdentifier;
+			SET_RESULT(compstate->result);
+			compstate->error = child0->span;
+			return UNIT_TYPE;
+		}
+		// Assert that there is at least one argument
+		if (!ast_has_right_sibling(child0)) {
+			compstate->result = Result::CompilerExpectedExpr;
+			SET_RESULT(compstate->result);
+			compstate->error = node->span;
+			return UNIT_TYPE;
+		}
+		const AstNode *child1 = ast_get_right_sibling(&compstate->nodes, child0);
+		// Assert that there is only one argument
+		if (ast_has_right_sibling(child1)) {
+			const AstNode *child2 = ast_get_right_sibling(&compstate->nodes, child1);
+			compstate->result = Result::CompilerUnexpectedExpression;
+			SET_RESULT(compstate->result);
+			compstate->error = child2->span;
+			return UNIT_TYPE;
+		}
+
+		const Token *token = ast_get_token(&compstate->tokens, child0);
+		const sv token_str = sv_substr(compstate->input.text, token->span);
+
+		// We only support type S-expr of the forms:
+		// (* <type>)
+		if (sv_equals(token_str, sv_from_null_terminated("*"))) {
+			TypeID inner_type = parse_type(compiler, compstate, child1);
+			if (type_id_is_pointer(inner_type)) {
+				inner_type.pointer.indirection_count += 1;
+				return inner_type;
+			} else if (type_id_is_builtin(inner_type)) {
+				TypeID pointer_type = {};
+				pointer_type.pointer = {};
+				pointer_type.pointer.builtin_kind = inner_type.builtin.kind;
+				pointer_type.pointer.pointee_builtin_kind = inner_type.builtin.kind;
+				pointer_type.pointer.indirection_count = 1;
+				return pointer_type;
+			} else if (type_id_is_user_defined(inner_type)) {
+				TypeID pointer_type = {};
+				pointer_type.pointer = {};
+				pointer_type.pointer.builtin_kind = BuiltinTypeKind::Pointer;
+				pointer_type.pointer.indirection_count = 1;
+				pointer_type.pointer.user_defined_index = inner_type.user_defined.index;
+				return pointer_type;
+			} else {
+				compstate->result = Result::Fatal;
+				SET_RESULT(compstate->result);
+				compstate->error = child1->span;
+				return UNIT_TYPE;
+			}
+		}
+
+		// We haven't found any builtin
+		compstate->result = Result::CompilerUnknownSymbol;
+		SET_RESULT(compstate->result);
+		compstate->error = token->span;
+		return UNIT_TYPE;
+	}
+}
+
+struct DefineNode
+{
+	const Token *function_name_token;
+	Token arg_identifiers[MAX_ARGUMENTS];
+	const AstNode *arg_nodes[MAX_ARGUMENTS];
+	const AstNode *return_type_node;
+	const AstNode *body_node;
+	uint32_t args_length;
+	// internal
+	const AstNode *arglist_node;
+};
+
+// Parse a define function signature without a body
+void parse_define_sig(Compiler *, CompilerState *compstate, const AstNode *node, DefineNode *output)
+{
+	const AstNode *define_token_node = ast_get_left_child(&compstate->nodes, node);
+	const AstNode *name_type_node = ast_get_right_sibling(&compstate->nodes, define_token_node);
+
+	// Get the function name node
+	const AstNode *function_name_node = ast_get_left_child(&compstate->nodes, name_type_node);
+	const bool function_name_is_an_atom = ast_has_left_child(name_type_node) && ast_is_atom(function_name_node);
+	if (!function_name_is_an_atom) {
+		compstate->result = Result::CompilerExpectedIdentifier;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return;
+	}
+	output->function_name_token = ast_get_token(&compstate->tokens, function_name_node);
+
+	// Get the function return type node
+	if (!ast_has_right_sibling(function_name_node)) {
+		compstate->result = Result::CompilerExpectedExpr;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return;
+	}
+	output->return_type_node = ast_get_right_sibling(&compstate->nodes, function_name_node);
+
+	// Get the arguments list node
+	output->arglist_node = ast_get_right_sibling(&compstate->nodes, name_type_node);
+	if (!ast_has_right_sibling(name_type_node)) {
+		compstate->result = Result::CompilerExpectedExpr;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return;
+	}
+	// Arguments are laid out as (name1 type1 name2 type2 ...)
+	uint32_t i_arg_node = output->arglist_node->left_child_index;
+	uint32_t args_length = 0;
+	while (ast_is_valid(i_arg_node)) {
+		const AstNode *arg_name_node = ast_get_node(&compstate->nodes, i_arg_node);
+		const Token *arg_name = ast_get_token(&compstate->tokens, arg_name_node);
+		const bool arg_is_an_identifier = ast_is_atom(arg_name_node) && arg_name->kind == TokenKind::Identifier;
+		if (!arg_is_an_identifier) {
+			compstate->result = Result::CompilerExpectedIdentifier;
+			SET_RESULT(compstate->result);
+			compstate->error = output->arglist_node->span;
+			return;
+		}
+
+		const AstNode *arg_type_node = ast_get_right_sibling(&compstate->nodes, arg_name_node);
+		if (!ast_has_right_sibling(arg_name_node)) {
+			compstate->result = Result::CompilerExpectedExpr;
+			SET_RESULT(compstate->result);
+			compstate->error = output->arglist_node->span;
+			return;
+		}
+
+		output->arg_identifiers[args_length] = *arg_name;
+		output->arg_nodes[args_length] = arg_type_node;
+		args_length += 1;
+		i_arg_node = arg_type_node->right_sibling_index;
+	}
+	output->args_length = args_length;
+}
+
+void parse_define_body(Compiler *, CompilerState *compstate, const AstNode *node, DefineNode *output)
+{
+	if (!ast_has_right_sibling(output->arglist_node)) {
+		compstate->result = Result::CompilerExpectedExpr;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return;
+	}
+	output->body_node = ast_get_right_sibling(&compstate->nodes, output->arglist_node);
+}
+
+struct StructNode
+{
+	const Token *struct_name_token;
+	Token field_identifiers[MAX_STRUCT_FIELDS];
+	const AstNode *field_type_nodes[MAX_STRUCT_FIELDS];
+	uint32_t fields_length;
+};
+
+void parse_struct(Compiler *, CompilerState *compstate, const AstNode *node, StructNode *output)
+{
+	const AstNode *struct_token_node = ast_get_left_child(&compstate->nodes, node);
+
+	// Get struct name node
+	const AstNode *struct_name_node = ast_get_right_sibling(&compstate->nodes, struct_token_node);
+	if (!ast_has_right_sibling(struct_token_node) || !ast_is_atom(struct_name_node)) {
+		compstate->result = Result::CompilerExpectedIdentifier;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return;
+	}
+	output->struct_name_token = ast_get_token(&compstate->tokens, struct_name_node);
+
+	// Get fields
+	// Get the first field (a struct MUST have at least one field)
+	if (!ast_has_right_sibling(struct_name_node)) {
+		compstate->result = Result::CompilerExpectedExpr;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return;
+	}
+	uint32_t fields_length = 0;
+	uint32_t i_field_node = struct_name_node->right_sibling_index;
+	while (ast_is_valid(i_field_node)) {
+		const AstNode *field_node = ast_get_node(&compstate->nodes, i_field_node);
+		// Get the field name
+		const AstNode *field_identifier_node = ast_get_left_child(&compstate->nodes, field_node);
+		if (!ast_has_left_child(field_node)) {
+			compstate->result = Result::CompilerExpectedIdentifier;
+			SET_RESULT(compstate->result);
+			compstate->error = field_node->span;
+			return;
+		}
+		const Token *field_identifier_token = ast_get_token(&compstate->tokens, field_identifier_node);
+		const bool is_an_identifier_token_node =
+			ast_is_atom(field_identifier_node) && field_identifier_token->kind == TokenKind::Identifier;
+		if (!is_an_identifier_token_node) {
+			compstate->result = Result::CompilerExpectedIdentifier;
+			SET_RESULT(compstate->result);
+			compstate->error = field_identifier_node->span;
+			return;
+		}
+		// Get the field type
+		if (!ast_has_right_sibling(field_identifier_node)) {
+			compstate->result = Result::CompilerExpectedExpr;
+			SET_RESULT(compstate->result);
+			compstate->error = field_node->span;
+			return;
+		}
+		const AstNode *field_type_node = ast_get_right_sibling(&compstate->nodes, field_identifier_node);
+		if (fields_length > MAX_STRUCT_FIELDS) {
+			compstate->result = Result::Fatal;
+			SET_RESULT(compstate->result);
+			compstate->error = field_identifier_node->span;
+			return;
+		}
+
+		output->field_identifiers[fields_length] = *field_identifier_token;
+		output->field_type_nodes[fields_length] = field_type_node;
+		fields_length += 1;
+
+		i_field_node = field_node->right_sibling_index;
+	}
+	output->fields_length = fields_length;
+}
+
+struct IfNode
+{
+	const AstNode *cond_expr_node;
+	const AstNode *then_expr_node;
+	const AstNode *else_expr_node;
+};
+
+void parse_if(Compiler *, CompilerState *compstate, const AstNode *node, IfNode *output)
+{
+	const AstNode *if_token_node = ast_get_left_child(&compstate->nodes, node);
+	if (!ast_has_right_sibling(if_token_node)) {
+		// There must be a cond node
+		compstate->result = Result::CompilerExpectedExpr;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return;
+	}
+	const AstNode *cond_expr_node = ast_get_right_sibling(&compstate->nodes, if_token_node);
+	if (!ast_has_right_sibling(cond_expr_node)) {
+		// There must be a then node
+		compstate->result = Result::CompilerExpectedExpr;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return;
+	}
+	const AstNode *then_expr_node = ast_get_right_sibling(&compstate->nodes, cond_expr_node);
+	if (!ast_has_right_sibling(then_expr_node)) {
+		// There must be an else node
+		compstate->result = Result::CompilerExpectedExpr;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return;
+	}
+	const AstNode *else_expr_node = ast_get_right_sibling(&compstate->nodes, then_expr_node);
+	if (ast_has_right_sibling(else_expr_node)) {
+		// There must not be a node after the else
+		compstate->result = Result::CompilerExpectedExpr;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return;
+	}
+	output->cond_expr_node = cond_expr_node;
+	output->then_expr_node = then_expr_node;
+	output->else_expr_node = else_expr_node;
+}
+
+struct LetNode
+{
+	const Token *name_token;
+	const AstNode *value_node;
+};
+
+void parse_let(Compiler *, CompilerState *compstate, const AstNode *node, LetNode *output)
+{
+	const AstNode *let_token_node = ast_get_left_child(&compstate->nodes, node);
+	const AstNode *name_node = ast_get_right_sibling(&compstate->nodes, let_token_node);
+	if (!ast_has_right_sibling(let_token_node) || !ast_is_atom(name_node)) {
+		compstate->result = Result::CompilerExpectedIdentifier;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return;
+	}
+	const AstNode *value_node = ast_get_right_sibling(&compstate->nodes, name_node);
+	if (!ast_has_right_sibling(name_node)) {
+		compstate->result = Result::CompilerExpectedExpr;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return;
+	}
+	output->name_token = ast_get_token(&compstate->tokens, name_node);
+	output->value_node = value_node;
+}
+
+struct BinaryOpNode
+{
+	const AstNode *lhs_node;
+	const AstNode *rhs_node;
+};
+
+void parse_binary_op(Compiler *, CompilerState *compstate, const AstNode *node, BinaryOpNode *output)
+{
+	const AstNode *op_node = ast_get_left_child(&compstate->nodes, node);
+
+	// Get the first expression
+	if (!ast_has_right_sibling(op_node)) {
+		compstate->result = Result::CompilerExpectedExpr;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return;
+	}
+	const AstNode *lhs_node = ast_get_right_sibling(&compstate->nodes, op_node);
+
+	// Get the second expression
+	if (!ast_has_right_sibling(lhs_node)) {
+		compstate->result = Result::CompilerExpectedExpr;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return;
+	}
+	const AstNode *rhs_node = ast_get_right_sibling(&compstate->nodes, lhs_node);
+
+	// Check that there is no expression left
+	if (ast_has_right_sibling(rhs_node)) {
+		compstate->result = Result::CompilerTooManyArgs;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return;
+	}
+	output->lhs_node = lhs_node;
+	output->rhs_node = rhs_node;
+}
+
+struct UnaryOpNode
+{
+	const AstNode *value_node;
+};
+
+void parse_unary_op(Compiler *, CompilerState *compstate, const AstNode *node, UnaryOpNode *output)
+{
+	const AstNode *op_node = ast_get_left_child(&compstate->nodes, node);
+
+	// Get the first expression
+	if (!ast_has_right_sibling(op_node)) {
+		compstate->result = Result::CompilerExpectedExpr;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return;
+	}
+	const AstNode *value_node = ast_get_right_sibling(&compstate->nodes, op_node);
+
+	// Check that there is no expression left
+	if (ast_has_right_sibling(value_node)) {
+		compstate->result = Result::CompilerTooManyArgs;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return;
+	}
+	output->value_node = value_node;
+}
+
+struct FieldNode
+{
+	const AstNode *expr_node;
+	const Token *field_token;
+};
+
+void parse_field(Compiler *, CompilerState *compstate, const AstNode *node, FieldNode *output)
+{
+	const AstNode *field_token_node = ast_get_left_child(&compstate->nodes, node);
+
+	// Get the expression node
+	if (!ast_has_right_sibling(field_token_node)) {
+		compstate->result = Result::CompilerExpectedExpr;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return;
+	}
+	const AstNode *expr_node = ast_get_right_sibling(&compstate->nodes, field_token_node);
+
+	// Get the field identifier
+	if (!ast_has_right_sibling(expr_node)) {
+		compstate->result = Result::CompilerExpectedIdentifier;
+		SET_RESULT(compstate->result);
+		compstate->error = node->span;
+		return;
+	}
+	const AstNode *field_identifier_node = ast_get_right_sibling(&compstate->nodes, expr_node);
+	const Token *field_identifier_token = ast_get_token(&compstate->tokens, field_identifier_node);
+	if (!ast_is_atom(field_identifier_node) || field_identifier_token->kind != TokenKind::Identifier) {
+		compstate->result = Result::CompilerExpectedIdentifier;
+		SET_RESULT(compstate->result);
+		compstate->error = field_identifier_node->span;
+		return;
+	}
+
+	output->expr_node = expr_node;
+	output->field_token = field_identifier_token;
+}
+
 // compiler helpers
+
 void compiler_push_opcode(Compiler *, CompilerState *compstate, OpCodeKind opcode_kind)
 {
 	Module *current_module = compstate->current_module;
@@ -341,108 +781,10 @@ bool compiler_lookup_variable(
 // compiler
 TypeID compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode *node);
 
-TypeID parse_type(Compiler *compiler, CompilerState *compstate, const AstNode *node)
+//
+
+TypeID compile_atom(Compiler *compiler, CompilerState *compstate, const Token *token)
 {
-	if (ast_is_atom(node)) {
-		// The type is just an identifier, find the corresponding builtin type or named type
-		const Token *identifier = ast_get_token(&compstate->tokens, node);
-		sv identifier_str = sv_substr(compstate->input.text, identifier->span);
-
-		// Search builtin types
-		for (uint32_t i_builtin_type = 0; i_builtin_type < ARRAY_LENGTH(BuiltinTypeKind_str); ++i_builtin_type) {
-			const char *builtin_str = BuiltinTypeKind_str[i_builtin_type];
-			if (sv_equals(identifier_str, sv_from_null_terminated(builtin_str))) {
-				return type_id_new_builtin(BuiltinTypeKind(i_builtin_type));
-			}
-		}
-
-		// Search named types
-		for (uint32_t i_type = 0; i_type < compstate->current_module->types_length; ++i_type) {
-			if (sv_equals(compstate->current_module->types[i_type].name, identifier_str)) {
-				return type_id_new_user_defined(i_type);
-			}
-		}
-
-		// We haven't found any named type
-		compstate->result = Result::CompilerUnknownSymbol;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
-		return UNIT_TYPE;
-	} else {
-		// The compiler is a S-expression
-		if (!ast_has_left_child(node)) {
-			// () is a unit type
-			return UNIT_TYPE;
-		}
-
-		const AstNode *child0 = ast_get_left_child(&compstate->nodes, node);
-		// The type is a S-expr, either it is a unit type () or a form starting with a TOKEN
-		if (!ast_is_atom(child0)) {
-			compstate->result = Result::CompilerExpectedIdentifier;
-			SET_RESULT(compstate->result);
-			compstate->error = child0->span;
-			return UNIT_TYPE;
-		}
-		// Assert that there is at least one argument
-		if (!ast_has_right_sibling(child0)) {
-			compstate->result = Result::CompilerExpectedExpr;
-			SET_RESULT(compstate->result);
-			compstate->error = node->span;
-			return UNIT_TYPE;
-		}
-		const AstNode *child1 = ast_get_right_sibling(&compstate->nodes, child0);
-		// Assert that there is only one argument
-		if (ast_has_right_sibling(child1)) {
-			const AstNode *child2 = ast_get_right_sibling(&compstate->nodes, child1);
-			compstate->result = Result::CompilerUnexpectedExpression;
-			SET_RESULT(compstate->result);
-			compstate->error = child2->span;
-			return UNIT_TYPE;
-		}
-
-		const Token *token = ast_get_token(&compstate->tokens, child0);
-		const sv token_str = sv_substr(compstate->input.text, token->span);
-
-		// We only support type S-expr of the forms:
-		// (* <type>)
-		if (sv_equals(token_str, sv_from_null_terminated("*"))) {
-			TypeID inner_type = parse_type(compiler, compstate, child1);
-			if (type_id_is_pointer(inner_type)) {
-				inner_type.pointer.indirection_count += 1;
-				return inner_type;
-			} else if (type_id_is_builtin(inner_type)) {
-				TypeID pointer_type = {};
-				pointer_type.pointer = {};
-				pointer_type.pointer.builtin_kind = inner_type.builtin.kind;
-				pointer_type.pointer.pointee_builtin_kind = inner_type.builtin.kind;
-				pointer_type.pointer.indirection_count = 1;
-				return pointer_type;
-			} else if (type_id_is_user_defined(inner_type)) {
-				TypeID pointer_type = {};
-				pointer_type.pointer = {};
-				pointer_type.pointer.builtin_kind = BuiltinTypeKind::Pointer;
-				pointer_type.pointer.indirection_count = 1;
-				pointer_type.pointer.user_defined_index = inner_type.user_defined.index;
-				return pointer_type;
-			} else {
-				compstate->result = Result::Fatal;
-				SET_RESULT(compstate->result);
-				compstate->error = child1->span;
-				return UNIT_TYPE;
-			}
-		}
-
-		// We haven't found any builtin
-		compstate->result = Result::CompilerUnknownSymbol;
-		SET_RESULT(compstate->result);
-		compstate->error = token->span;
-		return UNIT_TYPE;
-	}
-}
-
-TypeID compile_atom(Compiler *compiler, CompilerState *compstate, const AstNode *expr_node)
-{
-	const Token *token = ast_get_token(&compstate->tokens, expr_node);
 	sv token_sv = sv_substr(compstate->input.text, token->span);
 
 	if (token->kind == TokenKind::Identifier) {
@@ -506,16 +848,17 @@ TypeID compile_atom(Compiler *compiler, CompilerState *compstate, const AstNode 
 }
 
 // <identifier> | <number> | <s-expression>
-TypeID compile_expr(Compiler *compiler, CompilerState *compstate, const AstNode *expr_node)
+TypeID compile_expr(Compiler *compiler, CompilerState *compstate, const AstNode *node)
 {
 	if (compstate->result != Result::Ok) {
 		return UNIT_TYPE;
 	}
 
-	if (ast_is_atom(expr_node)) {
-		return compile_atom(compiler, compstate, expr_node);
-	} else if (ast_has_left_child(expr_node)) {
-		return compile_sexpr(compiler, compstate, expr_node);
+	if (ast_is_atom(node)) {
+		const Token *token = ast_get_token(&compstate->tokens, node);
+		return compile_atom(compiler, compstate, token);
+	} else if (ast_has_left_child(node)) {
+		return compile_sexpr(compiler, compstate, node);
 	} else {
 		// () unit value
 		return UNIT_TYPE;
@@ -541,95 +884,35 @@ TypeID compile_sexprs_return_last(Compiler *compiler, CompilerState *compstate, 
 // (define (<name> <return_type>) (<args>*) <expression>+)
 TypeID compile_define(Compiler *compiler, CompilerState *compstate, const AstNode *node)
 {
-	Token arg_identifiers[MAX_ARGUMENTS] = {};
-	const AstNode *arg_nodes[MAX_ARGUMENTS] = {};
-	uint32_t args_length = 0;
-
-	// -- Parsing
-	const AstNode *define_token_node = ast_get_left_child(&compstate->nodes, node);
-	const AstNode *name_type_node = ast_get_right_sibling(&compstate->nodes, define_token_node);
-
-	// Get the function name node
-	const AstNode *function_name_node = ast_get_left_child(&compstate->nodes, name_type_node);
-	const bool function_name_is_an_atom = ast_has_left_child(name_type_node) && ast_is_atom(function_name_node);
-	if (!function_name_is_an_atom) {
-		compstate->result = Result::CompilerExpectedIdentifier;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
+	DefineNode define_node = {};
+	parse_define_sig(compiler, compstate, node, &define_node);
+	if (compstate->result != Result::Ok) {
 		return UNIT_TYPE;
 	}
-	const Token *function_name_token = ast_get_token(&compstate->tokens, function_name_node);
-	// Get the function return type node
-	if (!ast_has_right_sibling(function_name_node)) {
-		compstate->result = Result::CompilerExpectedExpr;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
+	parse_define_body(compiler, compstate, node, &define_node);
+	if (compstate->result != Result::Ok) {
 		return UNIT_TYPE;
 	}
-	const AstNode *return_type_node = ast_get_right_sibling(&compstate->nodes, function_name_node);
-
-	// Get the arguments list node
-	const AstNode *arglist_node = ast_get_right_sibling(&compstate->nodes, name_type_node);
-	if (!ast_has_right_sibling(name_type_node)) {
-		compstate->result = Result::CompilerExpectedExpr;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
-		return UNIT_TYPE;
-	}
-	// Arguments are laid out as (name1 type1 name2 type2 ...)
-	uint32_t i_arg_node = arglist_node->left_child_index;
-	while (ast_is_valid(i_arg_node)) {
-		const AstNode *arg_name_node = ast_get_node(&compstate->nodes, i_arg_node);
-		const Token *arg_name = ast_get_token(&compstate->tokens, arg_name_node);
-		const bool arg_is_an_identifier = ast_is_atom(arg_name_node) && arg_name->kind == TokenKind::Identifier;
-		if (!arg_is_an_identifier) {
-			compstate->result = Result::CompilerExpectedIdentifier;
-			SET_RESULT(compstate->result);
-			compstate->error = arglist_node->span;
-			return UNIT_TYPE;
-		}
-
-		const AstNode *arg_type_node = ast_get_right_sibling(&compstate->nodes, arg_name_node);
-		if (!ast_has_right_sibling(arg_name_node)) {
-			compstate->result = Result::CompilerExpectedExpr;
-			SET_RESULT(compstate->result);
-			compstate->error = arglist_node->span;
-			return UNIT_TYPE;
-		}
-
-		arg_identifiers[args_length] = *arg_name;
-		arg_nodes[args_length] = arg_type_node;
-		args_length += 1;
-
-		i_arg_node = arg_type_node->right_sibling_index;
-	}
-
-	const AstNode *body_node = ast_get_right_sibling(&compstate->nodes, arglist_node);
-	if (!ast_has_right_sibling(arglist_node)) {
-		compstate->result = Result::CompilerExpectedExpr;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
-		return UNIT_TYPE;
-	}
-	sv function_name_token_str = sv_substr(compstate->input.text, function_name_token->span);
+	
+	sv function_name_token_str = sv_substr(compstate->input.text, define_node.function_name_token->span);
 
 	// -- Type checking
-	TypeID return_type = parse_type(compiler, compstate, return_type_node);
+	TypeID return_type = parse_type(compiler, compstate, define_node.return_type_node);
 	TypeID arg_types[MAX_ARGUMENTS] = {};
-	for (uint32_t i_arg = 0; i_arg < args_length; ++i_arg) {
-		arg_types[i_arg] = parse_type(compiler, compstate, arg_nodes[i_arg]);
+	for (uint32_t i_arg = 0; i_arg < define_node.args_length; ++i_arg) {
+		arg_types[i_arg] = parse_type(compiler, compstate, define_node.arg_nodes[i_arg]);
 	}
 
 	Function *new_function = compiler_compile_function(compiler,
 		compstate,
 		function_name_token_str,
 		return_type,
-		arg_identifiers,
+		define_node.arg_identifiers,
 		arg_types,
-		args_length,
+		define_node.args_length,
 		[&]() -> TypeID {
 			// <-- Compile the body
-			TypeID body_type = compile_sexprs_return_last(compiler, compstate, body_node);
+			TypeID body_type = compile_sexprs_return_last(compiler, compstate, define_node.body_node);
 			return body_type;
 		});
 
@@ -643,70 +926,12 @@ TypeID compile_define(Compiler *compiler, CompilerState *compstate, const AstNod
 // (define-foreign (<name> <return_type>) (<args>))
 TypeID compile_define_foreign(Compiler *compiler, CompilerState *compstate, const AstNode *node)
 {
-	Token arg_identifiers[MAX_ARGUMENTS] = {};
-	const AstNode *arg_nodes[MAX_ARGUMENTS] = {};
-	uint32_t args_length = 0;
-
-	// -- Parsing
-	const AstNode *define_token_node = ast_get_left_child(&compstate->nodes, node);
-	const AstNode *name_type_node = ast_get_right_sibling(&compstate->nodes, define_token_node);
-
-	// Get the function name node
-	const AstNode *function_name_node = ast_get_left_child(&compstate->nodes, name_type_node);
-	const bool function_name_is_an_atom = ast_has_left_child(name_type_node) && ast_is_atom(function_name_node);
-	if (!function_name_is_an_atom) {
-		compstate->result = Result::CompilerExpectedIdentifier;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
+	DefineNode nodes = {};
+	parse_define_sig(compiler, compstate, node, &nodes);
+	if (compstate->result != Result::Ok) {
 		return UNIT_TYPE;
 	}
-	const Token *function_name_token = ast_get_token(&compstate->tokens, function_name_node);
-	// Get the function return type node
-	if (!ast_has_right_sibling(function_name_node)) {
-		compstate->result = Result::CompilerExpectedExpr;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
-		return UNIT_TYPE;
-	}
-	const AstNode *return_type_node = ast_get_right_sibling(&compstate->nodes, function_name_node);
-
-	// Get the arguments list node
-	const AstNode *arglist_node = ast_get_right_sibling(&compstate->nodes, name_type_node);
-	if (!ast_has_right_sibling(name_type_node)) {
-		compstate->result = Result::CompilerExpectedExpr;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
-		return UNIT_TYPE;
-	}
-	// Arguments are laid out as (name1 type1 name2 type2 ...)
-	uint32_t i_arg_node = arglist_node->left_child_index;
-	while (ast_is_valid(i_arg_node)) {
-		const AstNode *arg_name_node = ast_get_node(&compstate->nodes, i_arg_node);
-		const Token *arg_name = ast_get_token(&compstate->tokens, arg_name_node);
-		const bool arg_is_an_identifier = ast_is_atom(arg_name_node) && arg_name->kind == TokenKind::Identifier;
-		if (!arg_is_an_identifier) {
-			compstate->result = Result::CompilerExpectedIdentifier;
-			SET_RESULT(compstate->result);
-			compstate->error = arglist_node->span;
-			return UNIT_TYPE;
-		}
-
-		const AstNode *arg_type_node = ast_get_right_sibling(&compstate->nodes, arg_name_node);
-		if (!ast_has_right_sibling(arg_name_node)) {
-			compstate->result = Result::CompilerExpectedExpr;
-			SET_RESULT(compstate->result);
-			compstate->error = arglist_node->span;
-			return UNIT_TYPE;
-		}
-
-		arg_identifiers[args_length] = *arg_name;
-		arg_nodes[args_length] = arg_type_node;
-		args_length += 1;
-
-		i_arg_node = arg_type_node->right_sibling_index;
-	}
-
-	sv function_name_token_str = sv_substr(compstate->input.text, function_name_token->span);
+	sv function_name_token_str = sv_substr(compstate->input.text, nodes.function_name_token->span);
 
 	// -- Type checking
 	Module *current_module = compstate->current_module;
@@ -736,7 +961,7 @@ TypeID compile_define_foreign(Compiler *compiler, CompilerState *compstate, cons
 	current_module->functions_length += 1;
 
 	// -- Compiling
-	TypeID return_type = parse_type(compiler, compstate, return_type_node);
+	TypeID return_type = parse_type(compiler, compstate, nodes.return_type_node);
 	if (compstate->result != Result::Ok) {
 		return UNIT_TYPE;
 	}
@@ -750,18 +975,18 @@ TypeID compile_define_foreign(Compiler *compiler, CompilerState *compstate, cons
 	compiler_push_scope(compiler, compstate);
 	// All arguments are in the stack in opposite order.
 	// Pop them into local slots
-	for (uint32_t i_arg = 0; i_arg < args_length; ++i_arg) {
+	for (uint32_t i_arg = 0; i_arg < nodes.args_length; ++i_arg) {
 		compiler_push_opcode(compiler, compstate, OpCodeKind::SetLocal);
-		compiler_push_u32(compiler, compstate, uint32_t(args_length - 1 - i_arg));
+		compiler_push_u32(compiler, compstate, uint32_t(nodes.args_length - 1 - i_arg));
 	}
 
-	for (uint32_t i_arg = 0; i_arg < args_length; ++i_arg) {
-		TypeID arg_type = parse_type(compiler, compstate, arg_nodes[i_arg]);
+	for (uint32_t i_arg = 0; i_arg < nodes.args_length; ++i_arg) {
+		TypeID arg_type = parse_type(compiler, compstate, nodes.arg_nodes[i_arg]);
 		function->arg_types[function->arg_count] = arg_type;
 		function->arg_count += 1;
 
 		uint32_t i_variable = 0;
-		if (!compiler_push_variable(compstate, &arg_identifiers[i_arg], arg_type, &i_variable)) {
+		if (!compiler_push_variable(compstate, &nodes.arg_identifiers[i_arg], arg_type, &i_variable)) {
 			return UNIT_TYPE;
 		}
 	}
@@ -780,71 +1005,12 @@ TypeID compile_define_foreign(Compiler *compiler, CompilerState *compstate, cons
 TypeID compile_struct(Compiler *compiler, CompilerState *compstate, const AstNode *node)
 {
 	// -- Parsing
-	const AstNode *struct_token_node = ast_get_left_child(&compstate->nodes, node);
-
-	// Get struct name node
-	const AstNode *struct_name_node = ast_get_right_sibling(&compstate->nodes, struct_token_node);
-	if (!ast_has_right_sibling(struct_token_node) || !ast_is_atom(struct_name_node)) {
-		compstate->result = Result::CompilerExpectedIdentifier;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
+	StructNode nodes = {};
+	parse_struct(compiler, compstate, node, &nodes);
+	if (compstate->result != Result::Ok) {
 		return UNIT_TYPE;
 	}
-	const Token *struct_name_token = ast_get_token(&compstate->tokens, struct_name_node);
-	// Get fields
-	Token field_identifiers[MAX_STRUCT_FIELDS] = {};
-	const AstNode *field_type_nodes[MAX_STRUCT_FIELDS] = {};
-	uint32_t fields_length = 0;
-	// Get the first field (a struct MUST have at least one field)
-	if (!ast_has_right_sibling(struct_name_node)) {
-		compstate->result = Result::CompilerExpectedExpr;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
-		return UNIT_TYPE;
-	}
-	uint32_t i_field_node = struct_name_node->right_sibling_index;
-	while (ast_is_valid(i_field_node)) {
-		const AstNode *field_node = ast_get_node(&compstate->nodes, i_field_node);
-		// Get the field name
-		const AstNode *field_identifier_node = ast_get_left_child(&compstate->nodes, field_node);
-		if (!ast_has_left_child(field_node)) {
-			compstate->result = Result::CompilerExpectedIdentifier;
-			SET_RESULT(compstate->result);
-			compstate->error = field_node->span;
-			return UNIT_TYPE;
-		}
-		const Token *field_identifier_token = ast_get_token(&compstate->tokens, field_identifier_node);
-		const bool is_an_identifier_token_node =
-			ast_is_atom(field_identifier_node) && field_identifier_token->kind == TokenKind::Identifier;
-		if (!is_an_identifier_token_node) {
-			compstate->result = Result::CompilerExpectedIdentifier;
-			SET_RESULT(compstate->result);
-			compstate->error = field_identifier_node->span;
-			return UNIT_TYPE;
-		}
-		// Get the field type
-		if (!ast_has_right_sibling(field_identifier_node)) {
-			compstate->result = Result::CompilerExpectedExpr;
-			SET_RESULT(compstate->result);
-			compstate->error = field_node->span;
-			return UNIT_TYPE;
-		}
-		const AstNode *field_type_node = ast_get_right_sibling(&compstate->nodes, field_identifier_node);
-		if (fields_length > MAX_STRUCT_FIELDS) {
-			compstate->result = Result::Fatal;
-			SET_RESULT(compstate->result);
-			compstate->error = field_identifier_node->span;
-			return UNIT_TYPE;
-		}
-
-		field_identifiers[fields_length] = *field_identifier_token;
-		field_type_nodes[fields_length] = field_type_node;
-		fields_length += 1;
-
-		i_field_node = field_node->right_sibling_index;
-	}
-
-	sv struct_name_token_str = sv_substr(compstate->input.text, struct_name_token->span);
+	sv struct_name_token_str = sv_substr(compstate->input.text, nodes.struct_name_token->span);
 
 	// -- Type checking
 	// Check if the type is already defined
@@ -878,21 +1044,21 @@ TypeID compile_struct(Compiler *compiler, CompilerState *compstate, const AstNod
 	struct_type->name = struct_name_token_str;
 
 	uint32_t struct_size = 0;
-	for (uint32_t i_field = 0; i_field < fields_length; ++i_field) {
-		TypeID field_type = parse_type(compiler, compstate, field_type_nodes[i_field]);
+	for (uint32_t i_field = 0; i_field < nodes.fields_length; ++i_field) {
+		TypeID field_type = parse_type(compiler, compstate, nodes.field_type_nodes[i_field]);
 		if (compstate->result != Result::Ok) {
 			return UNIT_TYPE;
 		}
 
 		struct_type->field_types[i_field] = field_type;
-		struct_type->field_names[i_field] = sv_substr(compstate->input.text, field_identifiers[i_field].span);
+		struct_type->field_names[i_field] = sv_substr(compstate->input.text, nodes.field_identifiers[i_field].span);
 		struct_type->field_offsets[i_field] = struct_size;
 
 		struct_size += type_get_size(compstate, field_type);
 		fields_type[i_field] = field_type;
 	}
 
-	struct_type->field_count = fields_length;
+	struct_type->field_count = nodes.fields_length;
 	struct_type->size = struct_size;
 
 	// -- Compile builtin-functions for the struct
@@ -901,9 +1067,9 @@ TypeID compile_struct(Compiler *compiler, CompilerState *compstate, const AstNod
 		compstate,
 		ctor_name,
 		struct_type_id,
-		field_identifiers,
+		nodes.field_identifiers,
 		fields_type,
-		fields_length,
+		nodes.fields_length,
 		[&]() -> TypeID {
 			/*
 		            result = struct_type{}
@@ -913,7 +1079,7 @@ TypeID compile_struct(Compiler *compiler, CompilerState *compstate, const AstNod
 		            return local0
 		    */
 
-			uint32_t struct_local_index = uint32_t(fields_length);
+			uint32_t struct_local_index = uint32_t(nodes.fields_length);
 
 			// result = MyStruct{}
 			compiler_push_opcode(compiler, compstate, OpCodeKind::MakeStruct);
@@ -921,7 +1087,7 @@ TypeID compile_struct(Compiler *compiler, CompilerState *compstate, const AstNod
 			compiler_push_opcode(compiler, compstate, OpCodeKind::SetLocal);
 			compiler_push_u32(compiler, compstate, struct_local_index);
 
-			for (uint32_t i_field = 0; i_field < fields_length; ++i_field) {
+			for (uint32_t i_field = 0; i_field < nodes.fields_length; ++i_field) {
 				// result.field = arg_i
 
 				// result
@@ -952,36 +1118,15 @@ TypeID compile_struct(Compiler *compiler, CompilerState *compstate, const AstNod
 TypeID compile_if(Compiler *compiler, CompilerState *compstate, const AstNode *node)
 {
 	// -- Parsing
-#define HANDLE_ERR                                                                                                     \
-	compstate->result = Result::CompilerExpectedExpr;                                                                  \
-	SET_RESULT(compstate->result);                                                                                     \
-	compstate->error = node->span;                                                                                     \
-	return UNIT_TYPE;
-
-	const AstNode *if_token_node = ast_get_left_child(&compstate->nodes, node);
-	if (!ast_has_right_sibling(if_token_node)) {
-		// There must be a cond node
-		HANDLE_ERR;
+	IfNode nodes = {};
+	parse_if(compiler, compstate, node, &nodes);
+	if (compstate->result != Result::Ok) {
+		return UNIT_TYPE;
 	}
-	const AstNode *cond_expr_node = ast_get_right_sibling(&compstate->nodes, if_token_node);
-	if (!ast_has_right_sibling(cond_expr_node)) {
-		// There must be a then node
-		HANDLE_ERR;
-	}
-	const AstNode *then_expr_node = ast_get_right_sibling(&compstate->nodes, cond_expr_node);
-	if (!ast_has_right_sibling(then_expr_node)) {
-		// There must be an else node
-		HANDLE_ERR;
-	}
-	const AstNode *else_expr_node = ast_get_right_sibling(&compstate->nodes, then_expr_node);
-	if (ast_has_right_sibling(else_expr_node)) {
-		// There must not be a node after the else
-		HANDLE_ERR;
-	}
-#undef HANDLE_ERR
 
 	// Compile the condition first,
-	/*TypeID cond_expr =*/compile_expr(compiler, compstate, cond_expr_node);
+	/*TypeID cond_expr =*/compile_expr(compiler, compstate, nodes.cond_expr_node);
+	// TODO: no type checking?
 	if (compstate->result != Result::Ok) {
 		return UNIT_TYPE;
 	}
@@ -991,7 +1136,7 @@ TypeID compile_if(Compiler *compiler, CompilerState *compstate, const AstNode *n
 	uint32_t *jump_to_true_branch = compiler_push_u32(compiler, compstate, 0);
 
 	// Then compile the else branch, because the condition was false
-	TypeID else_expr = compile_expr(compiler, compstate, else_expr_node);
+	TypeID else_expr = compile_expr(compiler, compstate, nodes.else_expr_node);
 	if (compstate->result != Result::Ok) {
 		return UNIT_TYPE;
 	}
@@ -1002,7 +1147,7 @@ TypeID compile_if(Compiler *compiler, CompilerState *compstate, const AstNode *n
 
 	// Compile the true branch
 	const uint32_t then_branch_address = compstate->current_module->bytecode_length;
-	TypeID then_expr = compile_expr(compiler, compstate, then_expr_node);
+	TypeID then_expr = compile_expr(compiler, compstate, nodes.then_expr_node);
 	if (compstate->result != Result::Ok) {
 		return UNIT_TYPE;
 	}
@@ -1023,31 +1168,21 @@ TypeID compile_if(Compiler *compiler, CompilerState *compstate, const AstNode *n
 	return then_expr;
 }
 
+// (let <name> <value expr>)
 TypeID compile_let(Compiler *compiler, CompilerState *compstate, const AstNode *node)
 {
 	// -- Parsing
-	const AstNode *let_token_node = ast_get_left_child(&compstate->nodes, node);
-	const AstNode *name_node = ast_get_right_sibling(&compstate->nodes, let_token_node);
-	if (!ast_has_right_sibling(let_token_node) || !ast_is_atom(name_node)) {
-		compstate->result = Result::CompilerExpectedIdentifier;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
+	LetNode nodes = {};
+	parse_let(compiler, compstate, node, &nodes);
+	if (compstate->result != Result::Ok) {
 		return UNIT_TYPE;
 	}
-	const AstNode *value_node = ast_get_right_sibling(&compstate->nodes, name_node);
-	if (!ast_has_right_sibling(name_node)) {
-		compstate->result = Result::CompilerExpectedExpr;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
-		return UNIT_TYPE;
-	}
-	const Token *name_token = ast_get_token(&compstate->tokens, name_node);
 
 	// -- Type checking
 	// Compile the body
-	TypeID expr_type = compile_expr(compiler, compstate, value_node);
+	TypeID expr_type = compile_expr(compiler, compstate, nodes.value_node);
 	uint32_t i_variable = 0;
-	if (!compiler_push_variable(compstate, name_token, expr_type, &i_variable)) {
+	if (!compiler_push_variable(compstate, nodes.name_token, expr_type, &i_variable)) {
 		return UNIT_TYPE;
 	}
 
@@ -1057,16 +1192,17 @@ TypeID compile_let(Compiler *compiler, CompilerState *compstate, const AstNode *
 	return expr_type;
 }
 
+// (begin <expr1> <expr2> ...)
 TypeID compile_begin(Compiler *compiler, CompilerState *compstate, const AstNode *node)
 {
 	const AstNode *begin_node = ast_get_left_child(&compstate->nodes, node);
+	// A begin expression must have at least one expr
 	if (!ast_has_right_sibling(begin_node)) {
 		compstate->result = Result::CompilerExpectedExpr;
 		SET_RESULT(compstate->result);
 		compstate->error = node->span;
 		return UNIT_TYPE;
 	}
-
 	const AstNode *first_sexpr = ast_get_right_sibling(&compstate->nodes, begin_node);
 	return compile_sexprs_return_last(compiler, compstate, first_sexpr);
 }
@@ -1076,31 +1212,15 @@ TypeID compile_binary_opcode(
 	Compiler *compiler, CompilerState *compstate, const AstNode *node, TypeID type, OpCodeKind opcode)
 {
 	// -- Parsing
-	const AstNode *op_token_node = ast_get_left_child(&compstate->nodes, node);
-	const AstNode *lhs_node = ast_get_right_sibling(&compstate->nodes, op_token_node);
-	if (!ast_has_right_sibling(op_token_node)) {
-		compstate->result = Result::CompilerExpectedExpr;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
-		return UNIT_TYPE;
-	}
-	const AstNode *rhs_node = ast_get_right_sibling(&compstate->nodes, lhs_node);
-	if (!ast_has_right_sibling(lhs_node)) {
-		compstate->result = Result::CompilerExpectedExpr;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
-		return UNIT_TYPE;
-	}
-	if (ast_has_right_sibling(rhs_node)) {
-		compstate->result = Result::CompilerTooManyArgs;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
+	BinaryOpNode nodes = {};
+	parse_binary_op(compiler, compstate, node, &nodes);
+	if (compstate->result != Result::Ok) {
 		return UNIT_TYPE;
 	}
 
 	// -- Type checking
-	TypeID lhs = compile_expr(compiler, compstate, lhs_node);
-	TypeID rhs = compile_expr(compiler, compstate, rhs_node);
+	TypeID lhs = compile_expr(compiler, compstate, nodes.lhs_node);
+	TypeID rhs = compile_expr(compiler, compstate, nodes.rhs_node);
 	if (compstate->result != Result::Ok) {
 		return UNIT_TYPE;
 	}
@@ -1113,7 +1233,7 @@ TypeID compile_binary_opcode(
 		SET_RESULT(compstate->result);
 		compstate->expected_type = type;
 		compstate->got_type = lhs;
-		compstate->error = lhs_node->span;
+		compstate->error = nodes.lhs_node->span;
 		return UNIT_TYPE;
 	}
 
@@ -1122,7 +1242,7 @@ TypeID compile_binary_opcode(
 		SET_RESULT(compstate->result);
 		compstate->expected_type = type;
 		compstate->got_type = rhs;
-		compstate->error = rhs_node->span;
+		compstate->error = nodes.rhs_node->span;
 		return UNIT_TYPE;
 	}
 
@@ -1157,33 +1277,14 @@ TypeID compile_ltethan(Compiler *compiler, CompilerState *compstate, const AstNo
 // (field <expr> <member identifier>)
 TypeID compile_field(Compiler *compiler, CompilerState *compstate, const AstNode *node)
 {
-	const AstNode *field_token_node = ast_get_left_child(&compstate->nodes, node);
-	// Get the expression node
-	const AstNode *expr_node = ast_get_right_sibling(&compstate->nodes, field_token_node);
-	if (!ast_has_right_sibling(field_token_node)) {
-		compstate->result = Result::CompilerExpectedExpr;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
-		return UNIT_TYPE;
-	}
-	// Get the field identifier
-	if (!ast_has_right_sibling(expr_node)) {
-		compstate->result = Result::CompilerExpectedIdentifier;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
-		return UNIT_TYPE;
-	}
-	const AstNode *field_identifier_node = ast_get_right_sibling(&compstate->nodes, expr_node);
-	const Token *field_identifier_token = ast_get_token(&compstate->tokens, field_identifier_node);
-	if (!ast_is_atom(field_identifier_node) || field_identifier_token->kind != TokenKind::Identifier) {
-		compstate->result = Result::CompilerExpectedIdentifier;
-		SET_RESULT(compstate->result);
-		compstate->error = field_identifier_node->span;
+	FieldNode nodes = {};
+	parse_field(compiler, compstate, node, &nodes);
+	if (compstate->result != Result::Ok) {
 		return UNIT_TYPE;
 	}
 
 	// Typecheck
-	TypeID expr_type_id = compile_expr(compiler, compstate, expr_node);
+	TypeID expr_type_id = compile_expr(compiler, compstate, nodes.expr_node);
 	if (compstate->result != Result::Ok) {
 		return UNIT_TYPE;
 	}
@@ -1197,7 +1298,7 @@ TypeID compile_field(Compiler *compiler, CompilerState *compstate, const AstNode
 	}
 
 	UserDefinedType *expr_type = compstate->current_module->types + expr_type_id.user_defined.index;
-	const sv field_id_str = sv_substr(compstate->input.text, field_identifier_token->span);
+	const sv field_id_str = sv_substr(compstate->input.text, nodes.field_token->span);
 
 	uint32_t field_count = expr_type->field_count;
 	uint32_t i_found_field = ~0u;
@@ -1227,18 +1328,14 @@ TypeID compile_field(Compiler *compiler, CompilerState *compstate, const AstNode
 // (addr <expr>)
 TypeID compile_addr(Compiler *compiler, CompilerState *compstate, const AstNode *node)
 {
-	const AstNode *addr_token_node = ast_get_left_child(&compstate->nodes, node);
-	// Get the expression node
-	if (!ast_has_right_sibling(addr_token_node)) {
-		compstate->result = Result::CompilerExpectedExpr;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
+	UnaryOpNode nodes = {};
+	parse_unary_op(compiler, compstate, node, &nodes);
+	if (compstate->result != Result::Ok) {
 		return UNIT_TYPE;
 	}
-	const AstNode *expr_node = ast_get_right_sibling(&compstate->nodes, addr_token_node);
 
 	// Typecheck
-	TypeID expr_type_id = compile_expr(compiler, compstate, expr_node);
+	TypeID expr_type_id = compile_expr(compiler, compstate, nodes.value_node);
 	if (compstate->result != Result::Ok) {
 		return UNIT_TYPE;
 	}
@@ -1274,17 +1371,14 @@ TypeID compile_addr(Compiler *compiler, CompilerState *compstate, const AstNode 
 // (* <expr>)
 TypeID compile_deref(Compiler *compiler, CompilerState *compstate, const AstNode *node)
 {
-	const AstNode *addr_token_node = ast_get_left_child(&compstate->nodes, node);
-	if (!ast_has_right_sibling(addr_token_node)) {
-		compstate->result = Result::CompilerExpectedExpr;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
+	UnaryOpNode nodes = {};
+	parse_unary_op(compiler, compstate, node, &nodes);
+	if (compstate->result != Result::Ok) {
 		return UNIT_TYPE;
 	}
-	const AstNode *expr_node = ast_get_right_sibling(&compstate->nodes, addr_token_node);
 
 	// Typecheck
-	TypeID expr_type_id = compile_expr(compiler, compstate, expr_node);
+	TypeID expr_type_id = compile_expr(compiler, compstate, nodes.value_node);
 	if (compstate->result != Result::Ok) {
 		return UNIT_TYPE;
 	}
@@ -1321,27 +1415,15 @@ TypeID compile_deref(Compiler *compiler, CompilerState *compstate, const AstNode
 // (write-i32 <addr> <value>)
 TypeID compile_write_i32(Compiler *compiler, CompilerState *compstate, const AstNode *node)
 {
-	const AstNode *write_token_node = ast_get_left_child(&compstate->nodes, node);
-	// Get the addr node
-	if (!ast_has_right_sibling(write_token_node)) {
-		compstate->result = Result::CompilerExpectedExpr;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
+	BinaryOpNode nodes = {};
+	parse_binary_op(compiler, compstate, node, &nodes);
+	if (compstate->result != Result::Ok) {
 		return UNIT_TYPE;
 	}
-	const AstNode *addr_node = ast_get_right_sibling(&compstate->nodes, write_token_node);
-	// Get the value expr node
-	if (!ast_has_right_sibling(addr_node)) {
-		compstate->result = Result::CompilerExpectedExpr;
-		SET_RESULT(compstate->result);
-		compstate->error = node->span;
-		return UNIT_TYPE;
-	}
-	const AstNode *expr_node = ast_get_right_sibling(&compstate->nodes, addr_node);
 
 	// Typecheck
-	TypeID addr_type_id = compile_expr(compiler, compstate, addr_node);
-	TypeID expr_type_id = compile_expr(compiler, compstate, expr_node);
+	TypeID addr_type_id = compile_expr(compiler, compstate, nodes.lhs_node);
+	TypeID expr_type_id = compile_expr(compiler, compstate, nodes.rhs_node);
 	if (compstate->result != Result::Ok) {
 		return UNIT_TYPE;
 	}
@@ -1353,7 +1435,7 @@ TypeID compile_write_i32(Compiler *compiler, CompilerState *compstate, const Ast
 	if (!type_similar(compstate, int_pointer_type, addr_type_id)) {
 		compstate->result = Result::CompilerExpectedTypeGot;
 		SET_RESULT(compstate->result);
-		compstate->error = addr_node->span;
+		compstate->error = nodes.lhs_node->span;
 		compstate->expected_type = int_pointer_type;
 		compstate->got_type = addr_type_id;
 		return UNIT_TYPE;
@@ -1364,7 +1446,7 @@ TypeID compile_write_i32(Compiler *compiler, CompilerState *compstate, const Ast
 	if (!type_similar(compstate, int_type, expr_type_id)) {
 		compstate->result = Result::CompilerExpectedTypeGot;
 		SET_RESULT(compstate->result);
-		compstate->error = expr_node->span;
+		compstate->error = nodes.rhs_node->span;
 		compstate->expected_type = int_type;
 		compstate->got_type = expr_type_id;
 		return UNIT_TYPE;
