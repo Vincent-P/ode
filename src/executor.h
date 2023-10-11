@@ -48,6 +48,17 @@ enum struct StackValueKind : uint8_t
 	Count,
 };
 
+inline const char* StackValueKind_str[] = {
+	"Invalid",
+	"Bool",
+	"Float",
+	"I32",
+	"Str",
+	"LocalPtr",
+	"LocalObject",
+};
+static_assert(sizeof(StackValueKind_str)/sizeof(*StackValueKind_str) == uint32_t(StackValueKind::Count));
+
 struct StackValue
 {
 	StackValueKind kind;

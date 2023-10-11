@@ -93,7 +93,7 @@ inline sv sv_offset(sv string, uint64_t offset)
 }
 
 // Small vector
-template<typename T>
+template <typename T>
 struct vec
 {
 	T *objects;
@@ -101,49 +101,51 @@ struct vec
 	uint32_t capacity;
 };
 
-template<typename T>
+template <typename T>
 inline vec<T> vec_init(uint32_t capacity)
 {
 	vec<T> result = {};
-	result.objects = static_cast<T*>(calloc(capacity, sizeof(T)));
+	result.objects = static_cast<T *>(calloc(capacity, sizeof(T)));
 	result.capacity = capacity;
 	return result;
 }
 
-template<typename T>
+template <typename T>
 inline void vec_destroy(vec<T> *v)
 {
 	free(v->objects);
 	*v = {};
 }
 
-template<typename T>
-inline T* vec_at(vec<T> *v, uint32_t index) { return v->objects + index; }
-template<typename T>
-inline const T* vec_at(const vec<T> *v, uint32_t index) { return v->objects + index; }
+template <typename T>
+inline T *vec_at(vec<T> *v, uint32_t index)
+{
+	return v->objects + index;
+}
+template <typename T>
+inline const T *vec_at(const vec<T> *v, uint32_t index)
+{
+	return v->objects + index;
+}
 
-template<typename T>
+template <typename T>
 inline uint32_t vec_append(vec<T> *v, T new_value)
 {
-	if (v->length < v->capacity)
-	{
+	if (v->length < v->capacity) {
 		uint32_t new_object_index = v->length;
 		v->objects[new_object_index] = new_value;
 		v->length += 1;
 		return new_object_index;
-	}
-	else
-	{
+	} else {
 		return v->length;
 	}
 }
 
-template<typename T>
+template <typename T>
 inline void vec_swap_remove(vec<T> *v, uint32_t index)
 {
 	const bool is_last = index + 1 == v->length;
-	if (!is_last)
-	{
+	if (!is_last) {
 		v->objects[index] = v->objects[v->length - 1];
 	}
 	v->length -= 1;

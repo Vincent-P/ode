@@ -46,6 +46,7 @@ static_assert(ARRAY_LENGTH(ParserResult_str) == uint64_t(ParserResult::Count));
 struct AstNode
 {
 	span span;
+	uint32_t child_count;
 	// Not null if atom
 	uint32_t atom_token_index;
 	// Not null if s-expr
@@ -75,11 +76,35 @@ void print_ast(sv input, const vec<Token> *tokens, const vec<AstNode> *nodes, ui
 vec<AstNode> parse_module(Parser *parser);
 
 // Helpers for AstNode
-inline bool ast_has_right_sibling(const AstNode *node) { return node->right_sibling_index != INVALID_NODE_INDEX; }
-inline bool ast_has_left_child(const AstNode *node) { return node->left_child_index != INVALID_NODE_INDEX; }
-inline bool ast_is_valid(uint32_t node_index) { return node_index != INVALID_NODE_INDEX; }
-inline bool ast_is_atom(const AstNode *node) { return node->atom_token_index != INVALID_NODE_INDEX; }
-inline const AstNode *ast_get_node(const vec<AstNode> *ast, uint32_t node_index) { return vec_at(ast, node_index); }	
-inline const AstNode *ast_get_left_child(const vec<AstNode> *ast, const AstNode* node) { return vec_at(ast, node->left_child_index); }
-inline const AstNode *ast_get_right_sibling(const vec<AstNode> *ast, const AstNode* node) { return vec_at(ast, node->right_sibling_index); }
-inline const Token *ast_get_token(const vec<Token> *tokens, const AstNode *node) { return vec_at(tokens, node->atom_token_index); }
+inline bool ast_has_right_sibling(const AstNode *node)
+{
+	return node->right_sibling_index != INVALID_NODE_INDEX;
+}
+inline bool ast_has_left_child(const AstNode *node)
+{
+	return node->left_child_index != INVALID_NODE_INDEX;
+}
+inline bool ast_is_valid(uint32_t node_index)
+{
+	return node_index != INVALID_NODE_INDEX;
+}
+inline bool ast_is_atom(const AstNode *node)
+{
+	return node->atom_token_index != INVALID_NODE_INDEX;
+}
+inline const AstNode *ast_get_node(const vec<AstNode> *ast, uint32_t node_index)
+{
+	return vec_at(ast, node_index);
+}
+inline const AstNode *ast_get_left_child(const vec<AstNode> *ast, const AstNode *node)
+{
+	return vec_at(ast, node->left_child_index);
+}
+inline const AstNode *ast_get_right_sibling(const vec<AstNode> *ast, const AstNode *node)
+{
+	return vec_at(ast, node->right_sibling_index);
+}
+inline const Token *ast_get_token(const vec<Token> *tokens, const AstNode *node)
+{
+	return vec_at(tokens, node->atom_token_index);
+}

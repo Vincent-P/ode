@@ -2,7 +2,6 @@
 #include "lexer.h"
 #include <stdio.h>
 
-
 static Token parser_current_token(Parser *parser)
 {
 	if (parser->i_current_token < parser->tokens.length) {
@@ -62,30 +61,113 @@ static uint32_t parser_push_ast_node_sexpr(Parser *parser, uint32_t first_child_
 	new_node.atom_token_index = INVALID_NODE_INDEX;
 	new_node.right_sibling_index = INVALID_NODE_INDEX;
 	new_node.left_child_index = first_child_index;
+	if (new_node.left_child_index != INVALID_NODE_INDEX) {
+		new_node.child_count = 1;
+	}
 	return vec_append(&parser->nodes, new_node);
 }
 
-#if 0
-static void ast_node_add_child(vec<AstNode> *nodes, uint32_t node_index, uint32_t new_child_index)
+// number | identifier
+static uint32_t parse_atom(Parser *parser)
 {
-	AstNode *node = vec_at(nodes, node_index);
-	if (node->left_child_index == INVALID_NODE_INDEX) {
-		node->left_child_index = new_child_index;
-	} else {
-		AstNode *child_cursor = vec_at(nodes, node->left_child_index);
-		while (child_cursor->right_sibling_index != INVALID_NODE_INDEX) {
-			child_cursor = vec_at(nodes, child_cursor->right_sibling_index);
+	Token current_token = parser_current_token(parser);
+
+	bool is_a_valid_atom = current_token.kind == TokenKind::Number || current_token.kind == TokenKind::Identifier
+	                       || current_token.kind == TokenKind::StringLiteral;
+	if (is_a_valid_atom) {
+		uint32_t new_node_index = parser_push_ast_node_atom(parser, parser->i_current_token);
+		AstNode *new_node = vec_at(&parser->nodes, new_node_index);
+		if (new_node_index < parser->nodes.length) {
+			new_node->span = current_token.span;
+			parser->i_current_token += 1;
 		}
-		child_cursor->right_sibling_index = new_child_index;
+		return new_node_index;
+	} else {
+		parser->result = ParserResult::UnexpectedToken;
+		parser->error = current_token.span;
+		parser->expected_token_kind = TokenKind::Number;
+		return parser->nodes.length;
 	}
 }
-#endif
 
-static void ast_node_add_sibling(AstNode *child, uint32_t new_sibling_index)
+// sexpr | atom
+static uint32_t parse_expression(Parser *parser);
+
+// () | (identifier exp*)
+static uint32_t parse_s_expression(Parser *parser)
 {
-	child->right_sibling_index = new_sibling_index;
+	auto left_paren_token = parser_expect_token(parser, TokenKind::LeftParen);
+	(void)(left_paren_token);
+
+	Token peek_token = parser_current_token(parser);
+	// 0  - Empty list
+	if (peek_token.kind == TokenKind::RightParen) {
+		parser->i_current_token += 1;
+		return parser_push_ast_node_sexpr(parser, INVALID_NODE_INDEX);
+	}
+
+	// 1  - First symbol is something to evaluate (function, variable or builtin)
+	const uint32_t first_expr_node_index = parse_expression(parser);
+	const uint32_t sexpr_node_index = parser_push_ast_node_sexpr(parser, first_expr_node_index);
+
+	// 2+ - arguments to evaluate the first symbol
+	peek_token = parser_current_token(parser);
+	AstNode *current_child = vec_at(&parser->nodes, first_expr_node_index);
+	while (peek_token.kind != TokenKind::RightParen && peek_token.kind != TokenKind::Invalid
+		   && parser->result == ParserResult::Ok) {
+		const uint32_t new_expr_node_index = parse_expression(parser);
+		current_child->right_sibling_index = new_expr_node_index;
+
+		AstNode *const sexpr_node = vec_at(&parser->nodes, sexpr_node_index);
+		sexpr_node->child_count += 1;
+
+		current_child = vec_at(&parser->nodes, new_expr_node_index);
+		peek_token = parser_current_token(parser);
+	}
+
+	auto right_paren_token = parser_expect_token(parser, TokenKind::RightParen);
+
+	AstNode *sexpr_node = vec_at(&parser->nodes, sexpr_node_index);
+	sexpr_node->span = span_extend(left_paren_token.span, right_paren_token.span);
+
+	return sexpr_node_index;
 }
 
+// sexpr | atom
+static uint32_t parse_expression(Parser *parser)
+{
+	Token i_current_token = parser_current_token(parser);
+	if (i_current_token.kind == TokenKind::LeftParen) {
+		return parse_s_expression(parser);
+	} else {
+		return parse_atom(parser);
+	}
+}
+
+// sexpr*
+vec<AstNode> parse_module(Parser *parser)
+{
+	uint32_t root_node_index = parser_push_ast_node_sexpr(parser, INVALID_NODE_INDEX);
+	AstNode *root_node = vec_at(&parser->nodes, root_node_index);
+
+	AstNode *current_child = nullptr;
+	while (parser->i_current_token < parser->tokens.length) {
+		uint32_t expr_node_index = parse_s_expression(parser);
+		root_node->child_count += 1;
+		if (current_child == nullptr) {
+			root_node->left_child_index = expr_node_index;
+		} else {
+			current_child->right_sibling_index = expr_node_index;
+		}
+		current_child = vec_at(&parser->nodes, expr_node_index);
+		if (parser->result != ParserResult::Ok)
+			break;
+	}
+
+	return parser->nodes;
+}
+
+// Print utilities
 static void print_indent(int indent)
 {
 	for (int i = 0; i < indent; ++i) {
@@ -139,100 +221,4 @@ void print_ast(sv input, const vec<Token> *tokens, const vec<AstNode> *nodes, ui
 		child = vec_at(nodes, child->right_sibling_index);
 	}
 	putchar('\n');
-}
-
-// number | identifier
-static uint32_t parse_atom(Parser *parser)
-{
-	Token current_token = parser_current_token(parser);
-
-	bool is_a_valid_atom = current_token.kind == TokenKind::Number || current_token.kind == TokenKind::Identifier ||
-	                       current_token.kind == TokenKind::StringLiteral;
-	if (is_a_valid_atom) {
-		uint32_t new_node_index = parser_push_ast_node_atom(parser, parser->i_current_token);
-		AstNode *new_node = vec_at(&parser->nodes, new_node_index);
-		if (new_node_index < parser->nodes.length) {
-			new_node->span = current_token.span;
-			parser->i_current_token += 1;
-		}
-		return new_node_index;
-	} else {
-		parser->result = ParserResult::UnexpectedToken;
-		parser->error = current_token.span;
-		parser->expected_token_kind = TokenKind::Number;
-		return parser->nodes.length;
-	}
-}
-
-// sexpr | atom
-static uint32_t parse_expression(Parser *parser);
-
-// () | (identifier exp*)
-static uint32_t parse_s_expression(Parser *parser)
-{
-	auto left_paren_token = parser_expect_token(parser, TokenKind::LeftParen);
-	(void)(left_paren_token);
-
-	Token peek_token = parser_current_token(parser);
-	// 0  - Empty list
-	if (peek_token.kind == TokenKind::RightParen) {
-		parser->i_current_token += 1;
-		return parser_push_ast_node_sexpr(parser, INVALID_NODE_INDEX);
-	}
-
-	// 1  - First symbol is something to evaluate (function, variable or builtin)
-	uint32_t first_expr_node_index = parse_expression(parser);
-	uint32_t sexpr_node_index = parser_push_ast_node_sexpr(parser, first_expr_node_index);
-
-	// 2+ - arguments to evaluate the first symbol
-	peek_token = parser_current_token(parser);
-	AstNode *current_child = vec_at(&parser->nodes, first_expr_node_index);
-	while (peek_token.kind != TokenKind::RightParen && peek_token.kind != TokenKind::Invalid &&
-		   parser->result == ParserResult::Ok) {
-		uint32_t new_expr_node_index = parse_expression(parser);
-		ast_node_add_sibling(current_child, new_expr_node_index);
-		
-		current_child = vec_at(&parser->nodes, new_expr_node_index);
-		peek_token = parser_current_token(parser);
-	}
-
-	auto right_paren_token = parser_expect_token(parser, TokenKind::RightParen);
-
-	AstNode *sexpr_node = vec_at(&parser->nodes, sexpr_node_index);
-	sexpr_node->span = span_extend(left_paren_token.span, right_paren_token.span);
-
-	return sexpr_node_index;
-}
-
-// sexpr | atom
-static uint32_t parse_expression(Parser *parser)
-{
-	Token i_current_token = parser_current_token(parser);
-	if (i_current_token.kind == TokenKind::LeftParen) {
-		return parse_s_expression(parser);
-	} else {
-		return parse_atom(parser);
-	}
-}
-
-// sexpr*
-vec<AstNode> parse_module(Parser *parser)
-{
-	uint32_t root_node_index = parser_push_ast_node_sexpr(parser, INVALID_NODE_INDEX);
-	AstNode *root_node = vec_at(&parser->nodes, root_node_index);
-
-	AstNode *current_child = nullptr;
-	while (parser->i_current_token < parser->tokens.length) {
-		uint32_t expr_node_index = parse_s_expression(parser);
-		if (current_child == nullptr) {
-			root_node->left_child_index = expr_node_index;
-		} else {
-			current_child->right_sibling_index = expr_node_index;
-		}
-		current_child = vec_at(&parser->nodes, expr_node_index);
-		if (parser->result != ParserResult::Ok)
-			break;
-	}
-
-	return parser->nodes;
 }

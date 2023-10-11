@@ -101,7 +101,7 @@ static void execution_init(ExecutionContext *context)
 	context->locals_storage_end = context->locals_storage_begin + 128;
 }
 
-void executor_assert_trigger(ExecutorState *state, sv condition_str, sv file, int line)
+void executor_assert_trigger(ExecutorState *state, uint64_t ip, sv condition_str, sv file, int line)
 {
 	// Don't hide errors
 	if (state->failed == true) {
@@ -112,11 +112,14 @@ void executor_assert_trigger(ExecutorState *state, sv condition_str, sv file, in
 	state->error_msg = condition_str;
 	state->error_file = file;
 	state->error_line = line;
+	state->error_ip = ip;
+
+	// __debugbreak();
 }
 
 #define EXEC_ASSERT(state, condition)                                                                                  \
 	if ((condition) == false) {                                                                                        \
-		executor_assert_trigger(state,                                                                                 \
+executor_assert_trigger(state, ctx->ip,                                                                                 \
 			sv_from_null_terminated(#condition),                                                                       \
 			sv_from_null_terminated(__FILE__),                                                                         \
 			__LINE__);                                                                                                 \
@@ -204,7 +207,7 @@ void executor_execute_module_entrypoint(ExecutorState *state, sv module_name)
 	executor_execute_module_at(state, i_module, ip);
 }
 
-static uint32_t type_get_size(ExecutorState *state, ExecutionContext *ctx, TypeID id)
+uint32_t type_get_size(ExecutorState *state, ExecutionContext *ctx, TypeID id)
 {
 	if (id.builtin.is_user_defined != 0) {
 		EXEC_ASSERT(state, id.user_defined.index < ctx->module->types_length);
@@ -245,34 +248,29 @@ static TypeID bytecode_read_type_id(ExecutorState *state, ExecutionContext *ctx)
 	return id;
 }
 
-static uint32_t bytecode_read_u32(ExecutionContext *ctx)
+template <typename T>
+static T bytecode_read_scalar(ExecutionContext *ctx)
 {
 	uint64_t bytecode_len = ctx->module->bytecode_length;
 	uint8_t *bytecode = ctx->module->bytecode;
 
-	if (ctx->ip + sizeof(uint32_t) > bytecode_len) {
+	if (ctx->ip + sizeof(T) > bytecode_len) {
 		fprintf(stderr, "Invalid bytecode (read u32)\n");
 		ctx->ip = bytecode_len;
 		return 0;
 	}
-	uint32_t *bytecode_u32 = reinterpret_cast<uint32_t *>(bytecode + ctx->ip);
-	ctx->ip = ctx->ip + sizeof(uint32_t);
-	return *bytecode_u32;
+	T *bytecode_as_t = reinterpret_cast<T *>(bytecode + ctx->ip);
+	ctx->ip = ctx->ip + sizeof(T);
+	return *bytecode_as_t;
 }
 
-static int32_t bytecode_read_i32(ExecutionContext *ctx)
+static uint32_t bytecode_read_u32(ExecutionContext *ctx)
 {
-	uint64_t bytecode_len = ctx->module->bytecode_length;
-	uint8_t *bytecode = ctx->module->bytecode;
-
-	if (ctx->ip + sizeof(int32_t) > bytecode_len) {
-		fprintf(stderr, "Invalid bytecode (read i32)\n");
-		ctx->ip = bytecode_len;
-		return 0;
-	}
-	int32_t *bytecode_i32 = reinterpret_cast<int32_t *>(bytecode + ctx->ip);
-	ctx->ip = ctx->ip + sizeof(int32_t);
-	return *bytecode_i32;
+	return bytecode_read_scalar<uint32_t>(ctx);
+}
+static uint8_t bytecode_read_u8(ExecutionContext *ctx)
+{
+	return bytecode_read_scalar<uint8_t>(ctx);
 }
 
 static sv bytecode_read_sv(ExecutionContext *ctx)
@@ -306,29 +304,24 @@ static sv bytecode_read_sv(ExecutionContext *ctx)
 	return result;
 }
 
-// Returns a pointer to the pushed value
-uint8_t *execution_push_local(ExecutionContext *ctx, uint64_t local_size)
+static void execute_begin_scope(ExecutorState *state, ExecutionContext *ctx)
 {
-	uint8_t *value_end = ctx->locals_storage_current + local_size;
-	if (value_end <= ctx->locals_storage_end) {
-		uint8_t *value_start = ctx->locals_storage_current;
-		ctx->locals_storage_previous = ctx->locals_storage_current;
-		ctx->locals_storage_current = value_end;
-		return value_start;
+	EXEC_ASSERT(state, ctx->scopes_current < ctx->scopes_end);
+	if (state->failed) {
+		return;
 	}
-	// TODO: error handling
-	return nullptr;
+	ctx->scopes_current += 1;
+	ctx->scopes_current->variables_length = 0;
+	memset(ctx->scopes_current->variables, 0, sizeof(ctx->scopes_current->variables));
 }
 
-StackValue execution_pop_value(ExecutionContext *ctx)
+static void execute_end_scope(ExecutorState *state, ExecutionContext *ctx)
 {
-	if (ctx->locals_storage_current != ctx->locals_storage_previous) {
-		StackValue *memory_value = reinterpret_cast<StackValue *>(ctx->locals_storage_current);
-		ctx->locals_storage_current = ctx->locals_storage_previous;
-		return *memory_value;
+	EXEC_ASSERT(state, ctx->scopes_current >= ctx->scopes_begin);
+	if (state->failed) {
+		return;
 	}
-	// TODO: error handling
-	return {};
+	ctx->scopes_current -= 1;
 }
 
 StackValue execution_get_local(ExecutionContext *ctx, uint32_t i_local)
@@ -339,8 +332,8 @@ StackValue execution_get_local(ExecutionContext *ctx, uint32_t i_local)
 sv execution_get_str(ExecutionContext *ctx, Str str)
 {
 	if (str.is_constant == 1) {
-		if (str.offset < ctx->module->constants_length) {
-			return ctx->module->constants[str.offset].str;
+		if (str.offset < ctx->module->constant_strings_length) {
+			return ctx->module->constant_strings[str.offset];
 		}
 	}
 	return sv_from_null_terminated("<ERROR>");
@@ -348,7 +341,7 @@ sv execution_get_str(ExecutionContext *ctx, Str str)
 
 static void print_indent(long long n)
 {
-	for (int32_t i = 0; i < n; ++i) {
+	for (int32_t i = 0; i < (n+1); ++i) {
 		putchar(' ');
 		putchar(' ');
 		putchar(' ');
@@ -356,7 +349,19 @@ static void print_indent(long long n)
 	}
 }
 
-StackValue *push_operand(ExecutorState *state, ExecutionContext *ctx, StackValue value_to_push)
+static void log_push(ExecutorState *, ExecutionContext *ctx, StackValue value)
+{
+	print_indent(ctx->callstack_current - ctx->callstack_begin);
+	printf("push %s %d\n", StackValueKind_str[uint8_t(value.kind)], value.i32);
+}
+
+static void log_pop(ExecutorState *, ExecutionContext *ctx, StackValue value)
+{
+	print_indent(ctx->callstack_current - ctx->callstack_begin);
+	printf("pop  %s %d\n", StackValueKind_str[uint8_t(value.kind)], value.i32);
+}
+
+static StackValue *push_operand(ExecutorState *state, ExecutionContext *ctx, StackValue value_to_push)
 {
 	EXEC_ASSERT(state, ctx->stack_current + 1 < ctx->stack_end);
 	if (state->failed) {
@@ -365,10 +370,13 @@ StackValue *push_operand(ExecutorState *state, ExecutionContext *ctx, StackValue
 
 	ctx->stack_current += 1;
 	*ctx->stack_current = value_to_push;
+
+	log_push(state, ctx, value_to_push);
+	
 	return ctx->stack_current;
 }
 
-StackValue pop_operand(ExecutorState *state, ExecutionContext *ctx)
+static StackValue pop_operand(ExecutorState *state, ExecutionContext *ctx)
 {
 	EXEC_ASSERT(state, ctx->stack_current >= ctx->stack_begin);
 	if (state->failed) {
@@ -377,42 +385,37 @@ StackValue pop_operand(ExecutorState *state, ExecutionContext *ctx)
 
 	StackValue popped = *ctx->stack_current;
 	ctx->stack_current -= 1;
-	return popped;
-}
+	log_pop(state, ctx, popped);
 
-CallFrame *push_callstack(ExecutorState *state, ExecutionContext *ctx)
-{
-	EXEC_ASSERT(state, ctx->callstack_current + 1 < ctx->callstack_end);
-	if (state->failed) {
-		return nullptr;
-	}
-	ctx->callstack_current += 1;
-	return ctx->callstack_current;
+	return popped;
 }
 
 // -- OpCodes execution
 
 static void execute_constant(ExecutorState *state, ExecutionContext *ctx)
 {
-	int32_t value = bytecode_read_i32(ctx);
-	print_indent(ctx->callstack_current - ctx->callstack_begin);
-	printf("Constant: pushed %d\n", value);
+	uint8_t i_constant = bytecode_read_u8(ctx);
+	EXEC_ASSERT(state, i_constant < ctx->module->constants_u32_length);
+	if (state->failed) {
+		return;
+	}
 
-	StackValue to_push = stack_value_i32(value);
+	uint32_t value = ctx->module->constants_u32[i_constant];
+
+	StackValue to_push = stack_value_i32(int32_t(value));
 	push_operand(state, ctx, to_push);
 }
 
 static void execute_constant_str(ExecutorState *state, ExecutionContext *ctx)
 {
-	uint32_t i_constant = bytecode_read_u32(ctx);
-	EXEC_ASSERT(state, i_constant < ctx->module->constants_length);
+	uint8_t i_constant = bytecode_read_u8(ctx);
+	EXEC_ASSERT(state, i_constant < ctx->module->constant_strings_length);
 	if (state->failed) {
 		return;
 	}
 
-	sv value = ctx->module->constants[i_constant].str;
+	sv value = ctx->module->constant_strings[i_constant];
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
-	printf("ConstantStr: pushed \"%.*s\"\n", int(value.length), value.chars);
 
 	Str str = {};
 	str.is_constant = 1;
@@ -424,9 +427,9 @@ static void execute_constant_str(ExecutorState *state, ExecutionContext *ctx)
 
 static void execute_call(ExecutorState *state, ExecutionContext *ctx)
 {
-	uint32_t i_function = bytecode_read_u32(ctx);
+	uint8_t i_function = bytecode_read_u8(ctx);
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
-	printf("Call function %d\n", i_function);
+	printf("--call function%d\n", i_function);
 
 	EXEC_ASSERT(state, i_function < ctx->module->functions_length);
 	if (state->failed) {
@@ -434,15 +437,25 @@ static void execute_call(ExecutorState *state, ExecutionContext *ctx)
 	}
 
 	Function *function = ctx->module->functions + i_function;
-	CallFrame *callstack = push_callstack(state, ctx);
-	if (callstack == nullptr) {
+
+	// Open a new scope for local variables
+	execute_begin_scope(state, ctx);
+	if (state->failed) {
 		return;
 	}
-
-	// Push a new call frame with the saved up return address
+	
+	// Push a new call frame to save return address
+	EXEC_ASSERT(state, ctx->callstack_current + 1 < ctx->callstack_end);
+	if (state->failed) {
+		return;
+	}
+	
+	ctx->callstack_current += 1;
+	CallFrame *callstack = ctx->callstack_current;
 	callstack->return_ip = ctx->ip;
 	callstack->i_current_function = i_function;
 
+	// Jump
 	ctx->ip = function->address;
 }
 
@@ -469,8 +482,10 @@ static void execute_call_foreign(ExecutorState *state, ExecutionContext *ctx)
 	}
 }
 
-static void execute_ret(ExecutorState *, ExecutionContext *ctx)
+static void execute_ret(ExecutorState *state, ExecutionContext *ctx)
 {
+	execute_end_scope(state, ctx);
+	
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
 	if (ctx->callstack_begin <= ctx->callstack_current && ctx->callstack_current < ctx->callstack_end) {
 		// Pop the last callstack, restore IP
@@ -509,156 +524,21 @@ static void execute_jump(ExecutorState *state, ExecutionContext *ctx)
 	ctx->ip = uint64_t(jump_destination);
 }
 
-static void execute_get_field(ExecutorState *state, ExecutionContext *ctx)
+static void execute_store_local(ExecutorState *state, ExecutionContext *ctx)
 {
-	Module *module = ctx->module;
-
-	uint32_t i_field = bytecode_read_u32(ctx);
-	StackValue struct_ptr = pop_operand(state, ctx);
-	TypeID struct_type_id = struct_ptr.local_ptr.type_id;
-	if (state->failed) {
-		return;
-	}
-
-	// Debug print
-	print_indent(ctx->callstack_current - ctx->callstack_begin);
-	printf("GetField #%u (struct at %u type %u)\n",
-		i_field,
-		struct_ptr.local_ptr.offset,
-		struct_ptr.local_ptr.type_id.raw);
-
-	// Check thast the struct ptr is valid
-	EXEC_ASSERT(state, struct_ptr.local_ptr.offset < uint32_t(ctx->locals_storage_end - ctx->locals_storage_begin));
-	EXEC_ASSERT(state, type_id_is_user_defined(struct_type_id));
-	EXEC_ASSERT(state, struct_type_id.user_defined.index < ctx->module->types_length);
-	if (state->failed) {
-		return;
-	}
-
-	UserDefinedType *struct_type = module->types + struct_type_id.user_defined.index;
-
-	// Assert that the field is valid
-	EXEC_ASSERT(state, i_field < struct_type->field_count);
-	if (state->failed) {
-		return;
-	}
-
-	uint64_t field_offset = struct_type->field_offsets[i_field];
-	TypeID field_type = struct_type->field_types[i_field];
-
-	// Check that the user defined type is valid
-	if (type_id_is_user_defined(field_type)) {
-		EXEC_ASSERT(state, field_type.user_defined.index < module->types_length);
-		if (state->failed) {
-			return;
-		}
-	}
-
-	// Push the member by value (addressable local object)
-	TypedPointer local_ptr = {};
-	local_ptr.type_id = field_type;
-	local_ptr.offset = uint32_t(struct_ptr.local_ptr.offset + field_offset);
-	StackValue field_ptr = stack_value_local_object(local_ptr);
-	push_operand(state, ctx, field_ptr);
-
-	print_indent(ctx->callstack_current - ctx->callstack_begin);
-	printf("Field value: ptr(struct at offset %u type %u)\n",
-		field_ptr.local_ptr.offset,
-		field_ptr.local_ptr.type_id.raw);
-}
-
-static void execute_set_field(ExecutorState *state, ExecutionContext *ctx)
-{
-	Module *module = ctx->module;
-
-	uint32_t i_field = bytecode_read_u32(ctx);
-
-	StackValue field_value = pop_operand(state, ctx);
-	StackValue struct_ptr = pop_operand(state, ctx);
-	TypeID struct_type_id = struct_ptr.local_ptr.type_id;
-	if (state->failed) {
-		return;
-	}
-
-	// Debug print
-	print_indent(ctx->callstack_current - ctx->callstack_begin);
-	printf("SetField #%u (struct at %u type %u)\n", i_field, struct_ptr.local_ptr.offset, struct_type_id.raw);
-	printf("Field value: int(%u) ptr(struct at %u type %u)\n",
-		field_value.i32,
-		field_value.local_ptr.offset,
-		field_value.local_ptr.type_id.raw);
-
-	// Check thast the struct ptr is valid
-	EXEC_ASSERT(state, struct_ptr.local_ptr.offset < uint32_t(ctx->locals_storage_end - ctx->locals_storage_begin));
-	EXEC_ASSERT(state, type_id_is_user_defined(struct_type_id));
-	EXEC_ASSERT(state, struct_type_id.user_defined.index < ctx->module->types_length);
-	if (state->failed) {
-		return;
-	}
-
-	UserDefinedType *struct_type = module->types + struct_type_id.user_defined.index;
-	uint8_t *struct_pointer = ctx->locals_storage_begin + struct_ptr.local_ptr.offset;
-
-	// Assert that the field is valid
-	EXEC_ASSERT(state, i_field < struct_type->field_count);
-	if (state->failed) {
-		return;
-	}
-
-	TypeID field_type_id = struct_type->field_types[i_field];
-	uint8_t *field_pointer = struct_pointer + struct_type->field_offsets[i_field];
-
-	if (type_id_is_user_defined(field_type_id)) {
-		// Check that the pointer on the stack is valid.
-		EXEC_ASSERT(state, field_type_id.user_defined.index < module->types_length);
-		EXEC_ASSERT(state, field_type_id.raw == field_value.local_ptr.type_id.raw);
-		EXEC_ASSERT(state,
-			field_value.local_ptr.offset < uint32_t(ctx->locals_storage_end - ctx->locals_storage_begin));
-		if (state->failed) {
-			return;
-		}
-	}
-
-	uint32_t field_size = type_get_size(state, ctx, field_type_id);
-	memcpy(field_pointer, ctx->locals_storage_begin + field_value.local_ptr.offset, field_size);
-}
-
-static void execute_begin_scope(ExecutorState *state, ExecutionContext *ctx)
-{
-	EXEC_ASSERT(state, ctx->scopes_current < ctx->scopes_end);
-	if (state->failed) {
-		return;
-	}
-	ctx->scopes_current += 1;
-	ctx->scopes_current->variables_length = 0;
-	memset(ctx->scopes_current->variables, 0, sizeof(ctx->scopes_current->variables));
-}
-
-static void execute_end_scope(ExecutorState *state, ExecutionContext *ctx)
-{
-	EXEC_ASSERT(state, ctx->scopes_current >= ctx->scopes_begin);
-	if (state->failed) {
-		return;
-	}
-	ctx->scopes_current -= 1;
-}
-
-static void execute_set_local(ExecutorState *state, ExecutionContext *ctx)
-{
-	uint32_t i_local = bytecode_read_u32(ctx);
+	uint8_t i_local = bytecode_read_u8(ctx);
 	EXEC_ASSERT(state, ctx->scopes_current >= ctx->scopes_begin);
 	EXEC_ASSERT(state, i_local < VARSCOPE_CAPACITY);
 	if (state->failed) {
 		return;
 	}
 
-	print_indent(ctx->callstack_current - ctx->callstack_begin);
-	printf("Popped %d (local #%u)\n", ctx->stack_current->i32, i_local);
-
 	// If the value is a constant, we need to promote it in memory
 
 	// Otherwise we need to deep copy it
 
+	print_indent(ctx->callstack_current - ctx->callstack_begin);
+	printf("--store_local %u\n", i_local);
 	// Pop the value to set
 	StackValue local_value = pop_operand(state, ctx);
 
@@ -666,98 +546,57 @@ static void execute_set_local(ExecutorState *state, ExecutionContext *ctx)
 	ctx->scopes_current->variables[i_local] = local_value;
 }
 
-static void execute_get_local(ExecutorState *state, ExecutionContext *ctx)
+static void execute_load_local(ExecutorState *state, ExecutionContext *ctx)
 {
-	uint32_t i_local = bytecode_read_u32(ctx);
+	uint8_t i_local = bytecode_read_u8(ctx);
 
 	EXEC_ASSERT(state, ctx->scopes_current >= ctx->scopes_begin);
 	EXEC_ASSERT(state, i_local < VARSCOPE_CAPACITY);
 	if (state->failed) {
 		return;
 	}
-
-	StackValue *pushed = push_operand(state, ctx, ctx->scopes_current->variables[i_local]);
-
+	
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
-	printf("Pushed %d (local #%u)\n", pushed->i32, i_local);
+	printf("--load_local %u\n", i_local);
+	push_operand(state, ctx, ctx->scopes_current->variables[i_local]);
 }
 
-static void execute_make_struct(ExecutorState *state, ExecutionContext *ctx)
-{
-	// Get the type from the bytecode
-	TypeID struct_type_id = bytecode_read_type_id(state, ctx);
-	EXEC_ASSERT(state, type_id_is_user_defined(struct_type_id));
-	if (state->failed) {
-		return;
-	}
-	UserDefinedType *struct_type = ctx->module->types + struct_type_id.user_defined.index;
-
-	// Reserve space in the local storage for the struct data
-	uint8_t *local_struct_storage = execution_push_local(ctx, struct_type->size);
-	EXEC_ASSERT(state, local_struct_storage != nullptr);
-	if (state->failed) {
-		return;
-	}
-
-	// TODO: Keep a pointer to pop this on scope end
-	StackValue new_struct = {};
-	new_struct.kind = StackValueKind::LocalPtr;
-	new_struct.local_ptr.type_id = struct_type_id;
-	new_struct.local_ptr.offset = uint32_t(local_struct_storage - ctx->locals_storage_begin);
-	push_operand(state, ctx, new_struct);
-
-	print_indent(ctx->callstack_current - ctx->callstack_begin);
-	printf("Pushed struct (type %u) (offset %u)\n", struct_type_id.raw, ctx->stack_current->i32);
-}
-
-static void execute_addr(ExecutorState *state, ExecutionContext *ctx)
+static void execute_stack_alloc(ExecutorState *state, ExecutionContext *ctx)
 {
 	const TypeID inner_type = bytecode_read_type_id(state, ctx);
-	StackValue operand = pop_operand(state, ctx);
+	
+	print_indent(ctx->callstack_current - ctx->callstack_begin);
+	printf("--stack_alloc %u\n", inner_type.raw);
 
-	// It's not valid to take the address of a constant
-	EXEC_ASSERT(state, !stack_value_is_constant(operand));
+	StackValue size_to_alloc = pop_operand(state, ctx);
+	
+	EXEC_ASSERT(state, ctx->locals_storage_begin <= ctx->locals_storage_current);
+	EXEC_ASSERT(state, ctx->locals_storage_current + size_to_alloc.i32 < ctx->locals_storage_end);
 	if (state->failed) {
 		return;
 	}
-	// We have either an object or a ptr
+	
+	TypedPointer returned_pointer = {};
+	returned_pointer.type_id = inner_type;
+	returned_pointer.offset = uint32_t(ctx->locals_storage_current - ctx->locals_storage_begin);
+	
+	ctx->locals_storage_current += size_to_alloc.i32;
 
-	// Verify that the type of the operand matches the type of the addr return type
-	EXEC_ASSERT(state, operand.local_ptr.type_id.raw == inner_type.raw);
-
-	// Because we can only take the address of addressable objects,
-	// and that addressable objects are represented by their address in the operand stack,
-	// the value on the stack is already a pointer.
-	operand.kind = StackValueKind::LocalPtr;
-	push_operand(state, ctx, operand);
+	push_operand(state, ctx, stack_value_local_ptr(returned_pointer));
 }
 
-static void execute_deref(ExecutorState *state, ExecutionContext *ctx)
+static void execute_store(ExecutorState *state, ExecutionContext *ctx)
 {
-	const TypeID pointer_type = bytecode_read_type_id(state, ctx);
-	StackValue operand = pop_operand(state, ctx);
+	const TypeID pointee_type = bytecode_read_type_id(state, ctx);
 
-	EXEC_ASSERT(state, operand.kind == StackValueKind::LocalPtr);
-	if (state->failed) {
-		return;
-	}
+	print_indent(ctx->callstack_current - ctx->callstack_begin);
+	printf("--store %u\n", pointee_type.raw);
 
-	// Verify that the type of the operand matches the type of the addr return type
-	EXEC_ASSERT(state, operand.local_ptr.type_id.raw == pointer_type.raw);
-
-	// Local pointer and addressable objects are represented the same way
-	operand.kind = StackValueKind::LocalObject;
-	push_operand(state, ctx, operand);
-}
-
-static void execute_write_i32(ExecutorState *state, ExecutionContext *ctx)
-{
 	StackValue value_to_write = pop_operand(state, ctx);
 	StackValue pointer_to_write = pop_operand(state, ctx);
 	uint8_t *address = ctx->locals_storage_begin + pointer_to_write.local_ptr.offset;
 
 	// Check the type of operands and that the pointer is valid
-	EXEC_ASSERT(state, value_to_write.kind == StackValueKind::I32);
 	EXEC_ASSERT(state, pointer_to_write.kind == StackValueKind::LocalPtr);
 	EXEC_ASSERT(state, address + sizeof(value_to_write.i32) <= ctx->locals_storage_end);
 	if (type_id_is_user_defined(pointer_to_write.local_ptr.type_id)) {
@@ -768,6 +607,28 @@ static void execute_write_i32(ExecutorState *state, ExecutionContext *ctx)
 	}
 
 	memcpy(address, &value_to_write.i32, sizeof(value_to_write.i32));
+}
+
+static void execute_load(ExecutorState *state, ExecutionContext *ctx)
+{
+	const TypeID pointee_type = bytecode_read_type_id(state, ctx);
+
+	print_indent(ctx->callstack_current - ctx->callstack_begin);
+	printf("--load %u\n", pointee_type.raw);
+	
+	StackValue pointer = pop_operand(state, ctx);
+	EXEC_ASSERT(state, pointer.kind == StackValueKind::LocalPtr);
+	if (type_id_is_user_defined(pointer.local_ptr.type_id)) {
+		EXEC_ASSERT(state, pointer.local_ptr.type_id.user_defined.index < ctx->module->types_length);
+	}
+	if (state->failed) {
+		return;
+	}
+
+	// TODO: implement
+	StackValue result = stack_value_i32(42);
+	push_operand(state, ctx, result);
+
 }
 
 template <typename Lambda>
@@ -783,30 +644,48 @@ static void execute_binop(ExecutorState *state, ExecutionContext *ctx, Lambda &&
 	ctx->stack_current -= 1;
 	StackValue lhs = *ctx->stack_current;
 
+	log_pop(state, ctx, rhs);
+	log_pop(state, ctx, lhs);
+
 	lambda(lhs, rhs);
 
-	print_indent(ctx->callstack_current - ctx->callstack_begin);
-	printf("Popped, Popped, Pushed %d\n", ctx->stack_current->i32);
+	log_push(state, ctx, *ctx->stack_current);
 }
 
 static void execute_iadd(ExecutorState *state, ExecutionContext *ctx)
 {
+	print_indent(ctx->callstack_current - ctx->callstack_begin);
+	printf("--iadd\n");
 	execute_binop(state, ctx, [ctx](StackValue lhs, StackValue rhs) { ctx->stack_current->i32 = lhs.i32 + rhs.i32; });
 }
 
 static void execute_isub(ExecutorState *state, ExecutionContext *ctx)
 {
+	print_indent(ctx->callstack_current - ctx->callstack_begin);
+	printf("--isub\n");
 	execute_binop(state, ctx, [ctx](StackValue lhs, StackValue rhs) { ctx->stack_current->i32 = lhs.i32 - rhs.i32; });
 }
+
 static void execute_iless_than_eq(ExecutorState *state, ExecutionContext *ctx)
 {
+	print_indent(ctx->callstack_current - ctx->callstack_begin);
+	printf("--iless_than_eq\n");
 	execute_binop(state, ctx, [ctx](StackValue lhs, StackValue rhs) { ctx->stack_current->i32 = lhs.i32 < rhs.i32; });
 }
-static void execute_halt(ExecutorState *state, ExecutionContext *)
+
+static void execute_ptr_offset(ExecutorState *state, ExecutionContext *ctx)
+{
+	print_indent(ctx->callstack_current - ctx->callstack_begin);
+	printf("--ptr_offset\n");
+	execute_binop(state, ctx, [ctx](StackValue lhs, StackValue) { *ctx->stack_current = lhs; });
+}
+
+static void execute_halt(ExecutorState *state, ExecutionContext *ctx)
 {
 	EXEC_ASSERT(state, false);
 	state->error_msg = sv_from_null_terminated("Halt");
 }
+
 static void execute_debug_label(ExecutorState *, ExecutionContext *ctx)
 {
 	sv label = bytecode_read_sv(ctx);
@@ -826,6 +705,9 @@ static void executor_execute_module_at(ExecutorState *state, uint64_t i_module, 
 	ctx.module_instance = state->module_instances + i_module;
 	ctx.ip = first_ip;
 	execution_init(&ctx);
+	
+	// Create the first variable scope
+	execute_begin_scope(state, &ctx);
 
 	Module *module = ctx.module;
 
@@ -838,20 +720,16 @@ static void executor_execute_module_at(ExecutorState *state, uint64_t i_module, 
 		execute_ret,
 		execute_conditional_jump,
 		execute_jump,
-		execute_get_field,
-		execute_set_field,
-		execute_begin_scope,
-		execute_end_scope,
-		execute_set_local,
-		execute_get_local,
-		execute_make_struct,
-		execute_addr,
-		execute_deref,
-		execute_write_i32,
+		execute_halt,
+		execute_store_local,
+		execute_load_local,
+		execute_stack_alloc,
+		execute_load,
+		execute_store,
 		execute_iadd,
 		execute_isub,
 		execute_iless_than_eq,
-		execute_halt,
+		execute_ptr_offset,
 		execute_debug_label,
 	};
 	static_assert(ARRAY_LENGTH(execute_opcodes) == uint8_t(OpCodeKind::Count));
@@ -880,6 +758,7 @@ static void executor_execute_module_at(ExecutorState *state, uint64_t i_module, 
 		err.message = state->error_msg;
 		err.file = state->error_file;
 		err.line = state->error_line;
+		err.ip = state->error_ip;
 		state->config.error_callback(state, err);
 	}
 

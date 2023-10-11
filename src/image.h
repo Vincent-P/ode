@@ -3,81 +3,59 @@
 
 inline constexpr uint32_t MAX_ARGUMENTS = 8;
 
-// TODO: How to distinguish between GetField (which returns the field by value) and "taking the address of a field"
-// - Make GetField returns an lvale and shit happens
-// - Make a field-addr instead? Passing struct as parameters should be formalized! Should we pass implicitly by ptr? Should we always pass (addr my-struct-value) to functions??
-// Should we disable passing structs entirely?? (and make a special case to pass "small" structs by value in the operand stack. So in the compiler we only allow struct of GIVEN size of max
-// If we want enums, we will have "small" structs!
+/**
+   The VM operates with 2 memories: the operand stack, and the memory stack.
+   The operand stack is a stack of registers, containing operand for the different opcodes.
+   The memory stack contains addressable memory, and values that cannot be inlined in the operand stack (when they are
+too big to fit, or because they need to be addressable or mutable).
+**/
 
-// TODO: Make function arguments read-only = Not addressable!!
-// TODO: Implement small struct inlining on the stack
-// TODO: Now we can only pass structs as arguments when they are small OR by pointer
-// TOOD: GetField should probably also works like this? or returns a ptr
-//       If not returning a ptr, add a field-addr             easy: (field-addr (addr p) x), nested structs: (field-addr (addr mat) row1 x), pointer field:(field-addr (field-addr (addr ext-mat) row-ptr) x)
-//       With such impl, get field just becomes a dereference of field-addr: (get-field p x)   <=> (read-i32 (field-addr p x))    <=> (memread (field-addr p x) (sizeof i32))
-//       Ditto for SetField                                                  (set-field p x 1) <=> (write-i32 (field-addr p x) 1) <=> (memset (field-addr p x) 1 (sizeof i32))
-
-
-// Maybe local struct objects should be convertible to ptr (because that's how they are passed to functions in StackValues)
-// But it is a bit weird, i have to figure out how to pass members also.
-
-// Opcode(<bytecode params>) ^_pop_^ v_push_v
 enum struct OpCodeKind : uint8_t
 {
-	// Operand stack manipulation
-	Constant,
-	ConstantStr,
-	// Control flow
-	Call,
-	CallForeign,
-	Ret,
-	ConditionalJump,
-	Jump,
-	// Struct
-	GetField,  // GetField(i_field) ^_StructPtr_^ v_FieldValue_v
-	SetField,  // SetField(i_field) ^_FieldValue_^ ^_StructPtr_^
-	// Memory
-	// Local storage
-	BeginScope,
-	EndScope,
-	SetLocal,   // SetLocal(i_local) ^_Value_^ 
-	GetLocal,   // GetLocal(i_local) v_Local_v
-	MakeStruct, // MakeStruct(TypeID) v_StructPtr_v
-	// Pointers
-	Addr,       // Addr(TypeID) ^_Value_^ v_ValuePtr_v
-	Deref,      // Deref ^_ValuePtr_^ v_ValueAsObject_v 
-	WriteI32,   // WriteI32 ^_Value_^ ^_PointerToWrite_^
-	// Maths
-	IAdd,
-	ISub,
-	ILessThanEq,
-	Halt,
-	// Debug
-	DebugLabel,
+	// Operand stack
+	LoadConstantU32, // Push a uint32_t
+	LoadConstantStr, // Push the index of a str constant
+	                 // Control flow
+	Call,        // Read the immediate index of the function to jump to, and creates a callstack
+	CallForeign, // Call the foreign callback of the current function (TODO: pop index and get args through builtins)
+	Ret,         // Jump to the previous callstack
+	ConditionalJump, // Pop a predicate, jump to immediate address if true
+	Jump,            // Jump to immediate address
+	Halt,            // Stop execution
+	      // Memory stack
+	StoreLocal, // SetLocal(i_local) ^_Value_^
+	LoadLocal,  // GetLocal(i_local) v_Local_v
+	StackAlloc,
+	           // Pointers
+	Load,     // Read immediaste TypeID, Pop a pointer and push the pointed value
+	Store,    // Read immediate TypeID Pop a pointer, Pop value, set pointer to value
+	          // Maths
+	IAdd,        // Adds two integers on the operand stack
+	ISub,        // Substract two integers on the operand stack
+	ILessThanEq, // Compare two integers on the operand stack
+	PtrOffset,
+	             // Debug
+	DebugLabel, // Inline debug string
 	Count,
 };
 inline const char *OpCode_str[] = {
-	"Constant",
-	"ConstantStr",
+	"LoadConstantU32",
+	"LoadConstantStr",
 	"Call",
 	"CallForeign",
 	"Ret",
 	"ConditionalJump",
 	"Jump",
-	"GetField",
-	"SetField",
-	"BeginScope",
-	"EndScope",
-	"SetLocal",
-	"GetLocal",
-	"MakeStruct",
-	"Addr",
-	"Deref",
-	"WriteI32",
+	"Halt",
+	"StoreLocal",
+	"LoadLocal",
+	"StackAlloc",
+	"Load",
+	"Store",
 	"IAdd",
 	"ISub",
 	"ILessThanEq",
-	"Halt",
+	"PtrOffset",
 	"DebugLabel",
 };
 static_assert(ARRAY_LENGTH(OpCode_str) == uint8_t(OpCodeKind::Count));
@@ -201,11 +179,6 @@ struct Function
 	bool is_foreign;
 };
 
-struct Constant
-{
-	sv str;
-};
-
 struct Module
 {
 	sv name;
@@ -218,9 +191,12 @@ struct Module
 	UserDefinedType *types;
 	uint32_t types_capacity;
 	uint32_t types_length;
-	Constant *constants;
-	uint32_t constants_capacity;
-	uint32_t constants_length;
+	sv *constant_strings;
+	uint32_t constant_strings_capacity;
+	uint32_t constant_strings_length;
+	uint32_t *constants_u32;
+	uint32_t constants_u32_capacity;
+	uint32_t constants_u32_length;
 };
 
 struct RuntimeError
@@ -228,4 +204,5 @@ struct RuntimeError
 	sv message;
 	sv file;
 	int line;
+	uint64_t ip;
 };

@@ -91,7 +91,6 @@ void logi_foreign_func(ExecutionContext *ctx)
 	printf("\n=== HOST: log(%d) ===\n", n.i32);
 }
 
-
 ForeignFn on_foreign(sv module_name, sv function_name)
 {
 	printf("=== HOST: On foreign function: module %.*s function %.*s ===\n",
@@ -114,9 +113,8 @@ void on_error(ExecutorState * /*executor*/, RuntimeError err)
 	if (err.file.chars != nullptr) {
 		fprintf(stderr, "%.*s:%d:0: error:  ", int(err.file.length), err.file.chars, err.line);
 	}
-	fprintf(stderr, "EXECUTOR FAILED: %.*s\n", int(err.message.length), err.message.chars);
+	fprintf(stderr, "EXECUTOR FAILED at (%zu): %.*s\n", err.ip, int(err.message.length), err.message.chars);
 }
-
 
 int main(int argc, const char *argv[])
 {
@@ -146,13 +144,11 @@ int main(int argc, const char *argv[])
 
 	Compiler *compiler = compiler_init();
 
-
 	ExecutorConfig exec_config = {};
 	exec_config.error_callback = on_error;
 	exec_config.foreign_callback = on_foreign;
 
 	ExecutorState *executor = executor_init(exec_config);
-
 
 	uint64_t last_compilation = 0;
 	sv last_compiled_module_name = {};
@@ -175,7 +171,6 @@ int main(int argc, const char *argv[])
 				uint64_t delta = stm_diff(after, before);
 				double delta_ms = stm_ms(delta);
 				printf("Execution lasted %f ms.\n", delta_ms);
-
 			}
 		}
 

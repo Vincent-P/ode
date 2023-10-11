@@ -22,8 +22,6 @@ inline const char *LexerResult_str[] = {
 };
 static_assert(ARRAY_LENGTH(LexerResult_str) == uint8_t(LexerResult::Count));
 
-
-
 enum struct TokenKind : uint8_t
 {
 	Invalid,
