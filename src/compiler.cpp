@@ -650,9 +650,10 @@ static void compiler_bytecode_store(Compiler *compiler, CompilerState *compstate
 	compiler_push_type_id(compiler, compstate, expr_type_id);
 }
 
-static void compiler_bytecode_ptr_offset(Compiler *compiler, CompilerState *compstate)
+static void compiler_bytecode_ptr_offset(Compiler *compiler, CompilerState *compstate, TypeID return_type_id)
 {
 	compiler_push_opcode(compiler, compstate, OpCodeKind::PtrOffset);
+	compiler_push_type_id(compiler, compstate, return_type_id);
 }
 
 static void compiler_bytecode_debug_label(Compiler *compiler, CompilerState *compstate, sv label)
@@ -727,7 +728,7 @@ static Function *compiler_compile_function(Compiler *compiler,
 		return nullptr;
 	}
 
-	bool valid_return_type = type_similar(compstate, return_type, body_type);
+	bool valid_return_type = type_similar(return_type, body_type);
 	if (!valid_return_type) {
 		printf("%.*s\n", int(function->name.length), function->name.chars);
 		compstate->result = Result::CompilerExpectedTypeGot;
@@ -739,20 +740,18 @@ static Function *compiler_compile_function(Compiler *compiler,
 	return function;
 }
 
-bool type_similar(CompilerState *, TypeID lhs_id, TypeID rhs_id)
+bool type_similar(TypeID lhs_id, TypeID rhs_id)
 {
 	return lhs_id.raw == rhs_id.raw;
 }
 
-uint32_t type_get_size(CompilerState *state, TypeID id)
+uint32_t type_get_size(Module *module, TypeID id)
 {
 	if (id.builtin.is_user_defined != 0) {
-		if (id.user_defined.index >= state->current_module->types_length) {
-			state->result = Result::Fatal;
-			SET_RESULT(state->result);
-			return 0;
+		if (id.user_defined.index >= module->types_length) {
+			return ~uint32_t(0);
 		}
-		return state->current_module->types[id.user_defined.index].size;
+		return module->types[id.user_defined.index].size;
 	} else {
 		return BuiltinTypeKind_size[uint32_t(id.builtin.kind)];
 	}
@@ -1154,7 +1153,7 @@ TypeID compile_struct(Compiler *compiler, CompilerState *compstate, const AstNod
 		struct_type->field_names[i_field] = sv_substr(compstate->input.text, nodes.field_identifiers[i_field].span);
 		struct_type->field_offsets[i_field] = struct_size;
 
-		struct_size += type_get_size(compstate, field_type);
+		struct_size += type_get_size(compstate->current_module, field_type);
 		fields_type[i_field] = field_type;
 	}
 
@@ -1204,7 +1203,7 @@ TypeID compile_if(Compiler *compiler, CompilerState *compstate, const AstNode *n
 	*jump_to_true_branch = uint32_t(then_branch_address);
 	*jump_to_end = uint32_t(end_address);
 
-	bool valid_return_type = type_similar(compstate, then_expr, else_expr);
+	bool valid_return_type = type_similar(then_expr, else_expr);
 	if (!valid_return_type) {
 		compstate->result = Result::CompilerExpectedTypeGot;
 		SET_RESULT(compstate->result);
@@ -1268,8 +1267,8 @@ TypeID compile_binary_opcode(
 		return UNIT_TYPE;
 	}
 
-	bool lhs_valid = type_similar(compstate, lhs, type);
-	bool rhs_valid = type_similar(compstate, rhs, type);
+	bool lhs_valid = type_similar(lhs, type);
+	bool rhs_valid = type_similar(rhs, type);
 
 	if (!lhs_valid) {
 		compstate->result = Result::CompilerExpectedTypeGot;
@@ -1364,7 +1363,7 @@ TypeID compile_store(Compiler *compiler, CompilerState *compstate, const AstNode
 	
 	// Typecheck
 	TypeID expected_pointer_type = type_id_pointer_from(expr_type_id);
-	if (!type_similar(compstate, expected_pointer_type, addr_type_id)) {
+	if (!type_similar(expected_pointer_type, addr_type_id)) {
 		compstate->result = Result::CompilerExpectedTypeGot;
 		SET_RESULT(compstate->result);
 		compstate->error = nodes.lhs_node->span;
@@ -1388,7 +1387,7 @@ TypeID compile_sizeof(Compiler *compiler, CompilerState *compstate, const AstNod
 	}
 
 	TypeID expr_type = parse_type(compiler, compstate, nodes.value_node);
-	uint32_t type_size = type_get_size(compstate, expr_type);
+	uint32_t type_size = type_get_size(compstate->current_module, expr_type);
 	uint32_t i_constant = compile_find_or_add_constant(compiler, compstate, type_size);
 	compiler_bytecode_load_constant_u32(compiler, compstate, uint8_t(i_constant));
 	return type_id_new_builtin(BuiltinTypeKind::Int);
@@ -1457,6 +1456,7 @@ TypeID compile_stack_alloc(Compiler *compiler, CompilerState *compstate, const A
 	}
 
 	TypeID type_of_pointed_memory = parse_type(compiler, compstate, nodes.lhs_node);
+	
 	/*TypeID size_type =*/ compile_expr(compiler, compstate, nodes.rhs_node);
 
 	// TODO: We need to bound check the alloc, <size> > sizeof(<type>
@@ -1479,7 +1479,7 @@ TypeID compile_ptr_offset(Compiler *compiler, CompilerState *compstate, const As
 	// Check that the provided offset is an int
 	TypeID offset_type = compile_expr(compiler, compstate, nodes.offset_node);
 	TypeID expected_offset_type = type_id_new_builtin(BuiltinTypeKind::Int);
-	if (!type_similar(compstate, offset_type, expected_offset_type)) {
+	if (!type_similar(offset_type, expected_offset_type)) {
 		compstate->result = Result::CompilerExpectedTypeGot;
 		SET_RESULT(compstate->result);
 		compstate->error = nodes.offset_node->span;
@@ -1488,7 +1488,7 @@ TypeID compile_ptr_offset(Compiler *compiler, CompilerState *compstate, const As
 		return UNIT_TYPE;
 	}
 	
-	compiler_bytecode_ptr_offset(compiler, compstate);
+	compiler_bytecode_ptr_offset(compiler, compstate, return_type);
 	return return_type;
 }
 
@@ -1593,7 +1593,7 @@ TypeID compile_sexpr(Compiler *compiler, CompilerState *compstate, const AstNode
 		}
 
 		// typecheck
-		if (!type_similar(compstate, arg_type, found_function->arg_types[i_sig_arg_type])) {
+		if (!type_similar(arg_type, found_function->arg_types[i_sig_arg_type])) {
 			compstate->result = Result::CompilerExpectedTypeGot;
 			SET_RESULT(compstate->result);
 			compstate->error = arg_node->span;
@@ -1840,7 +1840,7 @@ Result compile_module(Compiler *compiler, sv module_name, sv input, Module **out
 		bool is_unary_u32 = opcode_kind == OpCodeKind::Jump || opcode_kind == OpCodeKind::ConditionalJump;
 
 		bool is_unary_sv = opcode_kind == OpCodeKind::DebugLabel;
-		bool is_unary_typeid = opcode_kind == OpCodeKind::Store || opcode_kind == OpCodeKind::Load;
+		bool is_unary_typeid = opcode_kind == OpCodeKind::Store || opcode_kind == OpCodeKind::Load || opcode_kind == OpCodeKind::PtrOffset || opcode_kind == OpCodeKind::StackAlloc;
 
 		if (is_unary_u8) {
 			uint8_t *bytecode_u8 = reinterpret_cast<uint8_t *>(new_module.bytecode + offset + 1);

@@ -1,6 +1,9 @@
 #pragma once
 #include "core.h"
 
+
+struct Module;
+
 inline constexpr uint32_t MAX_ARGUMENTS = 8;
 
 /**
@@ -154,6 +157,11 @@ inline TypeID type_id_new_user_defined(uint32_t index)
 	id.user_defined.index = index;
 	return id;
 }
+TypeID type_id_pointer_from(TypeID inner_type);
+TypeID type_id_deref_pointer(TypeID pointer_type);
+bool type_similar(TypeID lhs_id, TypeID rhs_id);
+uint32_t type_get_size(Module *module, TypeID id);
+
 
 constexpr TypeID UNIT_TYPE = type_id_new_builtin(BuiltinTypeKind::Unit);
 
