@@ -1,0 +1,3 @@
+(define (adder i32) (n i32) (+ n 1))
+
+(provide adder)

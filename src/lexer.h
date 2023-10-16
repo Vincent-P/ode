@@ -1,26 +1,7 @@
 #pragma once
 #include "core.h"
 
-enum struct LexerResult : uint8_t
-{
-	Ok,
-	LexerDone,
-	LexerUnknownToken,
-	UnexpectedToken,
-	ExpectedTokenGotEof,
-	Fatal,
-	Count,
-};
-
-inline const char *LexerResult_str[] = {
-	"Ok",
-	"LexerDone",
-	"LexerUnknownToken",
-	"UnexpectedToken",
-	"ExpectedTokenGotEof",
-	"Fatal",
-};
-static_assert(ARRAY_LENGTH(LexerResult_str) == uint8_t(LexerResult::Count));
+struct CompilationUnit;
 
 enum struct TokenKind : uint8_t
 {
@@ -32,7 +13,6 @@ enum struct TokenKind : uint8_t
 	StringLiteral,
 	Count,
 };
-
 inline const char *TokenKind_str[] = {
 	"Invalid",
 	"LeftParen",
@@ -49,14 +29,4 @@ struct Token
 	span span;
 };
 
-struct Lexer
-{
-	// lexing data
-	vec<uint32_t> line_endings;
-	vec<Token> tokens;
-	// error handling
-	LexerResult result;
-	span error;
-};
-
-void lexer_scan(Lexer *lexer, sv input);
+void lexer_scan(CompilationUnit *compunit);

@@ -63,8 +63,8 @@ Module *compile_file_to_module(Compiler *compiler, sv path, sv *out_module_name 
 	fprintf(stdout, "%s\n", file_content.chars);
 
 	Module *module = nullptr;
-	Result res = compile_module(compiler, module_name, file_content, &module);
-	if (res == Result::Ok) {
+	Error res = compile_module(compiler, module_name, file_content, &module);
+	if (res.code == ErrorCode::Ok) {
 		if (out_module_name) {
 			*out_module_name = module_name;
 		}
@@ -108,12 +108,12 @@ ForeignFn on_foreign(sv module_name, sv function_name)
 	return dummy_foreign_func;
 }
 
-void on_error(ExecutorState * /*executor*/, RuntimeError err)
+void on_error(ExecutorState * /*executor*/, Error err)
 {
 	if (err.file.chars != nullptr) {
 		fprintf(stderr, "%.*s:%d:0: error:  ", int(err.file.length), err.file.chars, err.line);
 	}
-	fprintf(stderr, "EXECUTOR FAILED at (%zu): %.*s\n", err.ip, int(err.message.length), err.message.chars);
+	fprintf(stderr, "EXECUTOR FAILED at (%zu): %.*s\n", err.ip, int(err.msg.length), err.msg.chars);
 }
 
 int main(int argc, const char *argv[])

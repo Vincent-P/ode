@@ -1,10 +1,10 @@
 #pragma once
 #include "core.h"
-
+#include "type_id.h"
+#include "parser.h"
 
 struct Module;
 
-inline constexpr uint32_t MAX_ARGUMENTS = 8;
 
 /**
    The VM operates with 2 memories: the operand stack, and the memory stack.
@@ -62,117 +62,13 @@ inline const char *OpCode_str[] = {
 	"DebugLabel",
 };
 static_assert(ARRAY_LENGTH(OpCode_str) == uint8_t(OpCodeKind::Count));
-// Has to be uint32_t for bitfields
-enum struct BuiltinTypeKind : uint32_t
-{
-	Unit,
-	Int,
-	Bool,
-	Float,
-	Pointer,
-	Str,
-	Count,
-};
-static_assert(uint8_t(BuiltinTypeKind::Count) < 16u, "Should fit on 4 bits.");
 
-inline constexpr const char *BuiltinTypeKind_str[] = {
-	"()",
-	"i32",
-	"bool",
-	"f32",
-	"ptr",
-	"str",
-};
-static_assert(ARRAY_LENGTH(BuiltinTypeKind_str) == uint32_t(BuiltinTypeKind::Count));
-
-inline constexpr uint32_t BuiltinTypeKind_size[] = {
-	0,
-	4,
-	1,
-	4,
-	4,
-	8,
-};
-static_assert(ARRAY_LENGTH(BuiltinTypeKind_size) == uint32_t(BuiltinTypeKind::Count));
-
-inline constexpr uint32_t TYPE_MAX_INDIRECTION = 4;
-inline constexpr uint32_t TYPE_MAX_USER_DEFINED = (1 << 19); // match the user_defined_index
-struct PointerTypeID
-{
-	uint32_t is_user_defined : 1;
-	BuiltinTypeKind builtin_kind : 4;
-	BuiltinTypeKind pointee_builtin_kind : 4;
-	uint32_t indirection_count : 4;
-	uint32_t user_defined_index : 19;
-};
-static_assert(sizeof(PointerTypeID) == sizeof(uint32_t), "is a uint32_t");
-
-struct BuiltinTypeID
-{
-	uint32_t is_user_defined : 1;
-	BuiltinTypeKind kind : 4;
-	uint32_t padding : 27;
-};
-static_assert(sizeof(BuiltinTypeID) == sizeof(uint32_t), "is a uint32_t");
-
-struct UserDefinedTypeID
-{
-	uint32_t is_user_defiend : 1;
-	uint32_t index : 31;
-};
-
-union TypeID
-{
-	PointerTypeID pointer;
-	BuiltinTypeID builtin;
-	UserDefinedTypeID user_defined;
-	uint32_t raw;
-};
-static_assert(sizeof(TypeID) == sizeof(uint32_t), "is a uint32_t");
-inline bool type_id_is_pointer(TypeID id)
-{
-	return id.builtin.is_user_defined == 0 && id.builtin.kind == BuiltinTypeKind::Pointer;
-}
-inline bool type_id_is_builtin(TypeID id)
-{
-	return id.builtin.is_user_defined == 0 && id.builtin.kind != BuiltinTypeKind::Pointer;
-}
-inline bool type_id_is_user_defined(TypeID id)
-{
-	return id.builtin.is_user_defined == 1;
-}
-constexpr TypeID type_id_new_builtin(BuiltinTypeKind kind)
-{
-	TypeID id = {};
-	id.builtin.is_user_defined = 0;
-	id.builtin.kind = kind;
-	id.builtin.padding = 0;
-	return id;
-}
-
-inline TypeID type_id_new_user_defined(uint32_t index)
-{
-	TypeID id = {};
-	id.user_defined.is_user_defiend = 1;
-	id.user_defined.index = index;
-	return id;
-}
-TypeID type_id_pointer_from(TypeID inner_type);
-TypeID type_id_deref_pointer(TypeID pointer_type);
-bool type_similar(TypeID lhs_id, TypeID rhs_id);
-uint32_t type_get_size(Module *module, TypeID id);
-
-
-constexpr TypeID UNIT_TYPE = type_id_new_builtin(BuiltinTypeKind::Unit);
-
-// A user-defined type, only struct for now
-inline constexpr uint32_t MAX_STRUCT_FIELD = 8;
 struct UserDefinedType
 {
 	sv name;
-	sv field_names[MAX_STRUCT_FIELD];
-	TypeID field_types[MAX_STRUCT_FIELD];
-	uint32_t field_offsets[MAX_STRUCT_FIELD];
+	sv field_names[MAX_STRUCT_FIELDS];
+	TypeID field_types[MAX_STRUCT_FIELDS];
+	uint32_t field_offsets[MAX_STRUCT_FIELDS];
 	uint32_t field_count;
 	uint32_t size;
 };

@@ -1,9 +1,13 @@
 #include "executor.h"
 #include "image.h"
-#include <corecrt_wstdio.h>
+#include "error.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+inline constexpr uint32_t VARSCOPE_CAPACITY = 16;
+
+#define EXEC_ASSERT(state, cond) ERROR_ASSERT((&(state)->error), cond, ErrorCode::Assert);
 
 struct FunctionInstance
 {
@@ -26,12 +30,7 @@ struct ExecutorState
 	ModuleInstance *module_instances;
 	uint64_t module_instances_length;
 	uint64_t module_instances_capacity;
-
-	bool failed;
-	sv error_msg;
-	sv error_file;
-	int error_line;
-	uint64_t error_ip;
+	Error error;
 };
 
 struct CallFrame
@@ -40,7 +39,6 @@ struct CallFrame
 	uint64_t return_ip;
 };
 
-#define VARSCOPE_CAPACITY 16
 struct VariableScope
 {
 	StackValue variables[VARSCOPE_CAPACITY];
@@ -100,30 +98,6 @@ static void execution_init(ExecutionContext *context)
 	context->locals_storage_previous = context->locals_storage_current;
 	context->locals_storage_end = context->locals_storage_begin + 128;
 }
-
-void executor_assert_trigger(ExecutorState *state, uint64_t ip, sv condition_str, sv file, int line)
-{
-	// Don't hide errors
-	if (state->failed == true) {
-		return;
-	}
-
-	state->failed = true;
-	state->error_msg = condition_str;
-	state->error_file = file;
-	state->error_line = line;
-	state->error_ip = ip;
-
-	__debugbreak();
-}
-
-#define EXEC_ASSERT(state, condition)                                                                                  \
-	if ((condition) == false) {                                                                                        \
-executor_assert_trigger(state, ctx->ip,                                                                                 \
-			sv_from_null_terminated(#condition),                                                                       \
-			sv_from_null_terminated(__FILE__),                                                                         \
-			__LINE__);                                                                                                 \
-	}
 
 void executor_load_module(ExecutorState *state, Module *module)
 {
@@ -211,7 +185,7 @@ uint32_t type_get_size(ExecutorState *state, ExecutionContext *ctx, TypeID id)
 {
 	if (id.builtin.is_user_defined != 0) {
 		EXEC_ASSERT(state, id.user_defined.index < ctx->module->types_length);
-		if (state->failed) {
+		if (state->error.code != ErrorCode::Ok) {
 			return 0;
 		}
 		return ctx->module->types[id.user_defined.index].size;
@@ -307,7 +281,7 @@ static sv bytecode_read_sv(ExecutionContext *ctx)
 static void execute_begin_scope(ExecutorState *state, ExecutionContext *ctx)
 {
 	EXEC_ASSERT(state, ctx->scopes_current < ctx->scopes_end);
-	if (state->failed) {
+	if (state->error.code != ErrorCode::Ok) {
 		return;
 	}
 	ctx->scopes_current += 1;
@@ -318,7 +292,7 @@ static void execute_begin_scope(ExecutorState *state, ExecutionContext *ctx)
 static void execute_end_scope(ExecutorState *state, ExecutionContext *ctx)
 {
 	EXEC_ASSERT(state, ctx->scopes_current >= ctx->scopes_begin);
-	if (state->failed) {
+	if (state->error.code != ErrorCode::Ok) {
 		return;
 	}
 	ctx->scopes_current -= 1;
@@ -371,7 +345,7 @@ static void log_pop(ExecutorState *, ExecutionContext *ctx, StackValue value)
 static StackValue *push_operand(ExecutorState *state, ExecutionContext *ctx, StackValue value_to_push)
 {
 	EXEC_ASSERT(state, ctx->stack_current + 1 < ctx->stack_end);
-	if (state->failed) {
+	if (state->error.code != ErrorCode::Ok) {
 		return nullptr;
 	}
 
@@ -386,7 +360,7 @@ static StackValue *push_operand(ExecutorState *state, ExecutionContext *ctx, Sta
 static StackValue pop_operand(ExecutorState *state, ExecutionContext *ctx)
 {
 	EXEC_ASSERT(state, ctx->stack_current >= ctx->stack_begin);
-	if (state->failed) {
+	if (state->error.code != ErrorCode::Ok) {
 		return {};
 	}
 
@@ -403,7 +377,7 @@ static void execute_constant(ExecutorState *state, ExecutionContext *ctx)
 {
 	uint8_t i_constant = bytecode_read_u8(ctx);
 	EXEC_ASSERT(state, i_constant < ctx->module->constants_u32_length);
-	if (state->failed) {
+	if (state->error.code != ErrorCode::Ok) {
 		return;
 	}
 
@@ -417,7 +391,7 @@ static void execute_constant_str(ExecutorState *state, ExecutionContext *ctx)
 {
 	uint8_t i_constant = bytecode_read_u8(ctx);
 	EXEC_ASSERT(state, i_constant < ctx->module->constant_strings_length);
-	if (state->failed) {
+	if (state->error.code != ErrorCode::Ok) {
 		return;
 	}
 
@@ -439,7 +413,7 @@ static void execute_call(ExecutorState *state, ExecutionContext *ctx)
 	printf("--call function%d\n", i_function);
 
 	EXEC_ASSERT(state, i_function < ctx->module->functions_length);
-	if (state->failed) {
+	if (state->error.code != ErrorCode::Ok) {
 		return;
 	}
 
@@ -447,13 +421,13 @@ static void execute_call(ExecutorState *state, ExecutionContext *ctx)
 
 	// Open a new scope for local variables
 	execute_begin_scope(state, ctx);
-	if (state->failed) {
+	if (state->error.code != ErrorCode::Ok) {
 		return;
 	}
 	
 	// Push a new call frame to save return address
 	EXEC_ASSERT(state, ctx->callstack_current + 1 < ctx->callstack_end);
-	if (state->failed) {
+	if (state->error.code != ErrorCode::Ok) {
 		return;
 	}
 	
@@ -470,7 +444,7 @@ static void execute_call_foreign(ExecutorState *state, ExecutionContext *ctx)
 {
 	// Check that the callstack is valid
 	EXEC_ASSERT(state, ctx->callstack_begin <= ctx->callstack_current && ctx->callstack_current < ctx->callstack_end);
-	if (state->failed) {
+	if (state->error.code != ErrorCode::Ok) {
 		return;
 	}
 
@@ -478,7 +452,7 @@ static void execute_call_foreign(ExecutorState *state, ExecutionContext *ctx)
 
 	// Check that the content of the callstack is valid
 	EXEC_ASSERT(state, callstack->i_current_function < ctx->module->functions_length);
-	if (state->failed) {
+	if (state->error.code != ErrorCode::Ok) {
 		return;
 	}
 
@@ -507,7 +481,7 @@ static void execute_ret(ExecutorState *state, ExecutionContext *ctx)
 static void execute_conditional_jump(ExecutorState *state, ExecutionContext *ctx)
 {
 	StackValue condition = pop_operand(state, ctx);
-	if (state->failed) {
+	if (state->error.code != ErrorCode::Ok) {
 		return;
 	}
 
@@ -536,7 +510,7 @@ static void execute_store_local(ExecutorState *state, ExecutionContext *ctx)
 	uint8_t i_local = bytecode_read_u8(ctx);
 	EXEC_ASSERT(state, ctx->scopes_current >= ctx->scopes_begin);
 	EXEC_ASSERT(state, i_local < VARSCOPE_CAPACITY);
-	if (state->failed) {
+	if (state->error.code != ErrorCode::Ok) {
 		return;
 	}
 
@@ -559,7 +533,7 @@ static void execute_load_local(ExecutorState *state, ExecutionContext *ctx)
 
 	EXEC_ASSERT(state, ctx->scopes_current >= ctx->scopes_begin);
 	EXEC_ASSERT(state, i_local < VARSCOPE_CAPACITY);
-	if (state->failed) {
+	if (state->error.code != ErrorCode::Ok) {
 		return;
 	}
 	
@@ -581,7 +555,7 @@ static void execute_stack_alloc(ExecutorState *state, ExecutionContext *ctx)
 	
 	EXEC_ASSERT(state, ctx->locals_storage_begin <= ctx->locals_storage_current);
 	EXEC_ASSERT(state, ctx->locals_storage_current + size_to_alloc.i32 < ctx->locals_storage_end);
-	if (state->failed) {
+	if (state->error.code != ErrorCode::Ok) {
 		return;
 	}
 	
@@ -612,7 +586,7 @@ static void execute_store(ExecutorState *state, ExecutionContext *ctx)
 	EXEC_ASSERT(state, ctx->locals_storage_begin <= begin && end <= ctx->locals_storage_end); // bound-check the pointer
 	EXEC_ASSERT(state, type_id_is_builtin(pointer_to_write.local_ptr.type_id)); // the pointer must point to a builtin
 	EXEC_ASSERT(state, pointer_to_write.local_ptr.type_id.raw == pointee_type.raw); // check the type from bytecode
-	if (state->failed) {
+	if (state->error.code != ErrorCode::Ok) {
 		return;
 	}
 
@@ -638,7 +612,7 @@ static void execute_load(ExecutorState *state, ExecutionContext *ctx)
 	
 	StackValue pointer = pop_operand(state, ctx);
 	EXEC_ASSERT(state, pointer.kind == StackValueKind::LocalPtr);
-	if (state->failed) {
+	if (state->error.code != ErrorCode::Ok) {
 		return;
 	}
 
@@ -649,7 +623,7 @@ static void execute_load(ExecutorState *state, ExecutionContext *ctx)
 	EXEC_ASSERT(state, ctx->locals_storage_begin <= begin && end <= ctx->locals_storage_end); // bound-check the pointer
 	EXEC_ASSERT(state, type_id_is_builtin(pointer.local_ptr.type_id)); // the pointer must point to a builtin
 	EXEC_ASSERT(state, pointee_type.raw == pointer.local_ptr.type_id.raw); // check bytecode type
-	if (state->failed) {
+	if (state->error.code != ErrorCode::Ok) {
 		return;
 	}
 
@@ -671,7 +645,7 @@ template <typename Lambda>
 static void execute_binop(ExecutorState *state, ExecutionContext *ctx, Lambda &&lambda)
 {
 	EXEC_ASSERT(state, ctx->stack_current >= ctx->stack_begin + 1);
-	if (state->failed) {
+	if (state->error.code != ErrorCode::Ok) {
 		return;
 	}
 
@@ -731,10 +705,10 @@ static void execute_ptr_offset(ExecutorState *state, ExecutionContext *ctx)
 	});
 }
 
-static void execute_halt(ExecutorState *state, ExecutionContext *ctx)
+static void execute_halt(ExecutorState *state, ExecutionContext *)
 {
 	EXEC_ASSERT(state, false);
-	state->error_msg = sv_from_null_terminated("Halt");
+	state->error.msg = sv_from_null_terminated("Halt");
 }
 
 static void execute_debug_label(ExecutorState *, ExecutionContext *ctx)
@@ -747,10 +721,10 @@ static void execute_debug_label(ExecutorState *, ExecutionContext *ctx)
 
 static void executor_execute_module_at(ExecutorState *state, uint64_t i_module, uint64_t first_ip)
 {
-	state->failed = false;
-	state->error_msg = {};
-	state->error_file = {};
-	state->error_line = {};
+	state->error.code = ErrorCode::Ok;
+	state->error.msg = {};
+	state->error.file = {};
+	state->error.line = {};
 
 	ExecutionContext ctx = {};
 	ctx.module = state->modules + i_module;
@@ -788,7 +762,7 @@ static void executor_execute_module_at(ExecutorState *state, uint64_t i_module, 
 
 	const uint64_t bytecode_len = module->bytecode_length;
 	while (ctx.ip < bytecode_len) {
-		if (state->failed) {
+		if (state->error.code != ErrorCode::Ok) {
 			break;
 		}
 
@@ -805,13 +779,8 @@ static void executor_execute_module_at(ExecutorState *state, uint64_t i_module, 
 	}
 
 	// Call user callback if the execution failed
-	if (state->failed && state->config.error_callback != nullptr) {
-		RuntimeError err = {};
-		err.message = state->error_msg;
-		err.file = state->error_file;
-		err.line = state->error_line;
-		err.ip = state->error_ip;
-		state->config.error_callback(state, err);
+	if (state->error.code != ErrorCode::Ok && state->config.error_callback != nullptr) {
+		state->config.error_callback(state, state->error);
 	}
 
 	// DEBUG: Display stack at the end of execution

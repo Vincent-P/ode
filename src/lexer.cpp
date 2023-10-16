@@ -1,4 +1,5 @@
 #include "lexer.h"
+#include "compiler.h"
 #include <stdio.h>
 
 static bool is_identifier_char(char c)
@@ -22,11 +23,14 @@ static bool is_whitespace(char c)
 	return c == ' ' || c == '\n' || c == '\r' || c == '\t';
 }
 
-void lexer_scan(Lexer *lexer, sv input)
+void lexer_scan(CompilationUnit *compunit)
 {
-	if (lexer->result != LexerResult::Ok) {
+	if (compunit->error.code != ErrorCode::Ok) {
 		return;
 	}
+
+	Error *error = &compunit->error;
+	sv input = compunit->input;
 
 	uint32_t input_offset = 0;
 	while (true) {
@@ -39,7 +43,7 @@ void lexer_scan(Lexer *lexer, sv input)
 
 		// End of input
 		if (input_offset >= input.length) {
-			lexer->result = LexerResult::LexerDone;
+			error->code = ErrorCode::LexerDone;
 			break;
 		}
 
@@ -75,14 +79,14 @@ void lexer_scan(Lexer *lexer, sv input)
 			token_length += 1;
 			token.kind = TokenKind::StringLiteral;
 		} else {
-			lexer->result = LexerResult::LexerUnknownToken;
-			lexer->error = span{input_offset, input_offset + 1};
+			error->code = ErrorCode::LexerUnknownToken;
+			error->span = span{input_offset, input_offset + 1};
 			break;
 		}
 		token.span.end = token.span.start + token_length;
 		input_offset += token_length;
 
 		// Add the token to our list
-		vec_append(&lexer->tokens, token);
+		vec_append(&compunit->tokens, token);
 	}
 }

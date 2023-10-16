@@ -2,17 +2,17 @@
 #include "core.h"
 #include "image.h"
 
-struct RuntimeError;
 struct Image;
 struct ExecutorState;
 struct Module;
 struct ExecutionContext;
+struct Error;
 
 using ForeignFn = void (*)(ExecutionContext *);
 
 struct ExecutorConfig
 {
-	void (*error_callback)(ExecutorState *, RuntimeError);
+	void (*error_callback)(ExecutorState *, Error);
 	ForeignFn (*foreign_callback)(sv module_name, sv function_name);
 };
 
