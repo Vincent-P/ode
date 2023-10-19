@@ -1,4 +1,4 @@
-(require testlib)
+(require "testlib")
 
 (define-foreign (log ()) (s str))
 (define-foreign (logi ()) (n i32))

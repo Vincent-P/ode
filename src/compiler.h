@@ -1,6 +1,6 @@
 #pragma once
 #include "core.h"
-#include "image.h"
+#include "module.h"
 #include "error.h"
 
 struct CompilationUnit
@@ -11,6 +11,21 @@ struct CompilationUnit
 	Error error;
 };
 
-struct Compiler;
-Compiler *compiler_init();
-Error compile_module(Compiler *compiler, sv module_name, sv input, Module **out_module);
+struct LexicalScope
+{
+	sv *variables_name;
+	TypeID *variables_type;
+	uint32_t variables_length;
+};
+
+struct Compiler
+{
+	vec<LexicalScope> scopes;
+	Module *current_module;
+	CompilationUnit *compunit;
+};
+
+void compiler_scan_requires(Compiler *compiler, const Token** out_tokens, uint32_t out_tokens_max_length, uint32_t *out_tokens_written);
+void compile_module(Compiler *compiler);
+
+

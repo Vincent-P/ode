@@ -86,27 +86,24 @@ struct Function
 struct Module
 {
 	sv name;
+	// functions containes in this module
 	Function *functions;
 	uint32_t functions_capacity;
 	uint32_t functions_length;
+	// bytecode for all the functions
 	uint8_t *bytecode;
 	uint32_t bytecode_capacity;
 	uint32_t bytecode_length;
+	// types defined in this module
 	UserDefinedType *types;
 	uint32_t types_capacity;
 	uint32_t types_length;
+	// table of constants string literal
 	sv *constant_strings;
 	uint32_t constant_strings_capacity;
 	uint32_t constant_strings_length;
+	// table of numeric constants
 	uint32_t *constants_u32;
 	uint32_t constants_u32_capacity;
 	uint32_t constants_u32_length;
-};
-
-struct RuntimeError
-{
-	sv message;
-	sv file;
-	int line;
-	uint64_t ip;
 };

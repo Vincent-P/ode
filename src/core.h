@@ -21,7 +21,7 @@ inline span span_extend(span a, span b)
 	};
 }
 
-inline uint64_t span_length(span s)
+inline uint32_t span_length(span s)
 {
 	if (s.start <= s.end) {
 		return s.end - s.start;
@@ -34,15 +34,15 @@ inline uint64_t span_length(span s)
 struct sv
 {
 	const char *chars;
-	uint64_t length;
+	uint32_t length;
 };
 
 inline sv sv_from_null_terminated(const char *null_terminated)
 {
-	return sv{null_terminated, strlen(null_terminated)};
+	return sv{null_terminated, uint32_t(strlen(null_terminated))};
 }
 
-inline sv sv_substr(sv s, uint64_t offset, uint64_t length)
+inline sv sv_substr(sv s, uint32_t offset, uint32_t length)
 {
 	return sv{s.chars + offset, length};
 }
@@ -84,7 +84,7 @@ inline int32_t sv_to_int(sv string)
 	return n;
 }
 
-inline sv sv_offset(sv string, uint64_t offset)
+inline sv sv_offset(sv string, uint32_t offset)
 {
 	if (offset > string.length) {
 		offset = string.length;

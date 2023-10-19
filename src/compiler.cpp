@@ -1,50 +1,11 @@
 #include "compiler.h"
 #include "lexer.h"
 #include "parser.h"
-#include "debug.h"
 
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-struct TextInput
-{
-	sv text;
-	vec<uint32_t> line_endings;
-};
-
-void text_input_get_line_col(const TextInput *input, uint32_t at, uint32_t *line, uint32_t *col)
-{
-	uint32_t i_line = 0;
-	uint32_t last_line_ending = 0;
-	for (; i_line + 1 < input->line_endings.length; ++i_line) {
-		const uint32_t *it = vec_at(&input->line_endings, i_line);
-		if (*it > at) {
-			break;
-		}
-		last_line_ending = *it;
-	}
-
-	*line = i_line;
-	*col = at - last_line_ending;
-}
-
-struct LexicalScope
-{
-	sv *variables_name;
-	TypeID *variables_type;
-	uint32_t variables_length;
-};
-
-struct Compiler
-{
-	// persisted
-	vec<Module> modules;
-	// runtime
-	vec<LexicalScope> scopes;
-	Module *current_module;
-	CompilationUnit *compunit;
-};
 
 // bytecode functions
 
@@ -652,6 +613,11 @@ TypeID compile_struct(Compiler *compiler, const AstNode *node)
 	return struct_type_id;
 }
 
+TypeID compile_require(Compiler *, const AstNode *)
+{
+	return UNIT_TYPE;
+}
+
 // Conditional branch
 TypeID compile_if(Compiler *compiler, const AstNode *node)
 {
@@ -983,11 +949,13 @@ const CompilerBuiltin compiler_top_builtins[] = {
 	compile_define,
 	compile_define_foreign,
 	compile_struct,
+	compile_require,
 };
 const sv compiler_top_builtins_str[] = {
 	sv_from_null_terminated("define"),
 	sv_from_null_terminated("define-foreign"),
 	sv_from_null_terminated("struct"),
+	sv_from_null_terminated("require"),
 };
 static_assert(ARRAY_LENGTH(compiler_top_builtins_str) == ARRAY_LENGTH(compiler_top_builtins));
 
@@ -1143,157 +1111,70 @@ void compile_module(Compiler *compiler)
 	}
 }
 
-Compiler *compiler_init()
+void compiler_scan_requires(Compiler *compiler, const Token** out_tokens, uint32_t out_tokens_max_length, uint32_t *out_tokens_written)
 {
-	Compiler *compiler = static_cast<Compiler *>(calloc(1, sizeof(Compiler)));
-	compiler->modules = vec_init<Module>(8);
-	return compiler;
-}
+	uint32_t tokens_written = 0;
+	const AstNode *root_node = vec_at(&compiler->compunit->nodes, 0);
 
-void module_init(Module *new_module, sv module_name)
-{
-	const uint32_t functions_capacity = 16;
-	new_module->functions_capacity = functions_capacity;
-	new_module->functions = static_cast<Function *>(calloc(functions_capacity, sizeof(Function)));
+	uint32_t i_root_expr = root_node->left_child_index;
+	while (ast_is_valid(i_root_expr)) {
+		const AstNode *root_expr = ast_get_node(&compiler->compunit->nodes, i_root_expr);
 
-	const uint32_t bytecode_capacity = 1024;
-	new_module->bytecode_capacity = bytecode_capacity;
-	new_module->bytecode = static_cast<uint8_t *>(calloc(bytecode_capacity, sizeof(OpCodeKind)));
+		// Validate that a root S-expression starts with a token
+		const AstNode *first_sexpr_member = ast_get_left_child(&compiler->compunit->nodes, root_expr);
+		bool is_an_atom = ast_has_left_child(root_expr) && ast_is_atom(first_sexpr_member);
+		if (!is_an_atom) {
+			INIT_ERROR(&compiler->compunit->error, ErrorCode::ExpectedIdentifier);
+			return;
+		}
+		const Token *atom_token = vec_at(&compiler->compunit->tokens, first_sexpr_member->atom_token_index);
+		const bool is_an_identifier = atom_token->kind == TokenKind::Identifier;
+		if (!is_an_identifier) {
+			INIT_ERROR(&compiler->compunit->error, ErrorCode::ExpectedIdentifier);
+			return;
+		}
 
-	const uint32_t types_capacity = 8;
-	new_module->types_capacity = types_capacity;
-	new_module->types = static_cast<UserDefinedType *>(calloc(types_capacity, sizeof(UserDefinedType)));
+		// Find a require clasuse
+		sv identifier_str = sv_substr(compiler->compunit->input, atom_token->span);
+		sv require = sv_from_null_terminated("require");
+		if (sv_equals(identifier_str, require)) {
+			// Check that there is only one argument
+			if (root_expr->child_count < 2) {
+				INIT_ERROR(&compiler->compunit->error, ErrorCode::ExpectedExpr);
+				compiler->compunit->error.span = root_expr->span;
+				return;
+			} else if (root_expr->child_count > 2) {
+				INIT_ERROR(&compiler->compunit->error, ErrorCode::UnexpectedExpression);
+				compiler->compunit->error.span = root_expr->span;
+				return;
+			}
+			
+			const AstNode *require_path_node = ast_get_right_sibling(&compiler->compunit->nodes, first_sexpr_member);
+			
+			// Check that the argument is a string
+			is_an_atom = ast_is_atom(require_path_node);
+			if (!is_an_atom) {
+				INIT_ERROR(&compiler->compunit->error, ErrorCode::ExpectedString);
+				compiler->compunit->error.span = require_path_node->span;
+				return;
+			}
+			const Token *require_path_token = vec_at(&compiler->compunit->tokens, require_path_node->atom_token_index);
+			if (require_path_token->kind != TokenKind::StringLiteral) {
+				INIT_ERROR(&compiler->compunit->error, ErrorCode::ExpectedString);
+				compiler->compunit->error.span = require_path_node->span;
+				return;
+			}
 
-	const uint32_t constants_capacity = 16;
-	new_module->constant_strings_capacity = constants_capacity;
-	new_module->constant_strings = static_cast<sv *>(calloc(constants_capacity, sizeof(sv)));
-	new_module->constants_u32_capacity = constants_capacity;
-	new_module->constants_u32 = static_cast<uint32_t *>(calloc(constants_capacity, sizeof(uint32_t)));
+			// Process the require path
+			if (tokens_written < out_tokens_max_length) {
+				out_tokens[tokens_written] = require_path_token;
+				tokens_written += 1;
+			}
+		}
 
-	new_module->name = module_name;
-}
-
-Error compile_module(Compiler *compiler, sv module_name, sv input, Module **out_module)
-{
-	CompilationUnit compunit = {};
-	compunit.input = input;
-	compunit.tokens = vec_init<Token>(4096);
-	compunit.nodes = vec_init<AstNode>(4096);
-
-	// Generate tokens
-	lexer_scan(&compunit);
-	if (compunit.error.code != ErrorCode::LexerDone) {
-		fprintf(stderr, "# Lexer returned %u\n", uint32_t(compunit.error.code));
-
-		sv error_str = sv_substr(input, compunit.error.span);
-		fprintf(stderr, "Error at: '%.*s'\n", int(error_str.length), error_str.chars);
-		return compunit.error;
+		// Go to the next root expression
+		i_root_expr = root_expr->right_sibling_index;
 	}
 
-	// Reset the result to Ok from LexerDone
-	// TODO: remove lexerdone?
-	compunit.error.code = ErrorCode::Ok;
-
-	Parser parser = {};
-	parser.compunit = &compunit;
-	parse_module(&parser);
-
-	if (compunit.error.code != ErrorCode::Ok) {
-		fprintf(stderr,
-			"# Parser[token_length: %u, i_current_token: %u] returned %u\n",
-			compunit.tokens.length,
-			parser.i_current_token,
-			uint32_t(compunit.error.code));
-
-		sv error_str = sv_substr(input, compunit.error.span);
-		fprintf(stderr, "Error at: '%.*s'\n", int(error_str.length), error_str.chars);
-
-		if (compunit.tokens.length > 0) {
-			uint32_t i_last_token =
-				parser.i_current_token < compunit.tokens.length ? parser.i_current_token : compunit.tokens.length - 1;
-			const Token *last_token = vec_at(&compunit.tokens, i_last_token);
-			sv last_token_str = sv_substr(compunit.input, last_token->span);
-
-			const char *token_kind_str = TokenKind_str[uint32_t(last_token->kind)];
-
-			fprintf(stderr,
-				"# Last seen token is %s[%.*s]\n",
-				token_kind_str,
-				int(last_token_str.length),
-				last_token_str.chars);
-		}
-
-		if (parser.expected_token_kind != TokenKind::Invalid) {
-			fprintf(stderr, "# Expected token of kind %s\n", TokenKind_str[uint32_t(parser.expected_token_kind)]);
-		}
-
-		return compunit.error;
-	}
-
-#if 0
-	fprintf(stdout, "\nParsing success:\n");
-	print_ast(compunit.input, &compunit.tokens, &compunit.nodes, 0);
-#endif
-
-	Module new_module = {};
-	module_init(&new_module, module_name);
-
-	compiler->compunit = &compunit;
-	compiler->current_module = &new_module;
-	compiler->scopes = vec_init<LexicalScope>(16);
-	compile_module(compiler);
-
-	if (compunit.error.code != ErrorCode::Ok) {
-		Error err = compunit.error;
-
-		fprintf(stderr, "%s:%d:0: error: Compiler[] returned %u\n", err.file.chars, err.line, uint32_t(err.code));
-
-		sv error_str = sv_substr(input, err.span);
-		fprintf(stderr, "Error at: '%.*s'\n", int(error_str.length), error_str.chars);
-
-		const char *expected_type_str = "(struct)";
-		if (!type_id_is_user_defined(err.expected_type)) {
-			expected_type_str = BuiltinTypeKind_str[uint32_t(err.expected_type.builtin.kind)];
-		}
-		fprintf(stderr, "# expected type #%u %s\n", err.expected_type.raw, expected_type_str);
-
-		const char *got_type_str = "(struct)";
-		if (!type_id_is_user_defined(err.got_type)) {
-			got_type_str = BuiltinTypeKind_str[uint32_t(err.got_type.builtin.kind)];
-		}
-		fprintf(stderr, "# got type #%u %s\n", err.got_type.raw, got_type_str);
-
-		return err;
-	}
-
-	fprintf(stdout, "\nCompilation success:\n");
-	fprintf(stdout, "Exported types: %u\n", new_module.types_length);
-	print_bytecode(new_module.bytecode, new_module.bytecode_length);
-
-	// Everything went well, copy the new compiled module to the persistant compiler state
-	// Find module
-	uint32_t i_module = 0;
-	for (; i_module < compiler->modules.length; ++i_module) {
-		Module *module = vec_at(&compiler->modules, i_module);
-		if (sv_equals(module->name, module_name)) {
-			break;
-		}
-	}
-	// Not found, create a new module
-	if (i_module >= compiler->modules.length) {
-		if (i_module >= compiler->modules.capacity) {
-			INIT_ERROR(&compunit.error, ErrorCode::Fatal);
-			return compunit.error;
-		}
-
-		i_module = compiler->modules.length;
-		vec_append(&compiler->modules, {});
-	}
-
-	Module *compiler_module = vec_at(&compiler->modules, i_module);
-	// TODO: free previous module?
-	*compiler_module = new_module;
-
-	*out_module = vec_at(&compiler->modules, i_module);
-	return compunit.error;
+	*out_tokens_written = tokens_written;
 }

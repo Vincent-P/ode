@@ -8,6 +8,7 @@ src/lexer.cpp
 src/parser.cpp
 src/compiler.cpp
 src/stack_allocator.cpp
+src/vm.cpp
 src/executor.cpp)
 
 target_compile_options(ode PRIVATE

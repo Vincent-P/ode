@@ -1,24 +1,10 @@
 #pragma once
 #include "core.h"
-#include "image.h"
+#include "type_id.h"
 
-struct Image;
-struct ExecutorState;
-struct Module;
-struct ExecutionContext;
-struct Error;
+struct VM;
 
-using ForeignFn = void (*)(ExecutionContext *);
-
-struct ExecutorConfig
-{
-	void (*error_callback)(ExecutorState *, Error);
-	ForeignFn (*foreign_callback)(sv module_name, sv function_name);
-};
-
-ExecutorState *executor_init(ExecutorConfig config);
-void executor_load_module(ExecutorState *state, Module *module);
-void executor_execute_module_entrypoint(ExecutorState *state, sv module_name);
+void executor_execute_module_at(VM *vm, uint32_t i_module, uint32_t first_ip);
 
 // Representation of a builtin pointer
 struct TypedPointer
@@ -84,5 +70,5 @@ inline StackValue stack_value_local_ptr(TypedPointer v) { StackValue res = {}; r
 inline StackValue stack_value_local_object(TypedPointer v) { StackValue res = {}; res.kind = StackValueKind::LocalObject; res.local_object = v; return res; }
 
 
-StackValue execution_get_local(ExecutionContext *ctx, uint32_t i_local);
-sv execution_get_str(ExecutionContext *ctx, Str str);
+StackValue execution_get_local(VM *ctx, uint32_t i_local);
+sv execution_get_str(VM *ctx, Str str);

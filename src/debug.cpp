@@ -1,5 +1,5 @@
 #include "debug.h"
-#include "image.h"
+#include "module.h"
 #include "parser.h"
 
 #include <stdio.h>

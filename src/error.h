@@ -1,5 +1,6 @@
 #pragma once
 #include "type_id.h"
+#include "lexer.h"
 
 enum struct ErrorCode : uint32_t
 {
@@ -10,6 +11,7 @@ enum struct ErrorCode : uint32_t
 	ExpectedTokenGotEof,
 	ExpectedStruct,
 	ExpectedIdentifier,
+	ExpectedString,
 	ExpectedExpr,
 	UnexpectedIdentifier,
 	UnexpectedExpression,
@@ -21,6 +23,28 @@ enum struct ErrorCode : uint32_t
 	Fatal,
 	Assert,
 	Count,
+};
+
+inline const char* ErrorCode_str[] = {
+	"Ok",
+	"LexerDone",
+	"LexerUnknownToken",
+	"UnexpectedToken",
+	"ExpectedTokenGotEof",
+	"ExpectedStruct",
+	"ExpectedIdentifier",
+	"ExpectedString",
+	"ExpectedExpr",
+	"UnexpectedIdentifier",
+	"UnexpectedExpression",
+	"UnknownSymbol",
+	"UnknownField",
+	"DuplicateSymbol",
+	"TooManyArgs",
+	"ExpectedTypeGot",
+	"Fatal",
+	"Assert",
+	"Count",
 };
 
 struct Error
