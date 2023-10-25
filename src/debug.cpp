@@ -94,6 +94,10 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 		case OpCodeKind::Call:
 			PRINT_BYTE;
 			break;
+		case OpCodeKind::CallExternal:
+			PRINT_BYTE;
+			PRINT_BYTE;
+			break;
 		case OpCodeKind::CallForeign:
 			break;
 		case OpCodeKind::Ret:

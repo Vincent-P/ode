@@ -12,6 +12,7 @@ inline constexpr uint32_t VARSCOPE_CAPACITY = 16;
 
 struct CallFrame
 {
+	uint32_t i_module;
 	uint32_t i_current_function;
 	uint32_t return_ip;
 };
@@ -25,8 +26,6 @@ struct VariableScope
 struct ExecutionContext
 {
 	VM *vm;
-	Module *module;
-	ModuleInstance *module_instance;
 
 	Error error;
 	
@@ -47,6 +46,7 @@ struct ExecutionContext
 	uint8_t *locals_storage_previous;
 	uint8_t *locals_storage_end;
 
+	uint32_t i_current_module;
 	uint32_t ip;
 };
 
@@ -67,57 +67,25 @@ static void execution_init(ExecutionContext *context)
 	context->locals_storage_end = context->locals_storage_begin + 128;
 }
 
-void executor_load_module(VM *vm, Module *module)
+static Module* execution_current_module(ExecutionContext *context)
 {
-	uint32_t i_module = 0;
-	for (; i_module < vm->modules.length; ++i_module) {
-		if (sv_equals(vec_at(&vm->modules, i_module)->name, module->name)) {
-			break;
-		}
-	}
-
-	// No more space to add the module!
-	if (i_module >= vm->modules.capacity || i_module >= vm->module_instances.capacity) {
-		return;
-	}
-
-	// The module was not found. Add it.
-	if (i_module == vm->modules.length) {
-		vm->modules.length += 1;
-		vm->module_instances.length += 1;
-	}
-
-	// TODO: deep copy?
-	*vec_at(&vm->modules, i_module) = *module;
-
-	ModuleInstance *module_instance = vec_at(&vm->module_instances, i_module);
-	if (module_instance->functions_capacity == 0) {
-		module_instance->functions_capacity = 8;
-		module_instance->functions =
-			static_cast<FunctionInstance *>(calloc(module_instance->functions_capacity, sizeof(FunctionInstance)));
-	} else {
-		memset(module_instance->functions, 0, sizeof(FunctionInstance) * module_instance->functions_capacity);
-	}
-	module_instance->functions_length = module->functions_length;
-
-	for (uint32_t i_function = 0; i_function < module->functions_length; ++i_function) {
-		if (module->functions[i_function].is_foreign) {
-			const sv module_name = module->name;
-			const sv function_name = module->functions[i_function].name;
-			module_instance->functions[i_function].foreign = vm->config.foreign_callback(module_name, function_name);
-		}
-	}
+	return vec_at(&context->vm->modules, context->i_current_module);
 }
 
+static ModuleInstance* execution_current_module_instance(ExecutionContext *context)
+{
+	return vec_at(&context->vm->module_instances, context->i_current_module);
+}
 
 uint32_t type_get_size(ExecutionContext *ctx, TypeID id)
 {
+	Module *module = execution_current_module(ctx);
 	if (id.builtin.is_user_defined != 0) {
-		EXEC_ASSERT(ctx, id.user_defined.index < ctx->module->types_length);
+		EXEC_ASSERT(ctx, id.user_defined.index < module->types_length);
 		if (ctx->error.code != ErrorCode::Ok) {
 			return 0;
 		}
-		return ctx->module->types[id.user_defined.index].size;
+		return module->types[id.user_defined.index].size;
 	} else {
 		return BuiltinTypeKind_size[uint32_t(id.builtin.kind)];
 	}
@@ -125,8 +93,9 @@ uint32_t type_get_size(ExecutionContext *ctx, TypeID id)
 
 static TypeID bytecode_read_type_id(ExecutionContext *ctx)
 {
-	uint32_t bytecode_len = ctx->module->bytecode_length;
-	uint8_t *bytecode = ctx->module->bytecode;
+	Module *module = execution_current_module(ctx);
+	uint32_t bytecode_len = module->bytecode_length;
+	uint8_t *bytecode = module->bytecode;
 
 	if (ctx->ip + sizeof(TypeID) > bytecode_len) {
 		fprintf(stderr, "Invalid bytecode (read TypeID)\n");
@@ -145,7 +114,7 @@ static TypeID bytecode_read_type_id(ExecutionContext *ctx)
 		EXEC_ASSERT(ctx, id.builtin.kind < BuiltinTypeKind::Count);
 	} else {
 		EXEC_ASSERT(ctx, type_id_is_user_defined(id));
-		EXEC_ASSERT(ctx, id.user_defined.index < ctx->module->types_length);
+		EXEC_ASSERT(ctx, id.user_defined.index < module->types_length);
 	}
 
 	return id;
@@ -154,8 +123,9 @@ static TypeID bytecode_read_type_id(ExecutionContext *ctx)
 template <typename T>
 static T bytecode_read_scalar(ExecutionContext *ctx)
 {
-	uint32_t bytecode_len = ctx->module->bytecode_length;
-	uint8_t *bytecode = ctx->module->bytecode;
+	Module *module = execution_current_module(ctx);
+	uint32_t bytecode_len = module->bytecode_length;
+	uint8_t *bytecode = module->bytecode;
 
 	if (ctx->ip + sizeof(T) > bytecode_len) {
 		fprintf(stderr, "Invalid bytecode (read u32)\n");
@@ -178,8 +148,9 @@ static uint8_t bytecode_read_u8(ExecutionContext *ctx)
 
 static sv bytecode_read_sv(ExecutionContext *ctx)
 {
-	uint32_t bytecode_len = ctx->module->bytecode_length;
-	uint8_t *bytecode = ctx->module->bytecode;
+	Module *module = execution_current_module(ctx);
+	uint32_t bytecode_len = module->bytecode_length;
+	uint8_t *bytecode = module->bytecode;
 	uint32_t local_ip = ctx->ip;
 
 	// Read string length
@@ -289,13 +260,14 @@ static StackValue pop_operand(VM *vm, ExecutionContext *ctx)
 
 static void execute_constant(VM *vm, ExecutionContext *ctx)
 {
+	Module *module = execution_current_module(ctx);
 	uint8_t i_constant = bytecode_read_u8(ctx);
-	EXEC_ASSERT(ctx, i_constant < ctx->module->constants_u32_length);
+	EXEC_ASSERT(ctx, i_constant < module->constants_u32_length);
 	if (ctx->error.code != ErrorCode::Ok) {
 		return;
 	}
 
-	uint32_t value = ctx->module->constants_u32[i_constant];
+	uint32_t value = module->constants_u32[i_constant];
 
 	StackValue to_push = stack_value_i32(int32_t(value));
 	push_operand(vm, ctx, to_push);
@@ -303,13 +275,14 @@ static void execute_constant(VM *vm, ExecutionContext *ctx)
 
 static void execute_constant_str(VM *vm, ExecutionContext *ctx)
 {
+	Module *module = execution_current_module(ctx);
 	uint8_t i_constant = bytecode_read_u8(ctx);
-	EXEC_ASSERT(ctx, i_constant < ctx->module->constant_strings_length);
+	EXEC_ASSERT(ctx, i_constant < module->constant_strings_length);
 	if (ctx->error.code != ErrorCode::Ok) {
 		return;
 	}
 
-	sv value = ctx->module->constant_strings[i_constant];
+	sv value = module->constant_strings[i_constant];
 	
 	Str str = {};
 	str.is_constant = 1;
@@ -321,17 +294,18 @@ static void execute_constant_str(VM *vm, ExecutionContext *ctx)
 
 static void execute_call(VM *vm, ExecutionContext *ctx)
 {
+	Module *module = execution_current_module(ctx);
 	uint8_t i_function = bytecode_read_u8(ctx);
 	print_ip(ctx);
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
 	printf("--call function%d\n", i_function);
 
-	EXEC_ASSERT(ctx, i_function < ctx->module->functions_length);
+	EXEC_ASSERT(ctx, i_function < module->functions_length);
 	if (ctx->error.code != ErrorCode::Ok) {
 		return;
 	}
 
-	Function *function = ctx->module->functions + i_function;
+	Function *function = module->functions + i_function;
 
 	// Open a new scope for local variables
 	execute_begin_scope(vm, ctx);
@@ -347,6 +321,7 @@ static void execute_call(VM *vm, ExecutionContext *ctx)
 	
 	ctx->callstack_current += 1;
 	CallFrame *callstack = ctx->callstack_current;
+	callstack->i_module = ctx->i_current_module;
 	callstack->return_ip = ctx->ip;
 	callstack->i_current_function = i_function;
 
@@ -354,8 +329,54 @@ static void execute_call(VM *vm, ExecutionContext *ctx)
 	ctx->ip = function->address;
 }
 
+static void execute_call_external(VM *vm, ExecutionContext *ctx)
+{
+	uint8_t i_module = bytecode_read_u8(ctx);
+	uint8_t i_function = bytecode_read_u8(ctx);
+	print_ip(ctx);
+	print_indent(ctx->callstack_current - ctx->callstack_begin);
+	printf("--call-external module%u function%u\n", i_module, i_function);
+	
+	EXEC_ASSERT(ctx, i_module < vm->modules.length);
+	if (ctx->error.code != ErrorCode::Ok) {
+		return;
+	}
+	
+	Module *module = vec_at(&vm->modules, i_module);
+	EXEC_ASSERT(ctx, i_function < module->functions_length);
+	if (ctx->error.code != ErrorCode::Ok) {
+		return;
+	}
+
+	Function *function = module->functions + i_function;
+
+	// Open a new scope for local variables
+	execute_begin_scope(vm, ctx);
+	if (ctx->error.code != ErrorCode::Ok) {
+		return;
+	}
+	
+	// Push a new call frame to save return address
+	EXEC_ASSERT(ctx, ctx->callstack_current + 1 < ctx->callstack_end);
+	if (ctx->error.code != ErrorCode::Ok) {
+		return;
+	}
+	
+	ctx->callstack_current += 1;
+	CallFrame *callstack = ctx->callstack_current;
+	callstack->i_module = ctx->i_current_module;
+	callstack->return_ip = ctx->ip;
+	callstack->i_current_function = i_function;
+
+	// Jump
+	ctx->i_current_module = i_module;
+	ctx->ip = function->address;
+}
+
 static void execute_call_foreign(VM *vm, ExecutionContext *ctx)
 {
+	Module *module = execution_current_module(ctx);
+	ModuleInstance *module_instance = execution_current_module_instance(ctx);
 	// Check that the callstack is valid
 	EXEC_ASSERT(ctx, ctx->callstack_begin <= ctx->callstack_current && ctx->callstack_current < ctx->callstack_end);
 	if (ctx->error.code != ErrorCode::Ok) {
@@ -365,12 +386,12 @@ static void execute_call_foreign(VM *vm, ExecutionContext *ctx)
 	CallFrame *callstack = ctx->callstack_current;
 
 	// Check that the content of the callstack is valid
-	EXEC_ASSERT(ctx, callstack->i_current_function < ctx->module->functions_length);
+	EXEC_ASSERT(ctx, callstack->i_current_function < module->functions_length);
 	if (ctx->error.code != ErrorCode::Ok) {
 		return;
 	}
 
-	FunctionInstance *function = ctx->module_instance->functions + callstack->i_current_function;
+	FunctionInstance *function = module_instance->functions + callstack->i_current_function;
 	EXEC_ASSERT(ctx, function->foreign != nullptr);
 	if (function->foreign != nullptr) {
 		function->foreign(vm);
@@ -384,6 +405,7 @@ static void execute_ret(VM *vm, ExecutionContext *ctx)
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
 	if (ctx->callstack_begin <= ctx->callstack_current && ctx->callstack_current < ctx->callstack_end) {
 		// Pop the last callstack, restore IP
+		ctx->i_current_module = ctx->callstack_current->i_module;
 		ctx->ip = ctx->callstack_current->return_ip;
 		ctx->callstack_current -= 1;
 	} else {
@@ -394,6 +416,7 @@ static void execute_ret(VM *vm, ExecutionContext *ctx)
 
 static void execute_conditional_jump(VM *vm, ExecutionContext *ctx)
 {
+	Module *module = execution_current_module(ctx);
 	StackValue condition = pop_operand(vm, ctx);
 	if (ctx->error.code != ErrorCode::Ok) {
 		return;
@@ -405,7 +428,7 @@ static void execute_conditional_jump(VM *vm, ExecutionContext *ctx)
 
 	uint32_t jump_destination = bytecode_read_u32(ctx);
 	// Check that the jump destination is valid
-	EXEC_ASSERT(ctx, jump_destination < ctx->module->bytecode_length);
+	EXEC_ASSERT(ctx, jump_destination < module->bytecode_length);
 	if (condition.i32 != 0) {
 		ctx->ip = uint32_t(jump_destination);
 	}
@@ -413,9 +436,10 @@ static void execute_conditional_jump(VM *vm, ExecutionContext *ctx)
 
 static void execute_jump(VM *, ExecutionContext *ctx)
 {
+	Module *module = execution_current_module(ctx);
 	uint32_t jump_destination = bytecode_read_u32(ctx);
 	// Check that the jump destination is valid
-	EXEC_ASSERT(ctx, jump_destination < ctx->module->bytecode_length);
+	EXEC_ASSERT(ctx, jump_destination < module->bytecode_length);
 	ctx->ip = uint32_t(jump_destination);
 }
 
@@ -484,6 +508,7 @@ static void execute_stack_alloc(VM *vm, ExecutionContext *ctx)
 
 static void execute_store(VM *vm, ExecutionContext *ctx)
 {
+	Module *module = execution_current_module(ctx);
 	const TypeID pointee_type = bytecode_read_type_id(ctx);
 
 	print_ip(ctx);
@@ -492,7 +517,7 @@ static void execute_store(VM *vm, ExecutionContext *ctx)
 
 	StackValue value_to_write = pop_operand(vm, ctx);
 	StackValue pointer_to_write = pop_operand(vm, ctx);
-	uint32_t size = type_get_size(ctx->module, pointee_type);
+	uint32_t size = type_get_size(module, pointee_type);
 	uint8_t *begin = ctx->locals_storage_begin + pointer_to_write.local_ptr.offset;
 	uint8_t *end = begin + size;
 
@@ -518,6 +543,7 @@ static void execute_store(VM *vm, ExecutionContext *ctx)
 
 static void execute_load(VM *vm, ExecutionContext *ctx)
 {
+	Module *module = execution_current_module(ctx);
 	const TypeID pointee_type = bytecode_read_type_id(ctx);
 
 	print_ip(ctx);
@@ -530,7 +556,7 @@ static void execute_load(VM *vm, ExecutionContext *ctx)
 		return;
 	}
 
-	uint32_t size = type_get_size(ctx->module, pointer.local_ptr.type_id);
+	uint32_t size = type_get_size(module, pointer.local_ptr.type_id);
 	uint8_t *begin = ctx->locals_storage_begin + pointer.local_ptr.offset;
 	uint8_t *end = begin + size;
 	
@@ -636,21 +662,20 @@ static void execute_debug_label(VM *, ExecutionContext *ctx)
 void executor_execute_module_at(VM *vm, uint32_t i_module, uint32_t first_ip)
 {
 	ExecutionContext ctx = {};
-	ctx.module = vec_at(&vm->modules, i_module);
-	ctx.module_instance = vec_at(&vm->module_instances, i_module);
+	ctx.vm = vm;
 	ctx.ip = first_ip;
+	ctx.i_current_module = i_module;
 	execution_init(&ctx);
 	
 	// Create the first variable scope
 	execute_begin_scope(vm, &ctx);
-
-	Module *module = ctx.module;
 
 	using ExecuteOpCode = void (*)(VM *, ExecutionContext *);
 	ExecuteOpCode execute_opcodes[] = {
 		execute_constant,
 		execute_constant_str,
 		execute_call,
+	execute_call_external,
 		execute_call_foreign,
 		execute_ret,
 		execute_conditional_jump,
@@ -669,8 +694,13 @@ void executor_execute_module_at(VM *vm, uint32_t i_module, uint32_t first_ip)
 	};
 	static_assert(ARRAY_LENGTH(execute_opcodes) == uint8_t(OpCodeKind::Count));
 
-	const uint32_t bytecode_len = module->bytecode_length;
-	while (ctx.ip < bytecode_len) {
+	while (true) {
+		const Module *module = execution_current_module(&ctx);
+		const uint32_t bytecode_len = module->bytecode_length;
+		if (ctx.ip >= bytecode_len) {
+			break;
+		}
+		
 		if (ctx.error.code != ErrorCode::Ok) {
 			break;
 		}
@@ -709,8 +739,8 @@ void executor_execute_module_at(VM *vm, uint32_t i_module, uint32_t first_ip)
 //  sv execution_get_str(VM *vm, Str str)
 // {
 // 	if (str.is_constant == 1) {
-// 		if (str.offset < ctx->module->constant_strings_length) {
-// 			return ctx->module->constant_strings[str.offset];
+// 		if (str.offset < module->constant_strings_length) {
+// 			return module->constant_strings[str.offset];
 // 		}
 // 	}
 // 	return sv_from_null_terminated("<ERROR>");

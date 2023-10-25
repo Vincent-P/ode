@@ -75,7 +75,7 @@ inline void error_trigger(Error *error, ErrorCode code, sv condition_str, sv fil
 	error->file = file;
 	error->line = line;
 
-	__debugbreak();
+	// __debugbreak();
 }
 	
 #define INIT_ERROR(error_ptr, errcode) (error_ptr)->file = sv_from_null_terminated(__FILE__); (error_ptr)->line = __LINE__; (error_ptr)->code = errcode;

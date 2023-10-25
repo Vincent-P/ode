@@ -1,17 +1,17 @@
 #include "compiler.h"
 #include "lexer.h"
 #include "parser.h"
+#include "vm.h"
 
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-
 // bytecode functions
 
 static void compiler_push_opcode(Compiler *compiler, OpCodeKind opcode_kind)
 {
-	Module *current_module = compiler->current_module;
+	Module *current_module = &compiler->module;
 	if (current_module->bytecode_length + 1 >= current_module->bytecode_capacity) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
 		return;
@@ -24,7 +24,7 @@ static void compiler_push_opcode(Compiler *compiler, OpCodeKind opcode_kind)
 template <typename T>
 static T *compiler_push_scalar(Compiler *compiler, T value)
 {
-	Module *current_module = compiler->current_module;
+	Module *current_module = &compiler->module;
 	uint32_t to_write = sizeof(T);
 	if (current_module->bytecode_length + to_write >= current_module->bytecode_capacity) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
@@ -44,7 +44,7 @@ static TypeID *compiler_push_type_id(Compiler *compiler, TypeID id)
 
 static void compiler_push_sv(Compiler *compiler, sv value)
 {
-	Module *current_module = compiler->current_module;
+	Module *current_module = &compiler->module;
 
 	uint32_t to_write = uint32_t(sizeof(uint32_t) + value.length * sizeof(char));
 	if (current_module->bytecode_length + to_write >= current_module->bytecode_capacity) {
@@ -77,6 +77,13 @@ static void compiler_bytecode_load_constant_str(Compiler *compiler, uint8_t i_co
 static void compiler_bytecode_call(Compiler *compiler, uint8_t i_function)
 {
 	compiler_push_opcode(compiler, OpCodeKind::Call);
+	compiler_push_scalar(compiler, i_function);
+}
+
+static void compiler_bytecode_call_external(Compiler *compiler, uint8_t i_module, uint8_t i_function)
+{
+	compiler_push_opcode(compiler, OpCodeKind::CallExternal);
+	compiler_push_scalar(compiler, i_module);
 	compiler_push_scalar(compiler, i_function);
 }
 
@@ -144,6 +151,37 @@ static void compiler_bytecode_debug_label(Compiler *compiler, sv label)
 	compiler_push_sv(compiler, label);
 }
 
+// compiler functions
+
+static void compiler_lookup_function(Compiler *compiler, sv function_name, uint32_t *out_module, uint32_t *out_function)
+{
+	Module *current_module = &compiler->module;
+	// Search local functions
+	for (uint32_t i_function = 0; i_function < current_module->functions_length; ++i_function) {
+		Function *function = current_module->functions + i_function;
+		if (sv_equals(function->name, function_name)) {
+			*out_module = ~uint32_t(0);
+			*out_function = i_function;
+			return;
+		}
+	}
+	// Search imports
+	for (uint32_t i_import = 0; i_import < current_module->imports_length; ++i_import) {
+		uint32_t i_imported_module = current_module->imports[i_import];
+		Module *imported_module = vec_at(&compiler->vm->modules, i_imported_module);
+		for (uint32_t i_function = 0; i_function < imported_module->functions_length; ++i_function) {
+			Function *function = imported_module->functions + i_function;
+			if (sv_equals(function->name, function_name)) {
+				*out_module = i_import;
+				*out_function = i_function;
+				return;
+			}
+		}
+	}
+	*out_module = ~uint32_t(0);
+	*out_function = ~uint32_t(0);
+}
+
 template <typename Lambda>
 static Function *compiler_compile_function(Compiler *compiler,
 	sv function_name,
@@ -153,14 +191,14 @@ static Function *compiler_compile_function(Compiler *compiler,
 	uint32_t args_length,
 	Lambda compile_body_fn)
 {
-	Module *current_module = compiler->current_module;
-	for (uint32_t i_function = 0; i_function < current_module->functions_length; ++i_function) {
-		Function *function = current_module->functions + i_function;
-		if (sv_equals(function->name, function_name)) {
-			// Actually it should be possible to recompile a function if signature has not changed.
-			INIT_ERROR(&compiler->compunit->error, ErrorCode::DuplicateSymbol);
-			return nullptr;
-		}
+	Module *current_module = &compiler->module;
+	uint32_t i_found_module = 0;
+	uint32_t i_found_function = 0;
+	compiler_lookup_function(compiler, function_name, &i_found_module, &i_found_function);
+	if (i_found_module < compiler->vm->modules.length || i_found_module < compiler->module.functions_length) {
+		// Actually it should be possible to recompile a function if signature has not changed.
+		INIT_ERROR(&compiler->compunit->error, ErrorCode::DuplicateSymbol);
+		return nullptr;
 	}
 
 	if (current_module->functions_length + 1 > current_module->functions_capacity) {
@@ -328,9 +366,9 @@ static uint32_t compile_find_or_add_constant(Compiler *compiler, uint32_t value)
 	// Find or add the number literal to the constant pool
 	// TODO: It's slow.
 	uint32_t i_constant = 0;
-	uint32_t constants_u32_length = compiler->current_module->constants_u32_length;
+	uint32_t constants_u32_length = compiler->module.constants_u32_length;
 	for (; i_constant < constants_u32_length; ++i_constant) {
-		uint32_t constant_u32 = compiler->current_module->constants_u32[i_constant];
+		uint32_t constant_u32 = compiler->module.constants_u32[i_constant];
 		if (value == constant_u32) {
 			break;
 		}
@@ -338,12 +376,12 @@ static uint32_t compile_find_or_add_constant(Compiler *compiler, uint32_t value)
 
 	// The constant string was not found, add it.
 	if (i_constant == constants_u32_length) {
-		if (constants_u32_length >= compiler->current_module->constants_u32_capacity) {
+		if (constants_u32_length >= compiler->module.constants_u32_capacity) {
 			INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
 			return INVALID_NODE_INDEX;
 		}
-		compiler->current_module->constants_u32_length += 1;
-		compiler->current_module->constants_u32[i_constant] = value;
+		compiler->module.constants_u32_length += 1;
+		compiler->module.constants_u32[i_constant] = value;
 	}
 	return i_constant;
 }
@@ -379,21 +417,21 @@ static TypeID compile_atom(Compiler *compiler, const Token *token)
 		// Find or add the string literal to the constant pool
 		// TODO: It's slow.
 		uint32_t i_constant = 0;
-		uint32_t constant_strings_length = compiler->current_module->constant_strings_length;
+		uint32_t constant_strings_length = compiler->module.constant_strings_length;
 		for (; i_constant < constant_strings_length; ++i_constant) {
-			sv constant_sv = compiler->current_module->constant_strings[i_constant];
+			sv constant_sv = compiler->module.constant_strings[i_constant];
 			if (sv_equals(value_sv, constant_sv)) {
 				break;
 			}
 		}
 		// The constant string was not found, add it.
 		if (i_constant == constant_strings_length) {
-			if (constant_strings_length >= compiler->current_module->constant_strings_capacity) {
+			if (constant_strings_length >= compiler->module.constant_strings_capacity) {
 				INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
 				return UNIT_TYPE;
 			}
-			compiler->current_module->constant_strings_length += 1;
-			compiler->current_module->constant_strings[i_constant] = value_sv;
+			compiler->module.constant_strings_length += 1;
+			compiler->module.constant_strings[i_constant] = value_sv;
 		}
 
 		compiler_bytecode_load_constant_str(compiler, uint8_t(i_constant));
@@ -459,10 +497,10 @@ TypeID compile_define(Compiler *compiler, const AstNode *node)
 	sv function_name_token_str = sv_substr(compiler->compunit->input, define_node.function_name_token->span);
 
 	// -- Type checking
-	TypeID return_type = parse_type(compiler->compunit, compiler->current_module, define_node.return_type_node);
+	TypeID return_type = parse_type(compiler->compunit, &compiler->module, define_node.return_type_node);
 	TypeID arg_types[MAX_ARGUMENTS] = {};
 	for (uint32_t i_arg = 0; i_arg < define_node.args_length; ++i_arg) {
-		arg_types[i_arg] = parse_type(compiler->compunit, compiler->current_module, define_node.arg_nodes[i_arg]);
+		arg_types[i_arg] = parse_type(compiler->compunit, &compiler->module, define_node.arg_nodes[i_arg]);
 	}
 
 	Function *new_function = compiler_compile_function(compiler,
@@ -495,16 +533,16 @@ TypeID compile_define_foreign(Compiler *compiler, const AstNode *node)
 	sv function_name_token_str = sv_substr(compiler->compunit->input, nodes.function_name_token->span);
 
 	// -- Type checking
-	Module *current_module = compiler->current_module;
-	for (uint32_t i_function = 0; i_function < current_module->functions_length; ++i_function) {
-		Function *function = current_module->functions + i_function;
-		if (sv_equals(function->name, function_name_token_str)) {
-			// Actually it should be possible to recompile a function if signature has not changed.
-			INIT_ERROR(&compiler->compunit->error, ErrorCode::DuplicateSymbol);
-			compiler->compunit->error.span = node->span;
-			return UNIT_TYPE;
-		}
+	Module *current_module = &compiler->module;
+	uint32_t i_found_module = 0;
+	uint32_t i_found_function = 0;
+	compiler_lookup_function(compiler, function_name_token_str, &i_found_module, &i_found_function);
+	if (i_found_module < compiler->vm->modules.length || i_found_module < compiler->module.functions_length) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode::DuplicateSymbol);
+		compiler->compunit->error.span = node->span;
+		return UNIT_TYPE;
 	}
+
 	if (current_module->functions_length + 1 >= current_module->functions_capacity) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
 		compiler->compunit->error.span = node->span;
@@ -520,7 +558,7 @@ TypeID compile_define_foreign(Compiler *compiler, const AstNode *node)
 	current_module->functions_length += 1;
 
 	// -- Compiling
-	TypeID return_type = parse_type(compiler->compunit, compiler->current_module, nodes.return_type_node);
+	TypeID return_type = parse_type(compiler->compunit, &compiler->module, nodes.return_type_node);
 	if (compiler->compunit->error.code != ErrorCode::Ok) {
 		return UNIT_TYPE;
 	}
@@ -537,7 +575,7 @@ TypeID compile_define_foreign(Compiler *compiler, const AstNode *node)
 	}
 	// push argument variables
 	for (uint32_t i_arg = 0; i_arg < nodes.args_length; ++i_arg) {
-		TypeID arg_type = parse_type(compiler->compunit, compiler->current_module, nodes.arg_nodes[i_arg]);
+		TypeID arg_type = parse_type(compiler->compunit, &compiler->module, nodes.arg_nodes[i_arg]);
 		function->arg_types[function->arg_count] = arg_type;
 		function->arg_count += 1;
 
@@ -565,8 +603,8 @@ TypeID compile_struct(Compiler *compiler, const AstNode *node)
 
 	// -- Type checking
 	// Check if the type is already defined
-	for (uint32_t i_type = 0; i_type < compiler->current_module->types_length; ++i_type) {
-		UserDefinedType *type = compiler->current_module->types + i_type;
+	for (uint32_t i_type = 0; i_type < compiler->module.types_length; ++i_type) {
+		UserDefinedType *type = compiler->module.types + i_type;
 		if (sv_equals(type->name, struct_name_token_str)) {
 			INIT_ERROR(&compiler->compunit->error, ErrorCode::DuplicateSymbol);
 			compiler->compunit->error.span = node->span;
@@ -575,7 +613,7 @@ TypeID compile_struct(Compiler *compiler, const AstNode *node)
 		}
 	}
 	// Not enough space to add a type
-	if (compiler->current_module->types_length + 1 >= compiler->current_module->types_capacity) {
+	if (compiler->module.types_length + 1 >= compiler->module.types_capacity) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
 		compiler->compunit->error.span = node->span;
 		return UNIT_TYPE;
@@ -584,17 +622,17 @@ TypeID compile_struct(Compiler *compiler, const AstNode *node)
 	// -- Create a new structure type
 	TypeID fields_type[MAX_STRUCT_FIELDS] = {};
 
-	TypeID struct_type_id = type_id_new_user_defined(compiler->current_module->types_length);
-	compiler->current_module->types_length += 1;
+	TypeID struct_type_id = type_id_new_user_defined(compiler->module.types_length);
+	compiler->module.types_length += 1;
 
-	UserDefinedType *struct_type = compiler->current_module->types + struct_type_id.user_defined.index;
+	UserDefinedType *struct_type = compiler->module.types + struct_type_id.user_defined.index;
 	*struct_type = {};
 	struct_type->size = 0;
 	struct_type->name = struct_name_token_str;
 
 	uint32_t struct_size = 0;
 	for (uint32_t i_field = 0; i_field < nodes.fields_length; ++i_field) {
-		TypeID field_type = parse_type(compiler->compunit, compiler->current_module, nodes.field_type_nodes[i_field]);
+		TypeID field_type = parse_type(compiler->compunit, &compiler->module, nodes.field_type_nodes[i_field]);
 		if (compiler->compunit->error.code != ErrorCode::Ok) {
 			return UNIT_TYPE;
 		}
@@ -603,7 +641,7 @@ TypeID compile_struct(Compiler *compiler, const AstNode *node)
 		struct_type->field_names[i_field] = sv_substr(compiler->compunit->input, nodes.field_identifiers[i_field].span);
 		struct_type->field_offsets[i_field] = struct_size;
 
-		struct_size += type_get_size(compiler->current_module, field_type);
+		struct_size += type_get_size(&compiler->module, field_type);
 		fields_type[i_field] = field_type;
 	}
 
@@ -648,13 +686,13 @@ TypeID compile_if(Compiler *compiler, const AstNode *node)
 	uint32_t *jump_to_end = compiler_bytecode_jump(compiler, 0);
 
 	// Compile the true branch
-	const uint32_t then_branch_address = compiler->current_module->bytecode_length;
+	const uint32_t then_branch_address = compiler->module.bytecode_length;
 	TypeID then_expr = compile_expr(compiler, nodes.then_expr_node);
 	if (compiler->compunit->error.code != ErrorCode::Ok) {
 		return UNIT_TYPE;
 	}
 
-	const uint32_t end_address = compiler->current_module->bytecode_length;
+	const uint32_t end_address = compiler->module.bytecode_length;
 	*jump_to_true_branch = uint32_t(then_branch_address);
 	*jump_to_end = uint32_t(end_address);
 
@@ -834,8 +872,8 @@ TypeID compile_sizeof(Compiler *compiler, const AstNode *node)
 		return UNIT_TYPE;
 	}
 
-	TypeID expr_type = parse_type(compiler->compunit, compiler->current_module, nodes.value_node);
-	uint32_t type_size = type_get_size(compiler->current_module, expr_type);
+	TypeID expr_type = parse_type(compiler->compunit, &compiler->module, nodes.value_node);
+	uint32_t type_size = type_get_size(&compiler->module, expr_type);
 	uint32_t i_constant = compile_find_or_add_constant(compiler, type_size);
 	compiler_bytecode_load_constant_u32(compiler, uint8_t(i_constant));
 	return type_id_new_builtin(BuiltinTypeKind::Int);
@@ -851,7 +889,7 @@ TypeID compile_field_offset(Compiler *compiler, const AstNode *node)
 	}
 
 	// -- Typecheck
-	TypeID expr_type = parse_type(compiler->compunit, compiler->current_module, nodes.lhs_node);
+	TypeID expr_type = parse_type(compiler->compunit, &compiler->module, nodes.lhs_node);
 	if (!type_id_is_user_defined(expr_type)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::ExpectedTypeGot);
 		compiler->compunit->error.span = nodes.lhs_node->span;
@@ -870,12 +908,12 @@ TypeID compile_field_offset(Compiler *compiler, const AstNode *node)
 	sv field_identifier_str = sv_substr(compiler->compunit->input, field_token->span);
 
 	// -- Find field offset
-	if (expr_type.user_defined.index >= compiler->current_module->types_length) {
+	if (expr_type.user_defined.index >= compiler->module.types_length) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
 		return UNIT_TYPE;
 	}
 
-	UserDefinedType *type = compiler->current_module->types + expr_type.user_defined.index;
+	UserDefinedType *type = compiler->module.types + expr_type.user_defined.index;
 	for (uint32_t i_field = 0; i_field < type->field_count; ++i_field) {
 		if (sv_equals(type->field_names[i_field], field_identifier_str)) {
 			uint32_t i_constant = compile_find_or_add_constant(compiler, type->field_offsets[i_field]);
@@ -899,7 +937,7 @@ TypeID compile_stack_alloc(Compiler *compiler, const AstNode *node)
 		return UNIT_TYPE;
 	}
 
-	TypeID type_of_pointed_memory = parse_type(compiler->compunit, compiler->current_module, nodes.lhs_node);
+	TypeID type_of_pointed_memory = parse_type(compiler->compunit, &compiler->module, nodes.lhs_node);
 
 	/*TypeID size_type =*/compile_expr(compiler, nodes.rhs_node);
 
@@ -917,7 +955,7 @@ TypeID compile_ptr_offset(Compiler *compiler, const AstNode *node)
 		return UNIT_TYPE;
 	}
 
-	TypeID return_type = parse_type(compiler->compunit, compiler->current_module, nodes.return_type_node);
+	TypeID return_type = parse_type(compiler->compunit, &compiler->module, nodes.return_type_node);
 	if (!type_id_is_pointer(return_type)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::ExpectedTypeGot)
 		compiler->compunit->error.got_type = return_type;
@@ -1006,22 +1044,20 @@ TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 	}
 
 	// If the identifier is not a builtin, generate a function call
-	Module *current_module = compiler->current_module;
-	Function *found_function = nullptr;
-	uint32_t i_function = 0;
-	for (; i_function < current_module->functions_length; ++i_function) {
-		Function *function = current_module->functions + i_function;
-		if (sv_equals(function->name, identifier_str)) {
-			found_function = function;
-			break;
-		}
-	}
-
-	// Function not found
-	if (found_function == nullptr) {
+	uint32_t i_found_module = 0;
+	uint32_t i_found_function = 0;
+	compiler_lookup_function(compiler, identifier_str, &i_found_module, &i_found_function);
+	bool is_external = i_found_module < compiler->vm->modules.length;
+	if (!is_external && i_found_function >= compiler->module.functions_length) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::UnknownSymbol);
 		compiler->compunit->error.span = identifier->span;
 		return UNIT_TYPE;
+	}
+	const Function *found_function = nullptr;
+	if (is_external) {
+		found_function = vec_at(&compiler->vm->modules, i_found_module)->functions + i_found_function;
+	} else {
+		found_function = compiler->module.functions + i_found_function;
 	}
 
 	// Typecheck arguments
@@ -1064,7 +1100,12 @@ TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 	}
 
 	// The found function signature matched
-	compiler_bytecode_call(compiler, uint8_t(i_function));
+	if (is_external) {
+		compiler_bytecode_call_external(compiler, uint8_t(i_found_module), uint8_t(i_found_function));
+	}
+	else {
+		compiler_bytecode_call(compiler, uint8_t(i_found_function));
+	}
 
 	return found_function->return_type;
 }
@@ -1111,7 +1152,8 @@ void compile_module(Compiler *compiler)
 	}
 }
 
-void compiler_scan_requires(Compiler *compiler, const Token** out_tokens, uint32_t out_tokens_max_length, uint32_t *out_tokens_written)
+void compiler_scan_requires(
+	Compiler *compiler, const Token **out_tokens, uint32_t out_tokens_max_length, uint32_t *out_tokens_written)
 {
 	uint32_t tokens_written = 0;
 	const AstNode *root_node = vec_at(&compiler->compunit->nodes, 0);
@@ -1134,7 +1176,7 @@ void compiler_scan_requires(Compiler *compiler, const Token** out_tokens, uint32
 			return;
 		}
 
-		// Find a require clasuse
+		// Find a require clause
 		sv identifier_str = sv_substr(compiler->compunit->input, atom_token->span);
 		sv require = sv_from_null_terminated("require");
 		if (sv_equals(identifier_str, require)) {
@@ -1148,9 +1190,9 @@ void compiler_scan_requires(Compiler *compiler, const Token** out_tokens, uint32
 				compiler->compunit->error.span = root_expr->span;
 				return;
 			}
-			
+
 			const AstNode *require_path_node = ast_get_right_sibling(&compiler->compunit->nodes, first_sexpr_member);
-			
+
 			// Check that the argument is a string
 			is_an_atom = ast_is_atom(require_path_node);
 			if (!is_an_atom) {

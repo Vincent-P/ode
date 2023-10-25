@@ -3,6 +3,8 @@
 #include "module.h"
 #include "error.h"
 
+struct VM;
+
 struct CompilationUnit
 {
 	sv input;
@@ -20,9 +22,11 @@ struct LexicalScope
 
 struct Compiler
 {
-	vec<LexicalScope> scopes;
-	Module *current_module;
+	VM *vm;
 	CompilationUnit *compunit;
+	
+	vec<LexicalScope> scopes;
+	Module module;
 };
 
 void compiler_scan_requires(Compiler *compiler, const Token** out_tokens, uint32_t out_tokens_max_length, uint32_t *out_tokens_written);

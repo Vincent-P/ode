@@ -35,7 +35,6 @@
 	(let pz (_ptr_offset (* i32) p (_field_offset Point3D z)))
 	(_store pz z))
 
-
 (define (log-point ()) (p (* Point))
 	(log "Logging point.")
 	(logi (point-x p))
@@ -50,5 +49,5 @@
 (define (main i32) ()
 	(let p (new-point-3d 0 1 5))
 	(log-point3d p)
-	(point3d-set-z p (+ (point3d-z p) 45))
+	(point3d-set-z p (+ (point3d-z p) (adder 45)))
 	(point3d-z p))

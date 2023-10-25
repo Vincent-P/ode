@@ -59,12 +59,14 @@ void log_foreign_func(VM *)
 	// StackValue arg0 = execution_get_local(ctx, 0);
 	// sv arg0_sv = execution_get_str(ctx, arg0.str);
 	// printf("\n=== HOST: log(\"%.*s\") ===\n", int(arg0_sv.length), arg0_sv.chars);
+	printf("log foreign func.\n");
 }
 
 void logi_foreign_func(VM *)
 {
 	// StackValue n = execution_get_local(ctx, 0);
 	// printf("\n=== HOST: log(%d) ===\n", n.i32);
+	printf("logi foreign func.\n");
 }
 
 ForeignFn on_foreign(sv module_name, sv function_name)

@@ -20,6 +20,7 @@ enum struct OpCodeKind : uint8_t
 	LoadConstantStr, // Push the index of a str constant
 	                 // Control flow
 	Call,        // Read the immediate index of the function to jump to, and creates a callstack
+	CallExternal, // Read the immediate index of the moduel, and function to jump to, and creates a callstack
 	CallForeign, // Call the foreign callback of the current function (TODO: pop index and get args through builtins)
 	Ret,         // Jump to the previous callstack
 	ConditionalJump, // Pop a predicate, jump to immediate address if true
@@ -45,6 +46,7 @@ inline const char *OpCode_str[] = {
 	"LoadConstantU32",
 	"LoadConstantStr",
 	"Call",
+	"CallExternal",
 	"CallForeign",
 	"Ret",
 	"ConditionalJump",
@@ -106,4 +108,8 @@ struct Module
 	uint32_t *constants_u32;
 	uint32_t constants_u32_capacity;
 	uint32_t constants_u32_length;
+	// table of imports
+	uint32_t *imports;
+	uint32_t imports_capacity;
+	uint32_t imports_length;
 };
