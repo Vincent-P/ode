@@ -667,9 +667,15 @@ TypeID compile_if(Compiler *compiler, const AstNode *node)
 	}
 
 	// Compile the condition first,
-	/*TypeID cond_expr =*/compile_expr(compiler, nodes.cond_expr_node);
-	// TODO: no type checking?
+	TypeID cond_expr = compile_expr(compiler, nodes.cond_expr_node);
 	if (compiler->compunit->error.code != ErrorCode::Ok) {
+		return UNIT_TYPE;
+	}
+	if (!type_id_is_builtin(cond_expr) || cond_expr.builtin.kind != BuiltinTypeKind::Bool) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode::ExpectedTypeGot);
+		compiler->compunit->error.span = nodes.cond_expr_node->span;
+		compiler->compunit->error.expected_type = type_id_new_builtin(BuiltinTypeKind::Bool);
+		compiler->compunit->error.got_type = cond_expr;
 		return UNIT_TYPE;
 	}
 
