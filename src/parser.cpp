@@ -1,6 +1,6 @@
 #include "parser.h"
-#include "lexer.h"
 #include "compiler.h"
+#include "lexer.h"
 #include <stdio.h>
 
 // LISP parsing
@@ -170,9 +170,8 @@ vec<AstNode> parse_module(Parser *parser)
 	return parser->compunit->nodes;
 }
 
-
 // Typed nodes parsing
-TypeID parse_type(CompilationUnit* compunit, Module *module, const AstNode *node)
+TypeID parse_type(CompilationUnit *compunit, Module *module, const AstNode *node)
 {
 	if (ast_is_atom(node)) {
 		// The type is just an identifier, find the corresponding builtin type or named type
@@ -195,7 +194,7 @@ TypeID parse_type(CompilationUnit* compunit, Module *module, const AstNode *node
 		}
 
 		// We haven't found any named type
-		INIT_ERROR(&compunit->error, ErrorCode::UnknownSymbol); 
+		INIT_ERROR(&compunit->error, ErrorCode::UnknownSymbol);
 		compunit->error.span = node->span;
 		return UNIT_TYPE;
 	} else {
@@ -246,7 +245,7 @@ TypeID parse_type(CompilationUnit* compunit, Module *module, const AstNode *node
 
 // Parse a define function signature without a body
 // (define (<name> <return_type>) (<args>*) <expression>+)
-void parse_define_sig(CompilationUnit* compunit, const AstNode *node, DefineNode *output)
+void parse_define_sig(CompilationUnit *compunit, const AstNode *node, DefineNode *output)
 {
 	if (node->child_count < 3) {
 		INIT_ERROR(&compunit->error, ErrorCode::ExpectedExpr);
@@ -304,7 +303,7 @@ void parse_define_sig(CompilationUnit* compunit, const AstNode *node, DefineNode
 	output->args_length = args_length;
 }
 
-void parse_define_body(CompilationUnit* compunit, const AstNode *node, DefineNode *output)
+void parse_define_body(CompilationUnit *compunit, const AstNode *node, DefineNode *output)
 {
 	if (!ast_has_right_sibling(output->arglist_node)) {
 		INIT_ERROR(&compunit->error, ErrorCode::ExpectedExpr);
@@ -478,7 +477,7 @@ void parse_field(CompilationUnit *compunit, const AstNode *node, FieldNode *outp
 }
 
 // (_ptr_offset <type> <base pointer> <offset>)
-void parse_ptr_offset(CompilationUnit* compunit, const AstNode *node, PtrOffsetNodes *output)
+void parse_ptr_offset(CompilationUnit *compunit, const AstNode *node, PtrOffsetNodes *output)
 {
 	if (node->child_count != 4) {
 		if (node->child_count > 4) {

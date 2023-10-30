@@ -1,6 +1,6 @@
 #include "executor.h"
-#include "vm.h"
 #include "module.h"
+#include "vm.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -28,7 +28,7 @@ struct ExecutionContext
 	VM *vm;
 
 	Error error;
-	
+
 	CallFrame *callstack_begin;
 	CallFrame *callstack_current;
 	const CallFrame *callstack_end;
@@ -67,12 +67,12 @@ static void execution_init(ExecutionContext *context)
 	context->locals_storage_end = context->locals_storage_begin + 128;
 }
 
-static Module* execution_current_module(ExecutionContext *context)
+static Module *execution_current_module(ExecutionContext *context)
 {
 	return vec_at(&context->vm->modules, context->i_current_module);
 }
 
-static ModuleInstance* execution_current_module_instance(ExecutionContext *context)
+static ModuleInstance *execution_current_module_instance(ExecutionContext *context)
 {
 	return vec_at(&context->vm->module_instances, context->i_current_module);
 }
@@ -205,7 +205,7 @@ static void print_ip(ExecutionContext *ctx)
 
 static void print_indent(long long n)
 {
-	for (int32_t i = 0; i < (n+1); ++i) {
+	for (int32_t i = 0; i < (n + 1); ++i) {
 		putchar(' ');
 		putchar(' ');
 		putchar(' ');
@@ -238,7 +238,7 @@ static StackValue *push_operand(VM *vm, ExecutionContext *ctx, StackValue value_
 	*ctx->stack_current = value_to_push;
 
 	log_push(vm, ctx, value_to_push);
-	
+
 	return ctx->stack_current;
 }
 
@@ -283,7 +283,7 @@ static void execute_constant_str(VM *vm, ExecutionContext *ctx)
 	}
 
 	sv value = module->constant_strings[i_constant];
-	
+
 	Str str = {};
 	str.is_constant = 1;
 	str.offset = i_constant;
@@ -312,13 +312,13 @@ static void execute_call(VM *vm, ExecutionContext *ctx)
 	if (ctx->error.code != ErrorCode::Ok) {
 		return;
 	}
-	
+
 	// Push a new call frame to save return address
 	EXEC_ASSERT(ctx, ctx->callstack_current + 1 < ctx->callstack_end);
 	if (ctx->error.code != ErrorCode::Ok) {
 		return;
 	}
-	
+
 	ctx->callstack_current += 1;
 	CallFrame *callstack = ctx->callstack_current;
 	callstack->i_module = ctx->i_current_module;
@@ -336,12 +336,12 @@ static void execute_call_external(VM *vm, ExecutionContext *ctx)
 	print_ip(ctx);
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
 	printf("--call-external module%u function%u\n", i_module, i_function);
-	
+
 	EXEC_ASSERT(ctx, i_module < vm->modules.length);
 	if (ctx->error.code != ErrorCode::Ok) {
 		return;
 	}
-	
+
 	Module *module = vec_at(&vm->modules, i_module);
 	EXEC_ASSERT(ctx, i_function < module->functions_length);
 	if (ctx->error.code != ErrorCode::Ok) {
@@ -355,13 +355,13 @@ static void execute_call_external(VM *vm, ExecutionContext *ctx)
 	if (ctx->error.code != ErrorCode::Ok) {
 		return;
 	}
-	
+
 	// Push a new call frame to save return address
 	EXEC_ASSERT(ctx, ctx->callstack_current + 1 < ctx->callstack_end);
 	if (ctx->error.code != ErrorCode::Ok) {
 		return;
 	}
-	
+
 	ctx->callstack_current += 1;
 	CallFrame *callstack = ctx->callstack_current;
 	callstack->i_module = ctx->i_current_module;
@@ -401,7 +401,7 @@ static void execute_call_foreign(VM *vm, ExecutionContext *ctx)
 static void execute_ret(VM *vm, ExecutionContext *ctx)
 {
 	execute_end_scope(vm, ctx);
-	
+
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
 	if (ctx->callstack_begin <= ctx->callstack_current && ctx->callstack_current < ctx->callstack_end) {
 		// Pop the last callstack, restore IP
@@ -474,7 +474,7 @@ static void execute_load_local(VM *vm, ExecutionContext *ctx)
 	if (ctx->error.code != ErrorCode::Ok) {
 		return;
 	}
-	
+
 	print_ip(ctx);
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
 	printf("--load_local %u\n", i_local);
@@ -484,23 +484,23 @@ static void execute_load_local(VM *vm, ExecutionContext *ctx)
 static void execute_stack_alloc(VM *vm, ExecutionContext *ctx)
 {
 	const TypeID inner_type = bytecode_read_type_id(ctx);
-	
+
 	print_ip(ctx);
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
 	printf("--stack_alloc %u\n", inner_type.raw);
 
 	StackValue size_to_alloc = pop_operand(vm, ctx);
-	
+
 	EXEC_ASSERT(ctx, ctx->locals_storage_begin <= ctx->locals_storage_current);
 	EXEC_ASSERT(ctx, ctx->locals_storage_current + size_to_alloc.i32 < ctx->locals_storage_end);
 	if (ctx->error.code != ErrorCode::Ok) {
 		return;
 	}
-	
+
 	TypedPointer returned_pointer = {};
 	returned_pointer.type_id = inner_type;
 	returned_pointer.offset = uint32_t(ctx->locals_storage_current - ctx->locals_storage_begin);
-	
+
 	ctx->locals_storage_current += size_to_alloc.i32;
 
 	push_operand(vm, ctx, stack_value_local_ptr(returned_pointer));
@@ -521,23 +521,34 @@ static void execute_store(VM *vm, ExecutionContext *ctx)
 	uint8_t *begin = ctx->locals_storage_begin + pointer_to_write.local_ptr.offset;
 	uint8_t *end = begin + size;
 
-	EXEC_ASSERT(ctx, pointer_to_write.kind == StackValueKind::LocalPtr); // we poped a pointer
+	EXEC_ASSERT(ctx, pointer_to_write.kind == StackValueKind::LocalPtr);                    // we poped a pointer
 	EXEC_ASSERT(ctx, ctx->locals_storage_begin <= begin && end <= ctx->locals_storage_end); // bound-check the pointer
-	EXEC_ASSERT(ctx, type_id_is_builtin(pointer_to_write.local_ptr.type_id)); // the pointer must point to a builtin
+	EXEC_ASSERT(ctx, type_id_is_builtin(pointer_to_write.local_ptr.type_id));     // the pointer must point to a builtin
 	EXEC_ASSERT(ctx, pointer_to_write.local_ptr.type_id.raw == pointee_type.raw); // check the type from bytecode
 	if (ctx->error.code != ErrorCode::Ok) {
 		return;
 	}
 
-	switch (pointee_type.builtin.kind)
-	{
-	case BuiltinTypeKind::Unit: break;
-	case BuiltinTypeKind::Int: memcpy(begin, &value_to_write.i32, sizeof(value_to_write.i32)); break;
-	case BuiltinTypeKind::Bool: memcpy(begin, &value_to_write.b8, sizeof(value_to_write.b8)); break;
-	case BuiltinTypeKind::Float: memcpy(begin, &value_to_write.f32, sizeof(value_to_write.f32)); break;
-	case BuiltinTypeKind::Pointer: memcpy(begin, &value_to_write.local_ptr, sizeof(value_to_write.local_ptr)); break;
-	case BuiltinTypeKind::Str: memcpy(begin, &value_to_write.str, sizeof(value_to_write.str)); break;
-	case BuiltinTypeKind::Count: break;
+	switch (pointee_type.builtin.kind) {
+	case BuiltinTypeKind::Unit:
+		break;
+	case BuiltinTypeKind::Int:
+		memcpy(begin, &value_to_write.i32, sizeof(value_to_write.i32));
+		break;
+	case BuiltinTypeKind::Bool:
+		memcpy(begin, &value_to_write.b8, sizeof(value_to_write.b8));
+		break;
+	case BuiltinTypeKind::Float:
+		memcpy(begin, &value_to_write.f32, sizeof(value_to_write.f32));
+		break;
+	case BuiltinTypeKind::Pointer:
+		memcpy(begin, &value_to_write.local_ptr, sizeof(value_to_write.local_ptr));
+		break;
+	case BuiltinTypeKind::Str:
+		memcpy(begin, &value_to_write.str, sizeof(value_to_write.str));
+		break;
+	case BuiltinTypeKind::Count:
+		break;
 	}
 }
 
@@ -549,7 +560,7 @@ static void execute_load(VM *vm, ExecutionContext *ctx)
 	print_ip(ctx);
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
 	printf("--load %u\n", pointee_type.raw);
-	
+
 	StackValue pointer = pop_operand(vm, ctx);
 	EXEC_ASSERT(ctx, pointer.kind == StackValueKind::LocalPtr);
 	if (ctx->error.code != ErrorCode::Ok) {
@@ -559,24 +570,35 @@ static void execute_load(VM *vm, ExecutionContext *ctx)
 	uint32_t size = type_get_size(module, pointer.local_ptr.type_id);
 	uint8_t *begin = ctx->locals_storage_begin + pointer.local_ptr.offset;
 	uint8_t *end = begin + size;
-	
+
 	EXEC_ASSERT(ctx, ctx->locals_storage_begin <= begin && end <= ctx->locals_storage_end); // bound-check the pointer
-	EXEC_ASSERT(ctx, type_id_is_builtin(pointer.local_ptr.type_id)); // the pointer must point to a builtin
+	EXEC_ASSERT(ctx, type_id_is_builtin(pointer.local_ptr.type_id));     // the pointer must point to a builtin
 	EXEC_ASSERT(ctx, pointee_type.raw == pointer.local_ptr.type_id.raw); // check bytecode type
 	if (ctx->error.code != ErrorCode::Ok) {
 		return;
 	}
 
 	StackValue result = {};
-	switch (pointer.local_ptr.type_id.builtin.kind)
-	{
-	case BuiltinTypeKind::Unit: break;
-	case BuiltinTypeKind::Int: memcpy(&result.i32, begin, sizeof(result.i32)); break;
-	case BuiltinTypeKind::Bool: memcpy(&result.b8, begin, sizeof(result.b8)); break;
-	case BuiltinTypeKind::Float: memcpy(&result.f32, begin, sizeof(result.f32)); break;
-	case BuiltinTypeKind::Pointer: memcpy(&result.local_ptr, begin, sizeof(result.local_ptr)); break;
-	case BuiltinTypeKind::Str: memcpy(&result.str, begin, sizeof(result.str)); break;
-	case BuiltinTypeKind::Count: break;
+	switch (pointer.local_ptr.type_id.builtin.kind) {
+	case BuiltinTypeKind::Unit:
+		break;
+	case BuiltinTypeKind::Int:
+		memcpy(&result.i32, begin, sizeof(result.i32));
+		break;
+	case BuiltinTypeKind::Bool:
+		memcpy(&result.b8, begin, sizeof(result.b8));
+		break;
+	case BuiltinTypeKind::Float:
+		memcpy(&result.f32, begin, sizeof(result.f32));
+		break;
+	case BuiltinTypeKind::Pointer:
+		memcpy(&result.local_ptr, begin, sizeof(result.local_ptr));
+		break;
+	case BuiltinTypeKind::Str:
+		memcpy(&result.str, begin, sizeof(result.str));
+		break;
+	case BuiltinTypeKind::Count:
+		break;
 	}
 	push_operand(vm, ctx, result);
 }
@@ -589,7 +611,6 @@ static void execute_binop(VM *vm, ExecutionContext *ctx, Lambda &&lambda)
 		return;
 	}
 
-	// TODO: Fetch integers from memory
 	StackValue rhs = *ctx->stack_current;
 	ctx->stack_current -= 1;
 	StackValue lhs = *ctx->stack_current;
@@ -634,7 +655,6 @@ static void execute_ptr_offset(VM *vm, ExecutionContext *ctx)
 	print_indent(ctx->callstack_current - ctx->callstack_begin);
 	printf("--ptr_offset\n");
 	execute_binop(vm, ctx, [&](StackValue lhs, StackValue rhs) {
-
 		EXEC_ASSERT(ctx, lhs.kind == StackValueKind::LocalPtr);
 		EXEC_ASSERT(ctx, rhs.kind == StackValueKind::I32);
 
@@ -666,7 +686,7 @@ void executor_execute_module_at(VM *vm, uint32_t i_module, uint32_t first_ip)
 	ctx.ip = first_ip;
 	ctx.i_current_module = i_module;
 	execution_init(&ctx);
-	
+
 	// Create the first variable scope
 	execute_begin_scope(vm, &ctx);
 
@@ -675,7 +695,7 @@ void executor_execute_module_at(VM *vm, uint32_t i_module, uint32_t first_ip)
 		execute_constant,
 		execute_constant_str,
 		execute_call,
-	execute_call_external,
+		execute_call_external,
 		execute_call_foreign,
 		execute_ret,
 		execute_conditional_jump,
@@ -700,7 +720,7 @@ void executor_execute_module_at(VM *vm, uint32_t i_module, uint32_t first_ip)
 		if (ctx.ip >= bytecode_len) {
 			break;
 		}
-		
+
 		if (ctx.error.code != ErrorCode::Ok) {
 			break;
 		}

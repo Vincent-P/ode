@@ -75,6 +75,13 @@ struct UserDefinedType
 	uint32_t size;
 };
 
+enum struct FunctionType : uint8_t
+{
+	Local,
+	Global,
+	Foreign
+};
+
 struct Function
 {
 	sv name;
@@ -82,7 +89,7 @@ struct Function
 	TypeID arg_types[MAX_ARGUMENTS];
 	uint32_t arg_count;
 	TypeID return_type;
-	bool is_foreign;
+	FunctionType type;
 };
 
 struct Module

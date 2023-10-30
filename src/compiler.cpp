@@ -171,7 +171,7 @@ static void compiler_lookup_function(Compiler *compiler, sv function_name, uint3
 		Module *imported_module = vec_at(&compiler->vm->modules, i_imported_module);
 		for (uint32_t i_function = 0; i_function < imported_module->functions_length; ++i_function) {
 			Function *function = imported_module->functions + i_function;
-			if (sv_equals(function->name, function_name)) {
+			if (function->type == FunctionType::Global && sv_equals(function->name, function_name)) {
 				*out_module = i_import;
 				*out_function = i_function;
 				return;
@@ -185,6 +185,7 @@ static void compiler_lookup_function(Compiler *compiler, sv function_name, uint3
 template <typename Lambda>
 static Function *compiler_compile_function(Compiler *compiler,
 	sv function_name,
+	FunctionType function_type,
 	TypeID return_type,
 	Token *arg_identifiers,
 	TypeID *arg_types,
@@ -210,7 +211,7 @@ static Function *compiler_compile_function(Compiler *compiler,
 	Function *function = current_module->functions + current_module->functions_length;
 	function->name = function_name;
 	function->address = current_module->bytecode_length;
-	function->is_foreign = false;
+	function->type = function_type;
 	function->return_type = return_type;
 
 	current_module->functions_length += 1;
@@ -480,7 +481,7 @@ TypeID compile_sexprs_return_last(Compiler *compiler, const AstNode *node)
 	return return_type;
 }
 
-// Defines a new function
+// Defines a new local function
 // (define (<name> <return_type>) (<args>*) <expression>+)
 TypeID compile_define(Compiler *compiler, const AstNode *node)
 {
@@ -505,6 +506,48 @@ TypeID compile_define(Compiler *compiler, const AstNode *node)
 
 	Function *new_function = compiler_compile_function(compiler,
 		function_name_token_str,
+		FunctionType::Local,
+		return_type,
+		define_node.arg_identifiers,
+		arg_types,
+		define_node.args_length,
+		[&]() -> TypeID {
+			// <-- Compile the body
+			TypeID body_type = compile_sexprs_return_last(compiler, define_node.body_node);
+			return body_type;
+		});
+
+	if (new_function == nullptr) {
+		return UNIT_TYPE;
+	}
+	return new_function->return_type;
+}
+// Defines a new global function
+// (define-global (<name> <return_type>) (<args>*) <expression>+)
+TypeID compile_define_global(Compiler *compiler, const AstNode *node)
+{
+	DefineNode define_node = {};
+	parse_define_sig(compiler->compunit, node, &define_node);
+	if (compiler->compunit->error.code != ErrorCode::Ok) {
+		return UNIT_TYPE;
+	}
+	parse_define_body(compiler->compunit, node, &define_node);
+	if (compiler->compunit->error.code != ErrorCode::Ok) {
+		return UNIT_TYPE;
+	}
+
+	sv function_name_token_str = sv_substr(compiler->compunit->input, define_node.function_name_token->span);
+
+	// -- Type checking
+	TypeID return_type = parse_type(compiler->compunit, &compiler->module, define_node.return_type_node);
+	TypeID arg_types[MAX_ARGUMENTS] = {};
+	for (uint32_t i_arg = 0; i_arg < define_node.args_length; ++i_arg) {
+		arg_types[i_arg] = parse_type(compiler->compunit, &compiler->module, define_node.arg_nodes[i_arg]);
+	}
+
+	Function *new_function = compiler_compile_function(compiler,
+		function_name_token_str,
+		FunctionType::Global,
 		return_type,
 		define_node.arg_identifiers,
 		arg_types,
@@ -553,7 +596,7 @@ TypeID compile_define_foreign(Compiler *compiler, const AstNode *node)
 	Function *function = current_module->functions + current_module->functions_length;
 	function->name = function_name_token_str;
 	function->address = current_module->bytecode_length;
-	function->is_foreign = true;
+	function->type = FunctionType::Foreign;
 
 	current_module->functions_length += 1;
 
@@ -991,12 +1034,14 @@ using CompilerBuiltin = TypeID (*)(Compiler *, const AstNode *);
 // There are two kinds of "builtins", the ones allowed at top-level and the other ones
 const CompilerBuiltin compiler_top_builtins[] = {
 	compile_define,
+	compile_define_global,
 	compile_define_foreign,
 	compile_struct,
 	compile_require,
 };
 const sv compiler_top_builtins_str[] = {
 	sv_from_null_terminated("define"),
+	sv_from_null_terminated("define-global"),
 	sv_from_null_terminated("define-foreign"),
 	sv_from_null_terminated("struct"),
 	sv_from_null_terminated("require"),
@@ -1108,8 +1153,7 @@ TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 	// The found function signature matched
 	if (is_external) {
 		compiler_bytecode_call_external(compiler, uint8_t(i_found_module), uint8_t(i_found_function));
-	}
-	else {
+	} else {
 		compiler_bytecode_call(compiler, uint8_t(i_found_function));
 	}
 

@@ -1,14 +1,14 @@
 #include "vm.h"
 #include "compiler.h"
-#include "executor.h"
 #include "debug.h"
+#include "executor.h"
 
 #include <stdio.h>
 
 VM *vm_create(VMConfig config)
 {
 	void *memory = calloc(1, sizeof(VM));
-	VM* vm = static_cast<VM*>(memory);
+	VM *vm = static_cast<VM *>(memory);
 	vm->config = config;
 	vm->modules = vec_init<Module>(8);
 	vm->module_instances = vec_init<ModuleInstance>(8);
@@ -47,7 +47,7 @@ static void module_init(Module *new_module, sv module_name)
 	new_module->name = module_name;
 }
 
-void vm_compile(VM* vm, sv module_name, sv code)
+void vm_compile(VM *vm, sv module_name, sv code)
 {
 	// -- Create compilation unit data
 	CompilationUnit compunit = {};
@@ -113,11 +113,15 @@ void vm_compile(VM* vm, sv module_name, sv code)
 	}
 	if (compunit.error.code != ErrorCode::Ok) {
 		Error err = compunit.error;
-		fprintf(stderr, "%s:%d:0: error: Compiler[] returned %s\n", err.file.chars, err.line, ErrorCode_str[uint32_t(err.code)]);
+		fprintf(stderr,
+			"%s:%d:0: error: Compiler[] returned %s\n",
+			err.file.chars,
+			err.line,
+			ErrorCode_str[uint32_t(err.code)]);
 		return;
 	}
 	// Compile dependencies
-	for (uint32_t i_dep = 0; i_dep < require_paths_length; ++i_dep){
+	for (uint32_t i_dep = 0; i_dep < require_paths_length; ++i_dep) {
 		sv dep_module_name = sv_substr(code, require_paths[i_dep]->span);
 		// HACK: Because string literals are substring of the code (and not properly interned), we have double quotes
 		dep_module_name.chars += 1;
@@ -150,7 +154,11 @@ void vm_compile(VM* vm, sv module_name, sv code)
 	compile_module(&compiler);
 	if (compunit.error.code != ErrorCode::Ok) {
 		Error err = compunit.error;
-		fprintf(stderr, "%s:%d:0: error: Compiler[] returned %s\n", err.file.chars, err.line, ErrorCode_str[uint32_t(err.code)]);
+		fprintf(stderr,
+			"%s:%d:0: error: Compiler[] returned %s\n",
+			err.file.chars,
+			err.line,
+			ErrorCode_str[uint32_t(err.code)]);
 		sv error_str = sv_substr(code, err.span);
 		fprintf(stderr, "Error at: '%.*s'\n", int(error_str.length), error_str.chars);
 		const char *expected_type_str = "(struct)";
@@ -192,7 +200,7 @@ void vm_compile(VM* vm, sv module_name, sv code)
 	*compiler_module = compiler.module;
 }
 
-void vm_interpret(VM* vm, sv module_name, sv code)
+void vm_interpret(VM *vm, sv module_name, sv code)
 {
 	vm_compile(vm, module_name, code);
 
@@ -244,7 +252,7 @@ void vm_interpret(VM* vm, sv module_name, sv code)
 	module_instance->functions_length = module->functions_length;
 	// Find foreign functions
 	for (uint32_t i_function = 0; i_function < module->functions_length; ++i_function) {
-		if (module->functions[i_function].is_foreign) {
+		if (module->functions[i_function].type == FunctionType::Foreign) {
 			const sv function_name = module->functions[i_function].name;
 			module_instance->functions[i_function].foreign = vm->config.foreign_callback(module_name, function_name);
 		}

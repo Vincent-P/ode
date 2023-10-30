@@ -1,1 +1,1 @@
-(define (adder i32) (n i32) (+ n 1))
+(define-global (adder i32) (n i32) (+ n 1))
