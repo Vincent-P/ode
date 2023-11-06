@@ -1,8 +1,6 @@
 #pragma once
 
-inline constexpr uint32_t MAX_STRUCT_FIELDS = 8; // Maximum number of fields in a user defined type
-inline constexpr uint32_t TYPE_MAX_USER_DEFINED = (1 << 19); // match the user_defined_index
-struct Module;
+struct CompilerModule;
 
 // Primitive types
 enum struct BuiltinTypeKind : uint32_t
@@ -146,5 +144,5 @@ inline bool type_similar(TypeID lhs_id, TypeID rhs_id)
 	return lhs_id.raw == rhs_id.raw;
 }
 
-uint32_t type_get_size(Module *module, TypeID id);
+uint32_t type_get_size(CompilerModule *module, TypeID id);
 

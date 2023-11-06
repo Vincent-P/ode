@@ -1,6 +1,6 @@
 #pragma once
-#include "type_id.h"
 #include "lexer.h"
+#include "type_id.h"
 
 enum struct ErrorCode : uint32_t
 {
@@ -25,7 +25,7 @@ enum struct ErrorCode : uint32_t
 	Count,
 };
 
-inline const char* ErrorCode_str[] = {
+inline const char *ErrorCode_str[] = {
 	"Ok",
 	"LexerDone",
 	"LexerUnknownToken",
@@ -60,8 +60,8 @@ struct Error
 	TypeID expected_type;
 	TypeID got_type;
 	uint64_t ip;
+	uint32_t i_function;
 };
-
 
 inline void error_trigger(Error *error, ErrorCode code, sv condition_str, sv file, int line)
 {
@@ -74,16 +74,20 @@ inline void error_trigger(Error *error, ErrorCode code, sv condition_str, sv fil
 	error->msg = condition_str;
 	error->file = file;
 	error->line = line;
-
-	// __debugbreak();
 }
-	
-#define INIT_ERROR(error_ptr, errcode) (error_ptr)->file = sv_from_null_terminated(__FILE__); (error_ptr)->line = __LINE__; (error_ptr)->code = errcode;
 
-#define ERROR_ASSERT(error_ptr, condition, code)                                                                                  \
+#define INIT_ERROR(error_ptr, errcode)                                                                                 \
+	do {                                                                                                               \
+		(error_ptr)->file = sv_from_null_terminated(__FILE__);                                                         \
+		(error_ptr)->line = __LINE__;                                                                                  \
+		(error_ptr)->code = errcode;                                                                                   \
+	} while (0);
+
+#define ERROR_ASSERT(error_ptr, condition, code)                                                                       \
 	if ((condition) == false) {                                                                                        \
-	error_trigger(error_ptr, code,                                                                                  \
-	sv_from_null_terminated(#condition),                                                                       \
-	sv_from_null_terminated(__FILE__),                                                                         \
-	__LINE__);                                                                                                 \
+		error_trigger(error_ptr,                                                                                       \
+			code,                                                                                                      \
+			sv_from_null_terminated(#condition),                                                                       \
+			sv_from_null_terminated(__FILE__),                                                                         \
+			__LINE__);                                                                                                 \
 	}

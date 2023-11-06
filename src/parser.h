@@ -1,9 +1,8 @@
 #pragma once
 #include "core.h"
+#include "constants.h"
 #include "lexer.h"
 #include "type_id.h"
-
-inline constexpr uint32_t MAX_ARGUMENTS = 8;
 
 struct CompilationUnit;
 
@@ -134,7 +133,7 @@ struct PtrOffsetNodes
 	const AstNode *offset_node;
 };
 
-TypeID parse_type(CompilationUnit *, Module*, const AstNode *node);
+TypeID parse_type(CompilationUnit *, CompilerModule*, const AstNode *node);
 void parse_define_sig(CompilationUnit*, const AstNode *node, DefineNode *output);
 void parse_define_body(CompilationUnit*, const AstNode *node, DefineNode *output);
 void parse_struct(CompilationUnit*, const AstNode *node, StructNode *output);

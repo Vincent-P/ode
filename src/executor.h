@@ -1,74 +1,43 @@
 #pragma once
-#include "core.h"
-#include "type_id.h"
+#include <stdint.h>
 
-struct VM;
+const uint32_t BYTECODE_LENGTH = (32 << 10);
 
-void executor_execute_module_at(VM *vm, uint32_t i_module, uint32_t first_ip);
-
-// Representation of a builtin pointer
-struct TypedPointer
+union Value
 {
-	TypeID type_id;
-	uint32_t offset;
+	int32_t  i32; // int
+	float    f32; // float
+	uint32_t u32; // uint or ptr or bool
 };
 
-// Representation of a builtin str
-struct Str
+enum struct ValueKind
 {
-	uint32_t is_constant : 1;
-	uint32_t offset : 31;
-	uint32_t length;
+	I32,
+	F32,
+	U32,
+	PTR,
+	BOOL,
 };
 
-// Operand stack
-enum struct StackValueKind : uint8_t
+struct Module
 {
-	Invalid,
-	Bool, // a bool constant
-	Float, // a float constant
-	I32, // an int32 constant
-	Str, // a str constant
-	LocalPtr, // a pointer to local memory
-	LocalObject, // an object in local memory
-	Count,
+	uint32_t function_addresses[64]; // jump table
+	uint8_t bytecode[BYTECODE_LENGTH];
+	uint32_t bytecode_len;
 };
 
-inline const char* StackValueKind_str[] = {
-	"Invalid",
-	"Bool",
-	"Float",
-	"I32",
-	"Str",
-	"LocalPtr",
-	"LocalObject",
-};
-static_assert(sizeof(StackValueKind_str)/sizeof(*StackValueKind_str) == uint32_t(StackValueKind::Count));
-
-struct StackValue
+struct ExecutionContext
 {
-	StackValueKind kind;
-	union
-	{
-		// constants values
-		bool b8;
-		float f32;
-		int32_t i32;
-		Str str;
-		// runtime values
-		TypedPointer local_ptr;
-		TypedPointer local_object;
-	};
+	// code
+	Module modules[64];
+	uint32_t modules_len;
+	// operand stack
+	Value stack[64];
+	// callframe stack
+	uint32_t callstack_ret_module[64];
+	uint32_t callstack_ret_address[64];
+	uint32_t callstack_ret_bp[64];
+	uint32_t callstack_argc[64]; // number of arguments
 };
 
-inline bool stack_value_is_constant(StackValue v) { return v.kind != StackValueKind::LocalPtr && v.kind != StackValueKind::LocalObject; }
-inline StackValue stack_value_bool(bool v) { StackValue res = {}; res.kind = StackValueKind::Bool; res.b8 = v; return res; }
-inline StackValue stack_value_float(float v) { StackValue res = {}; res.kind = StackValueKind::Float; res.f32 = v; return res; }
-inline StackValue stack_value_i32(int32_t v) { StackValue res = {}; res.kind = StackValueKind::I32; res.i32 = v; return res; }
-inline StackValue stack_value_str(Str v) { StackValue res = {}; res.kind = StackValueKind::Str; res.str = v; return res; }
-inline StackValue stack_value_local_ptr(TypedPointer v) { StackValue res = {}; res.kind = StackValueKind::LocalPtr; res.local_ptr = v; return res; }
-inline StackValue stack_value_local_object(TypedPointer v) { StackValue res = {}; res.kind = StackValueKind::LocalObject; res.local_object = v; return res; }
-
-
-StackValue execution_get_local(VM *ctx, uint32_t i_local);
-sv execution_get_str(VM *ctx, Str str);
+void call_function(ExecutionContext *ctx, uint32_t callee_module, uint32_t callee_function, Value *args, uint32_t args_len);

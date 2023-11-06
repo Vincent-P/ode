@@ -11,6 +11,8 @@
 	(xy Point)
 	(z i32))
 
+(define-global (test i32) (x i32 y i32) (+ x 1000))
+
 (define (new-point-3d (* Point3D)) (x i32 y i32 z i32)
 	(let p (_stack_alloc Point3D (_sizeof Point3D)))
 	(let inner-p (_ptr_offset (* Point) p (_field_offset Point3D xy)))
@@ -49,5 +51,5 @@
 (define (main i32) ()
 	(let p (new-point-3d 0 1 5))
 	(log-point3d p)
-	(point3d-set-z p (+ (point3d-z p) (adder 45)))
+	(point3d-set-z p (+ (point3d-z p) (adder (test 45 0))))
 	(point3d-z p))

@@ -1,6 +1,6 @@
 #include "debug.h"
-#include "module.h"
 #include "parser.h"
+#include "opcodes.h"
 
 #include <stdio.h>
 
@@ -63,11 +63,11 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 {
 	for (uint32_t offset = 0; offset < bytecode_length; ++offset) {
 		uint8_t opcode = bytecode[offset];
-		if (opcode >= uint8_t(OpCodeKind::Count)) {
+		if (opcode >= uint8_t(OpCode::Count)) {
 			break;
 		}
 
-		OpCodeKind opcode_kind = OpCodeKind(opcode);
+		OpCode opcode_kind = OpCode(opcode);
 		fprintf(stdout, "%u\t%s", offset, OpCode_str[uint8_t(opcode_kind)]);
 
 #define PRINT_BYTE                                                                                                     \
@@ -85,48 +85,39 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 #define PRINT_TYPEID PRINT_U32
 
 		switch (opcode_kind) {
-		case OpCodeKind::LoadConstantU32:
-			PRINT_BYTE;
+		case OpCode::Halt: break;
+		case OpCode::Nop: break;
+		case OpCode::PushU32:
+			PRINT_U32;
 			break;
-		case OpCodeKind::LoadConstantStr:
-			PRINT_BYTE;
-			break;
-		case OpCodeKind::Call:
-			PRINT_BYTE;
-			break;
-		case OpCodeKind::CallExternal:
+		case OpCode::Call:
 			PRINT_BYTE;
 			PRINT_BYTE;
 			break;
-		case OpCodeKind::CallForeign:
+		case OpCode::CallInModule:
+			PRINT_BYTE;
+			PRINT_BYTE;
+			PRINT_BYTE;
 			break;
-		case OpCodeKind::Ret:
+		case OpCode::Ret:
 			break;
-		case OpCodeKind::ConditionalJump:
-		case OpCodeKind::Jump:
+		case OpCode::ConditionalJump:
+		case OpCode::Jump:
 			PRINT_U32
 			break;
-		case OpCodeKind::Halt:
-			break;
-		case OpCodeKind::StoreLocal:
-		case OpCodeKind::LoadLocal:
+		case OpCode::StoreArg:
+		case OpCode::LoadArg:
+		case OpCode::StoreLocal:
+		case OpCode::LoadLocal:
 			PRINT_BYTE;
 			break;
-		case OpCodeKind::StackAlloc:
-		case OpCodeKind::Load:
-		case OpCodeKind::Store:
-			PRINT_TYPEID;
+		case OpCode::Load32:
+		case OpCode::Store32:
+		case OpCode::AddI32:
+		case OpCode::SubI32:
+		case OpCode::LteI32:
 			break;
-		case OpCodeKind::IAdd:
-			break;
-		case OpCodeKind::ISub:
-			break;
-		case OpCodeKind::ILessThanEq:
-			break;
-		case OpCodeKind::PtrOffset:
-			PRINT_TYPEID;
-			break;
-		case OpCodeKind::DebugLabel: {
+		case OpCode::DebugLabel: {
 			const uint32_t *bytecode_u32 = reinterpret_cast<const uint32_t *>(bytecode + offset + 1);
 			uint32_t sv_length = bytecode_u32[0];
 			offset += sizeof(uint32_t);
@@ -141,7 +132,7 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 			fprintf(stdout, " %s", buffer);
 			break;
 		}
-		case OpCodeKind::Count:
+		case OpCode::Count:
 			break;
 		}
 

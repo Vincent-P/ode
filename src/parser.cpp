@@ -171,7 +171,7 @@ vec<AstNode> parse_module(Parser *parser)
 }
 
 // Typed nodes parsing
-TypeID parse_type(CompilationUnit *compunit, Module *module, const AstNode *node)
+TypeID parse_type(CompilationUnit *compunit, CompilerModule *module, const AstNode *node)
 {
 	if (ast_is_atom(node)) {
 		// The type is just an identifier, find the corresponding builtin type or named type

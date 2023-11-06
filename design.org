@@ -1,8 +1,12 @@
+* Questions
 - Typed or untyped?
-  Typed seems easy
-OpCode like GetField? GetMethod? SetField?
-- Reflection not needed for now
-- Manual Memory management (mandatory)
+- Separate LISP language and typed bytecode? This way we can implement any language / syntax.
+- Reflection not mandatory (but still wanted as a long term goal to be better than C++)
+- Manual Memory management (mandatory):
+  - stack = implicit?
+  - heap = explicit
+  - Does it make sense to stick to a C like memory model?
+  - Builtin allocators that make sense (linear, arena, fixed sized, tlsf)
 #+begin_src
 let machin = 3                       -- (stack allocator)
 let machdeux = 2
@@ -11,7 +15,8 @@ arena
 
 * V0 features
 ** Structs
-#+begin_src
+- Right now structs only define types. They do not have ctors and cannot be passed by value. Only primitives are supported. ("Structs" can still be used with pointer arithmetic)
+#+begin_src ode
 (struct Point
 	(x i32)
 	(y i32))
@@ -20,16 +25,31 @@ arena
 #+end_src
 
 ** Host functions
-#+begin_src
+- Necessary to implement a portable VM.
+#+begin_src ode
 (define-foreign (log ()) (n i32))
 (log 1)
 #+end_src
 
 ** Functions
-All parameters are passed by value, and copied
-#+begin_src
+- Example is invalid, we do not have structs passing and "field". Functions are still here and working...
+#+begin_src ode
 (define (addonetopoint i32) (p Point)
     (+ (field p x) 1))
 #+end_src
 
+** Pointers
+- The goal is to have a C-like language so pointers is a must. Ideally we want pointers to be trivially convertible to C for the host and access values like regular C pointers.
 
+* VM
+The simplest VM possible only contains an operand stack, call frame stack, and bytecode. Only supports arithmetic, load/store from pointer (as uint), branching, and call frame management (call, ret, args, locals?).
+If all the code is contained in one module:
+  - Call <offset> can just be an offset from current IP instead of <i function>
+  - Local #i can just be at base stack pointer + i
+Simplest executor possible. But how to handle modules? Call a function from another module. We have to keep the current execution context (stack), but switch bytecode. So a VM with modules support would be N bytecode + 1 (operand stack/callframe stack)?
+With a model like this, there is nothing to "instantiate". Bytecode is trivially loaded from a "compiled" module. But how to reference other modules?
+
+What is the smallest and simplest VM with modules support?
+
+Modules makes hot reload/incremental compilation easier. Just re-compile and re-link the modules with the existing runtime.
+A "module" also implies something containing more data than just bytecode. It can contain types, globals, and similar higher level constructs.
