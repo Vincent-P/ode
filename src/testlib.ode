@@ -1,1 +1,6 @@
-(define-global (adder i32) (n i32) (+ n 1))
+(define-global (adder i32) (n i32) (let tmp 0) (+ n 1))
+
+(define-global (fib_rec i32) (n i32)
+	(if (<= n 1)
+		n
+		(+ (fib_rec (- n 1)) (fib_rec (- n 2)))))

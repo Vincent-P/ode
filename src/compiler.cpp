@@ -202,6 +202,13 @@ static Function *compiler_compile_function(Compiler *compiler,
 
 	// <-- Compile the body
 	TypeID body_type = compile_body_fn();
+	
+	// TODO: As of now, the return opcode always pop a value from the stack. So we have to make sure
+	// that the stack is not empty when the function does not return anything!
+	// Nothing is preventing functions from returning multiple values, so ideally functions should have a return value count? (or implement tuples?)
+	if (type_similar(body_type, UNIT_TYPE)) {
+		compiler_bytecode_push_u32(compiler, 0u);
+	}
 
 	compiler_pop_scope(compiler);
 	compiler_push_opcode(compiler, OpCode::Ret);
@@ -794,7 +801,9 @@ TypeID compile_isub(Compiler *compiler, const AstNode *node)
 TypeID compile_ltethan(Compiler *compiler, const AstNode *node)
 {
 	TypeID int_type_id = type_id_new_builtin(BuiltinTypeKind::Int);
-	return compile_binary_opcode(compiler, node, int_type_id, OpCode::LteI32);
+	TypeID bool_type_id = type_id_new_builtin(BuiltinTypeKind::Bool);
+	compile_binary_opcode(compiler, node, int_type_id, OpCode::LteI32);
+	return bool_type_id;
 }
 
 // Load a value at the given memory address

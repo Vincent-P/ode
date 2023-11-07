@@ -53,3 +53,8 @@ What is the smallest and simplest VM with modules support?
 
 Modules makes hot reload/incremental compilation easier. Just re-compile and re-link the modules with the existing runtime.
 A "module" also implies something containing more data than just bytecode. It can contain types, globals, and similar higher level constructs.
+
+** Foreign functions
+There are 2 main ways to communicate with the host program: foreign functions (ffi, or bindings) or syscalls.
+Syscalls are inherently more hard-coded than foreign functions, but it makes the VM so much simpler. Most VM use foreign functions and we could too, but it would add a lot of complexity to the runtime.
+UVM, in its quest to minimalism, does not provide foreign functions and the syscalls are kept to a minimum.
