@@ -54,6 +54,16 @@ What is the smallest and simplest VM with modules support?
 Modules makes hot reload/incremental compilation easier. Just re-compile and re-link the modules with the existing runtime.
 A "module" also implies something containing more data than just bytecode. It can contain types, globals, and similar higher level constructs.
 
+Linking modules:
+Each module is bytecode + a table of "imports". "imports" are external functions, from the host VM or other modules.
+Each import is:
+  - a module name + function name for functions imported from another module
+  - function name for VM host functions (module name = "host" ?)
+Now we need to "load" modules: link with other modules, or link to host functions.
+Every import has to map to a module + instruction address OR a VM host index. The loading stage fills these values at load time.
+When we hot-reload a module, we need to check every other module to see if it imports functions, and patch addresses.
+We don't really need to have a concept of "functions", it is more like a jump table to other modules.
+
 ** Foreign functions
 There are 2 main ways to communicate with the host program: foreign functions (ffi, or bindings) or syscalls.
 Syscalls are inherently more hard-coded than foreign functions, but it makes the VM so much simpler. Most VM use foreign functions and we could too, but it would add a lot of complexity to the runtime.

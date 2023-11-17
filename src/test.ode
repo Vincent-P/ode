@@ -22,4 +22,4 @@
 	p)
 
 (define (main i32) ()
-	(fib_rec 19))
+	(fib_rec 8))

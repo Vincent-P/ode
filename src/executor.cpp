@@ -62,14 +62,14 @@ static void debug_print_stack(ExecutionContext *ctx, uint32_t sp, uint32_t bp)
 
 
 void call_function(
-	ExecutionContext *ctx, uint32_t callee_module, uint32_t callee_function, Value *args, uint32_t args_len)
+		   ExecutionContext *ctx, uint32_t callee_module, uint32_t callee_ip, Value *args, uint32_t args_len)
 {
 	// Registers
-	uint32_t cp = 0;                                                               // callstack pointer
-	uint32_t sp = uint32_t(-1);                                                    // stack pointer
-	uint32_t bp = args_len - 1;                                                    // base stack pointer
-	uint32_t ip = ctx->modules[callee_module].function_addresses[callee_function]; // instruction pointer
-	uint32_t mp = callee_module;                                                   // module pointer
+	uint32_t cp = 0;                        // callstack pointer
+	uint32_t sp = uint32_t(-1);             // stack pointer
+	uint32_t bp = args_len - 1;             // base stack pointer
+	uint32_t ip = callee_ip;                // instruction pointer
+	uint32_t mp = callee_module;            // module pointer
 
 	ctx->callstack_ret_module[cp] = ~uint32_t(0);
 	ctx->callstack_ret_address[cp] = ~uint32_t(0);
@@ -91,6 +91,8 @@ void call_function(
 		case OpCode::Halt: {
 			fprintf(stderr, "HALT\n");
 			debug_print_stack(ctx, sp, bp);
+			__debugbreak();
+			return;
 			break;
 		}
 		case OpCode::Nop: {
@@ -106,7 +108,7 @@ void call_function(
 		case OpCode::Call: {
 			debug_print_stack(ctx, sp, bp);
 			
-			uint8_t i_function = bytecode_read_scalar<uint8_t>(ctx, mp, &ip);
+			uint32_t function_address = bytecode_read_scalar<uint32_t>(ctx, mp, &ip);
 			uint8_t argc = bytecode_read_scalar<uint8_t>(ctx, mp, &ip);
 			// Push callstack
 			cp += 1;
@@ -115,16 +117,28 @@ void call_function(
 			ctx->callstack_ret_bp[cp] = bp;
 			ctx->callstack_argc[cp] = argc;
 			// Jump to function
-			ip = ctx->modules[mp].function_addresses[i_function];
+			ip = function_address;
 			bp = sp;
 			break;
 		}
 		case OpCode::CallInModule: {
 			debug_print_stack(ctx, sp, bp);
 			
-			uint8_t i_module = bytecode_read_scalar<uint8_t>(ctx, mp, &ip);
-			uint8_t i_function = bytecode_read_scalar<uint8_t>(ctx, mp, &ip);
+			uint8_t i_imported_function = bytecode_read_scalar<uint8_t>(ctx, mp, &ip);
+			uint32_t external_module_address = ctx->modules[mp].import_module[i_imported_function];
+			uint32_t external_function_address = uint32_t(ctx->modules[mp].import_addresses[i_imported_function]);
+			
 			uint8_t argc = bytecode_read_scalar<uint8_t>(ctx, mp, &ip);
+			fprintf(stderr,
+				"[DEBUG] | i_imported_function = %u\n"
+				"[DEBUG] | external_module_address = %u\n"
+				"[DEBUG] | external_function_address = %u\n"
+				"[DEBUG] | argc = %u\n",
+				i_imported_function,
+				external_module_address,
+				external_function_address,
+				argc
+				);
 			// Push callstack
 			cp += 1;
 			ctx->callstack_ret_module[cp] = mp;
@@ -132,8 +146,8 @@ void call_function(
 			ctx->callstack_ret_bp[cp] = bp;
 			ctx->callstack_argc[cp] = argc;
 			// Jump to function
-			mp = i_module;
-			ip = ctx->modules[mp].function_addresses[i_function];
+			mp = external_module_address;
+			ip = external_function_address;
 			bp = sp;
 			break;
 		}

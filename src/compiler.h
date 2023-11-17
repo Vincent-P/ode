@@ -67,10 +67,13 @@ struct CompilerModule
 	UserDefinedType *types;
 	uint32_t types_capacity;
 	uint32_t types_length;
-	// table of imports
+	// table of imports module index
 	uint32_t *imports;
-	uint32_t imports_capacity;
 	uint32_t imports_length;
+	// imported functions
+	uint32_t *imported_module_indices;
+	uint32_t *imported_function_indices;
+	uint32_t imported_functions_length;
 };
 
 
@@ -81,10 +84,9 @@ struct Compiler
 	
 	vec<LexicalScope> scopes;
 	CompilerModule module;
-	uint32_t i_previous_module;
 };
-
-void compiler_scan_requires(Compiler *compiler, const Token** out_tokens, uint32_t out_tokens_max_length, uint32_t *out_tokens_written);
+	
+void compiler_scan_requires(CompilationUnit *compunit, const Token **out_tokens, uint32_t out_tokens_max_length, uint32_t *out_tokens_written);
 void compile_module(Compiler *compiler);
 
 

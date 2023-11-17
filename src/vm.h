@@ -19,6 +19,7 @@ struct VM
 {
 	VMConfig config;
 	vec<CompilerModule> compiler_modules;
+	vec<Module> runtime_modules;
 };
 
 VM *vm_create(VMConfig config);

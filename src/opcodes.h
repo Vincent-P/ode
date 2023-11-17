@@ -9,9 +9,9 @@ enum struct OpCode : uint8_t
 	Nop,
 	// PushU32 <constant:i32>
 	PushU32,
-	// Call <i_function:i8> <num_args:u8> (arg0, arg1, ..., argN)
+	// Call <address:u32> <num_args:u8> (arg0, arg1, ..., argN)
 	Call,
-	// Call <i_module:i8> <i_function:i8> <num_args:u8> (arg0, arg1, ..., argN)
+	// Call <i_imported_function:i8> <num_args:u8> (arg0, arg1, ..., argN)
 	CallInModule,
 	// Ret (value)
 	Ret,

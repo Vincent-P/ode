@@ -1,7 +1,9 @@
 #pragma once
 #include <stdint.h>
+#include "core.h"
 
 const uint32_t BYTECODE_LENGTH = (32 << 10);
+const uint32_t IMPORT_LENGTH = 64;
 
 union Value
 {
@@ -19,17 +21,32 @@ enum struct ValueKind
 	BOOL,
 };
 
+struct ImportTable
+{
+};
+
 struct Module
 {
-	uint32_t function_addresses[64]; // jump table
+	sv name;
+	sv import_module_names[IMPORT_LENGTH]; // module name
+	sv import_names[IMPORT_LENGTH]; // function name
+	uint32_t import_module[IMPORT_LENGTH]; // either bytecode address OR pointer to host function
+	uint64_t import_addresses[IMPORT_LENGTH]; // either bytecode address OR pointer to host function
+	uint32_t import_length;
+	
+	sv export_names[IMPORT_LENGTH]; // function name
+	uint32_t export_addresses[IMPORT_LENGTH]; // function address
+	uint32_t export_length;
+
 	uint8_t bytecode[BYTECODE_LENGTH];
 	uint32_t bytecode_len;
 };
 
+// We will need to move modules out of the context to support multiple threads of execution
 struct ExecutionContext
 {
 	// code
-	Module modules[64];
+	Module *modules;
 	uint32_t modules_len;
 	// operand stack
 	Value stack[64];
@@ -40,4 +57,4 @@ struct ExecutionContext
 	uint32_t callstack_argc[64]; // number of arguments
 };
 
-void call_function(ExecutionContext *ctx, uint32_t callee_module, uint32_t callee_function, Value *args, uint32_t args_len);
+void call_function(ExecutionContext *ctx, uint32_t callee_module, uint32_t callee_ip, Value *args, uint32_t args_len);

@@ -96,7 +96,7 @@ inline sv sv_offset(sv string, uint32_t offset)
 template <typename T>
 struct vec
 {
-	T *objects;
+	T *data;
 	uint32_t length;
 	uint32_t capacity;
 };
@@ -105,7 +105,7 @@ template <typename T>
 inline vec<T> vec_init(uint32_t capacity)
 {
 	vec<T> result = {};
-	result.objects = static_cast<T *>(calloc(capacity, sizeof(T)));
+	result.data = static_cast<T *>(calloc(capacity, sizeof(T)));
 	result.capacity = capacity;
 	return result;
 }
@@ -113,19 +113,19 @@ inline vec<T> vec_init(uint32_t capacity)
 template <typename T>
 inline void vec_destroy(vec<T> *v)
 {
-	free(v->objects);
+	free(v->data);
 	*v = {};
 }
 
 template <typename T>
 inline T *vec_at(vec<T> *v, uint32_t index)
 {
-	return v->objects + index;
+	return v->data + index;
 }
 template <typename T>
 inline const T *vec_at(const vec<T> *v, uint32_t index)
 {
-	return v->objects + index;
+	return v->data + index;
 }
 
 template <typename T>
@@ -133,7 +133,7 @@ inline uint32_t vec_append(vec<T> *v, T new_value)
 {
 	if (v->length < v->capacity) {
 		uint32_t new_object_index = v->length;
-		v->objects[new_object_index] = new_value;
+		v->data[new_object_index] = new_value;
 		v->length += 1;
 		return new_object_index;
 	} else {
@@ -146,7 +146,7 @@ inline void vec_swap_remove(vec<T> *v, uint32_t index)
 {
 	const bool is_last = index + 1 == v->length;
 	if (!is_last) {
-		v->objects[index] = v->objects[v->length - 1];
+		v->data[index] = v->data[v->length - 1];
 	}
 	v->length -= 1;
 }
