@@ -6,8 +6,6 @@
 #include "opcodes.h"
 #include "parser.h"
 
-#include <stdio.h>
-
 VM *vm_create(VMConfig config)
 {
 	void *memory = calloc(1, sizeof(VM));
@@ -71,6 +69,8 @@ CompileLoadLinkResult compile_load_link_code(VM *vm, sv module_name, sv code);
 // Parse code, compile module.
 static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 {
+	char logbuf[128] = {};
+	
 	CompilationResult result = {};
 
 	CompilationUnit compunit = {};
@@ -81,9 +81,19 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 	// -- Lex tokens
 	lexer_scan(&compunit);
 	if (compunit.error.code != ErrorCode::LexerDone) {
-		fprintf(stderr, "# Lexer returned %s\n", ErrorCode_str[uint32_t(compunit.error.code)]);
 		sv error_str = sv_substr(code, compunit.error.span);
-		fprintf(stderr, "Error at: '%.*s'\n", int(error_str.length), error_str.chars);
+		
+		StringBuilder sb = string_builder_from_buffer(logbuf);
+		// # Lexer returned <errorcode>
+		string_builder_append(&sb, SV("# Lexer returned "));
+		string_builder_append(&sb, SV(ErrorCode_str[uint32_t(compunit.error.code)]));
+		string_builder_append(&sb, '\n');
+		// Error at: '<errorstr>'
+		string_builder_append(&sb, SV("Error at: '"));
+		string_builder_append(&sb, error_str);
+		string_builder_append(&sb, SV("'\n"));
+		cross::log(cross::stderr, string_builder_get_string(&sb));
+		
 		result.error = compunit.error;
 		return result;
 	}
@@ -94,29 +104,44 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 	parser.compunit = &compunit;
 	parse_module(&parser);
 	if (compunit.error.code != ErrorCode::Ok) {
-		fprintf(stderr,
-			"# Parser[token_length: %u, i_current_token: %u] returned %s\n",
-			compunit.tokens.length,
-			parser.i_current_token,
-			ErrorCode_str[uint32_t(compunit.error.code)]);
+		StringBuilder sb = string_builder_from_buffer(logbuf);
+
+		string_builder_append(&sb, SV("# Parser[token_length: "));
+		string_builder_append(&sb, uint64_t(compunit.tokens.length));
+		string_builder_append(&sb, SV(", i_current_token: "));
+		string_builder_append(&sb, uint64_t(parser.i_current_token));
+		string_builder_append(&sb, SV("] returned "));
+		string_builder_append(&sb, SV(ErrorCode_str[uint32_t(compunit.error.code)]));
+		string_builder_append(&sb, SV("'\n"));
+		cross::log(cross::stderr, string_builder_get_string(&sb));
+
 		sv error_str = sv_substr(code, compunit.error.span);
-		fprintf(stderr, "Error at: '%.*s'\n", int(error_str.length), error_str.chars);
+		string_builder_append(&sb, SV("Error at: '"));
+		string_builder_append(&sb, error_str);
+		string_builder_append(&sb, SV("'\n"));
+		cross::log(cross::stderr, string_builder_get_string(&sb));
+
 		if (compunit.tokens.length > 0) {
 			uint32_t i_last_token =
 				parser.i_current_token < compunit.tokens.length ? parser.i_current_token : compunit.tokens.length - 1;
 			const Token *last_token = vec_at(&compunit.tokens, i_last_token);
 			sv last_token_str = sv_substr(compunit.input, last_token->span);
-
 			const char *token_kind_str = TokenKind_str[uint32_t(last_token->kind)];
 
-			fprintf(stderr,
-				"# Last seen token is %s[%.*s]\n",
-				token_kind_str,
-				int(last_token_str.length),
-				last_token_str.chars);
+			string_builder_append(&sb, SV("# Last seen token is "));
+			string_builder_append(&sb, SV(token_kind_str));
+			string_builder_append(&sb, '[');
+			string_builder_append(&sb, last_token_str);
+			string_builder_append(&sb, ']');
+			string_builder_append(&sb, '\n');
+			cross::log(cross::stderr, string_builder_get_string(&sb));
 		}
 		if (parser.expected_token_kind != TokenKind::Invalid) {
-			fprintf(stderr, "# Expected token of kind %s\n", TokenKind_str[uint32_t(parser.expected_token_kind)]);
+			string_builder_append(&sb, SV("# Expected token of kind"));
+			string_builder_append(&sb, SV(TokenKind_str[uint32_t(parser.expected_token_kind)]));
+			string_builder_append(&sb, '\n');
+			cross::log(cross::stderr, string_builder_get_string(&sb));
+
 		}
 		result.error = compunit.error;
 		return result;
@@ -129,15 +154,18 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 	compiler_scan_requires(&compunit, require_paths, 16, &require_paths_length);
 	if (require_paths_length == 16) {
 		INIT_ERROR(&compunit.error, ErrorCode::Fatal);
-		fprintf(stderr, "Too much requires!\n");
+		cross::log(cross::stderr, SV("Too much requires!\n"));
 	}
 	if (compunit.error.code != ErrorCode::Ok) {
+		StringBuilder sb = string_builder_from_buffer(logbuf);
 		Error err = compunit.error;
-		fprintf(stderr,
-			"%s:%d:0: error: scan_requires[] returned %s\n",
-			err.file.chars,
-			err.line,
-			ErrorCode_str[uint32_t(err.code)]);
+		string_builder_append(&sb, err.file);
+		string_builder_append(&sb, ':');
+		string_builder_append(&sb, uint64_t(err.line));
+		string_builder_append(&sb, SV(":0: error: scan_requires[] returned "));
+		string_builder_append(&sb, SV(ErrorCode_str[uint32_t(err.code)]));
+		string_builder_append(&sb, '\n');
+		cross::log(cross::stderr, string_builder_get_string(&sb));
 		result.error = compunit.error;
 		return result;
 	}
@@ -174,27 +202,51 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 	compile_module(&compiler);
 	if (compunit.error.code != ErrorCode::Ok) {
 		Error err = compunit.error;
-		fprintf(stderr,
-			"%s:%d:0: error: Compiler[] returned %s\n",
-			err.file.chars,
-			err.line,
-			ErrorCode_str[uint32_t(err.code)]);
+		StringBuilder sb = string_builder_from_buffer(logbuf);
+		// <file>:<line>:0: error Compiler[] returned <errcode>
+		string_builder_append(&sb, err.file);
+		string_builder_append(&sb, ':');
+		string_builder_append(&sb, uint64_t(err.line));
+		string_builder_append(&sb, SV(":0: error: Compiler[] returned "));
+		string_builder_append(&sb, SV(ErrorCode_str[uint32_t(err.code)]));
+		string_builder_append(&sb, '\n');
+		cross::log(cross::stderr, string_builder_get_string(&sb));
+
+		// Error at: <error_str>
+		string_builder_append(&sb, SV("Error at: "));
 		sv error_str = sv_substr(code, err.span);
-		fprintf(stderr, "Error at: '%.*s'\n", int(error_str.length), error_str.chars);
+		string_builder_append(&sb, error_str);
+		string_builder_append(&sb, '\n');
+		cross::log(cross::stderr, string_builder_get_string(&sb));
+
+		// # expected type #<raw> <type_str>
 		const char *expected_type_str = "(struct)";
 		if (!type_id_is_user_defined(err.expected_type)) {
 			expected_type_str = BuiltinTypeKind_str[uint32_t(err.expected_type.builtin.kind)];
-		}
-		fprintf(stderr, "# expected type #%u %s\n", err.expected_type.raw, expected_type_str);
+		}		
+		string_builder_append(&sb, SV("# expected type #"));
+		string_builder_append(&sb, uint64_t(err.expected_type.raw));
+		string_builder_append(&sb, ' ');
+		string_builder_append(&sb, SV(expected_type_str));
+		string_builder_append(&sb, '\n');
+		cross::log(cross::stderr, string_builder_get_string(&sb));
+
+		// # got type #<raw> <type_str>
 		const char *got_type_str = "(struct)";
 		if (!type_id_is_user_defined(err.got_type)) {
 			got_type_str = BuiltinTypeKind_str[uint32_t(err.got_type.builtin.kind)];
-		}
-		fprintf(stderr, "# got type #%u %s\n", err.got_type.raw, got_type_str);
+		}		
+		string_builder_append(&sb, SV("# got type #"));
+		string_builder_append(&sb, uint64_t(err.got_type.raw));
+		string_builder_append(&sb, ' ');
+		string_builder_append(&sb, SV(got_type_str));
+		string_builder_append(&sb, '\n');
+		cross::log(cross::stderr, string_builder_get_string(&sb));
+		
 		result.error = compunit.error;
 		return result;
 	}
-	fprintf(stdout, "\nCompilation success:\n");
+	cross::log(cross::stderr, SV("\nCompilation success:\n"));
 	for (uint32_t i_import = 0; i_import < compiler.module.imported_functions_length; ++i_import)
 	{
 		uint32_t i_imported_module = compiler.module.imported_module_indices[i_import];
@@ -202,9 +254,14 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 		CompilerModule *imported_module = vec_at(&compiler.vm->compiler_modules, i_imported_module);
 		sv imported_module_name = imported_module->name;
 		sv imported_function_name = imported_module->functions[i_imported_function].name;
-		fprintf(stdout, "imported function: %.*s %.*s\n",
-			int(imported_module_name.length), imported_module_name.chars,
-			int(imported_function_name.length), imported_function_name.chars);
+
+		StringBuilder sb = string_builder_from_buffer(logbuf);
+		string_builder_append(&sb, SV("imported function: "));
+		string_builder_append(&sb, imported_module_name);
+		string_builder_append(&sb, ' ');
+		string_builder_append(&sb, imported_function_name);
+		string_builder_append(&sb, '\n');
+		cross::log(cross::stderr, string_builder_get_string(&sb));
 	}
 	print_bytecode(compiler.module.bytecode, compiler.module.bytecode_length);
 
@@ -218,7 +275,7 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 	}
 	if (i_module >= vm->compiler_modules.length) {
 		if (i_module >= vm->compiler_modules.capacity) {
-			fprintf(stdout, "Fatal: module capacity\n");
+			cross::log(cross::stderr, SV("Fatal: module capacity\n"));
 			INIT_ERROR(&compunit.error, ErrorCode::Fatal);
 			result.error = compunit.error;
 			return result;
@@ -380,6 +437,8 @@ Error vm_compile(VM *vm, sv module_name, sv code)
 
 void vm_call(VM *vm, sv module_name, sv function_name)
 {	
+	char logbuf[64] = {};
+	
 	// Find the function name in the compiler module
 	const uint32_t modules_len = vm->compiler_modules.length;
 	uint32_t i_module = 0;
@@ -389,7 +448,11 @@ void vm_call(VM *vm, sv module_name, sv function_name)
 		}
 	}
 	if (i_module >= modules_len) {
-		fprintf(stderr, "Compiler module \"%.*s\" not found\n", int(module_name.length), module_name.chars);
+		StringBuilder sb = string_builder_from_buffer(logbuf);
+		string_builder_append(&sb, SV("Compiler module \""));
+		string_builder_append(&sb, module_name);
+		string_builder_append(&sb, SV("\" not found\n"));
+		cross::log(cross::stderr, string_builder_get_string(&sb));
 		return;
 	}
 	CompilerModule *module = vec_at(&vm->compiler_modules, i_module);
@@ -403,7 +466,7 @@ void vm_call(VM *vm, sv module_name, sv function_name)
 		}
 	}
 	if (i_entrypoint >= functions_len) {
-		fprintf(stderr, "main not found\n");
+		cross::log(cross::stderr, SV("main not found\n"));
 		return;
 	}
 
@@ -416,7 +479,11 @@ void vm_call(VM *vm, sv module_name, sv function_name)
 		}
 	}
 	if (i_runtime_module >= runtime_modules_len) {
-		fprintf(stderr, "Runtime module \"%.*s\" not found\n", int(module_name.length), module_name.chars);
+		StringBuilder sb = string_builder_from_buffer(logbuf);
+		string_builder_append(&sb, SV("Runtime module \""));
+		string_builder_append(&sb, module_name);
+		string_builder_append(&sb, SV("\" not found\n"));
+		cross::log(cross::stderr, string_builder_get_string(&sb));
 		return;
 	}
 	

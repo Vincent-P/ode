@@ -1,6 +1,5 @@
 #include "lexer.h"
 #include "compiler.h"
-#include <stdio.h>
 
 static bool is_identifier_char(char c)
 {

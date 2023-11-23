@@ -1,7 +1,6 @@
 #include "parser.h"
 #include "compiler.h"
 #include "lexer.h"
-#include <stdio.h>
 
 // LISP parsing
 

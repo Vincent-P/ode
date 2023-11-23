@@ -1,29 +1,20 @@
 #include "debug.h"
 #include "parser.h"
 #include "opcodes.h"
-
-#include <stdio.h>
-
-static void print_indent(int indent)
-{
-	for (int i = 0; i < indent; ++i) {
-		putchar(' ');
-		putchar(' ');
-	}
-}
+#include "cross.h"
 
 static void print_ast_rec(
 	sv input, const vec<Token> *tokens, const vec<AstNode> *nodes, uint32_t node_index, int indent)
 {
 	const AstNode *node = vec_at(nodes, node_index);
 	if (node->left_child_index != INVALID_NODE_INDEX) {
-		putchar('(');
+		// putchar('(');
 	}
 
 	if (node->atom_token_index != INVALID_NODE_INDEX) {
-		const Token *token = vec_at(tokens, node->atom_token_index);
-		sv token_str = sv_substr(input, token->span);
-		fprintf(stdout, "%.*s", int(token_str.length), token_str.chars);
+		// const Token *token = vec_at(tokens, node->atom_token_index);
+		// sv token_str = sv_substr(input, token->span);
+		// fprintf(stdout, "%.*s", int(token_str.length), token_str.chars);
 	}
 
 	if (node->left_child_index != INVALID_NODE_INDEX) {
@@ -32,13 +23,13 @@ static void print_ast_rec(
 
 		while (child->right_sibling_index != INVALID_NODE_INDEX) {
 			uint32_t next_child_index = child->right_sibling_index;
-			putchar('\n');
-			print_indent(indent + 1);
+			// putchar('\n');
+			// print_indent(indent + 1);
 			print_ast_rec(input, tokens, nodes, next_child_index, indent + 1);
 			child = vec_at(nodes, next_child_index);
 		}
 
-		putchar(')');
+		// putchar(')');
 	}
 }
 
@@ -52,15 +43,17 @@ void print_ast(sv input, const vec<Token> *tokens, const vec<AstNode> *nodes, ui
 	const AstNode *child = vec_at(nodes, root->left_child_index);
 	print_ast_rec(input, tokens, nodes, root->left_child_index, 0);
 	while (child->right_sibling_index != INVALID_NODE_INDEX) {
-		putchar('\n');
+		// putchar('\n');
 		print_ast_rec(input, tokens, nodes, child->right_sibling_index, 0);
 		child = vec_at(nodes, child->right_sibling_index);
 	}
-	putchar('\n');
+	// putchar('\n');
 }
 
 void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 {
+	char logbuf[64] = {};
+	
 	for (uint32_t offset = 0; offset < bytecode_length; ++offset) {
 		uint8_t opcode = bytecode[offset];
 		if (opcode >= uint8_t(OpCode::Count)) {
@@ -68,18 +61,23 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 		}
 
 		OpCode opcode_kind = OpCode(opcode);
-		fprintf(stdout, "%u\t%s", offset, OpCode_str[uint8_t(opcode_kind)]);
+
+		StringBuilder sb = string_builder_from_buffer(logbuf);
+		string_builder_append(&sb, uint64_t(offset));
+		string_builder_append(&sb, '\t');
+		string_builder_append(&sb, SV(OpCode_str[uint8_t(opcode_kind)]));		
+		string_builder_append(&sb, ' ');
 
 #define PRINT_BYTE                                                                                                     \
 	{                                                                                                                  \
 		const uint8_t *bytecode_u8 = reinterpret_cast<const uint8_t *>(bytecode + offset + 1);                         \
-		fprintf(stdout, " %u", bytecode_u8[0]);                                                                        \
+		string_builder_append(&sb, uint64_t(bytecode_u8[0]));                                                                        \
 		offset += sizeof(uint8_t);                                                                                     \
 	}
 #define PRINT_U32                                                                                                      \
 	{                                                                                                                  \
 		const uint32_t *bytecode_u32 = reinterpret_cast<const uint32_t *>(bytecode + offset + 1);                      \
-		fprintf(stdout, " %u", bytecode_u32[0]);                                                                       \
+		string_builder_append(&sb, uint64_t(bytecode_u32[0]));                                                                        \
 		offset += sizeof(uint32_t);                                                                                    \
 	}
 #define PRINT_TYPEID PRINT_U32
@@ -119,23 +117,20 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 			break;
 		case OpCode::DebugLabel: {
 			const uint32_t *bytecode_u32 = reinterpret_cast<const uint32_t *>(bytecode + offset + 1);
-			uint32_t sv_length = bytecode_u32[0];
+			sv debug_label = {};
+			debug_label.length = bytecode_u32[0];
 			offset += sizeof(uint32_t);
+			debug_label.chars = reinterpret_cast<const char *>(bytecode_u32 + 1);
+			offset += debug_label.length;
 
-			const char *bytecode_chars = reinterpret_cast<const char *>(bytecode_u32 + 1);
-			char buffer[128] = {};
-			for (uint32_t i = 0; i < sv_length && i < 127; ++i) {
-				buffer[i] = bytecode_chars[i];
-			}
-			offset += sv_length;
-
-			fprintf(stdout, " %s", buffer);
+			string_builder_append(&sb, debug_label);
 			break;
 		}
 		case OpCode::Count:
 			break;
 		}
 
-		fprintf(stdout, "\n");
+		string_builder_append(&sb, '\n');
+		cross::log(cross::stderr, string_builder_get_string(&sb));
 	}
 }

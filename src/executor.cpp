@@ -1,7 +1,6 @@
 #include "executor.h"
 #include "opcodes.h"
-
-#include <stdio.h>
+#include "cross.h"
 
 template <typename T>
 static T bytecode_read_scalar(ExecutionContext *ctx, uint32_t mp, uint32_t *ip)
@@ -50,13 +49,23 @@ static Value pop(ExecutionContext *ctx, uint32_t *sp)
 
 static void debug_print_stack(ExecutionContext *ctx, uint32_t sp, uint32_t bp)
 {
-	fprintf(stderr, "[DEBUG] Stack:\n");
+	char logbuf[64] = {};
+	
+	cross::log(cross::stderr, sv_from_null_terminated("[DEBUG] Stack:\n"));
+	
 	for (uint32_t i = 0; i <= sp && i < ARRAY_LENGTH(ctx->stack); ++i) {
-		fprintf(stderr, "[%u] u32 = %u | f32 = %f", i, ctx->stack[i].u32, ctx->stack[i].f32);
+		StringBuilder sb = string_builder_from_buffer(logbuf);
+		string_builder_append(&sb, '[');
+		string_builder_append(&sb, uint64_t(i));
+		string_builder_append(&sb, SV("] u32 = "));
+		string_builder_append(&sb, uint64_t(ctx->stack[i].u32));
+		string_builder_append(&sb, SV(" | f32 = "));
+		string_builder_append(&sb, uint64_t(ctx->stack[i].f32));
 		if (i == bp) {
-			fprintf(stderr, "  <-- bp");
+			string_builder_append(&sb, SV("  <-- bp"));
 		}
-		fputc('\n', stderr);
+		string_builder_append(&sb, '\n');
+		cross::log(cross::stderr, string_builder_get_string(&sb));
 	}
 }
 
@@ -64,6 +73,7 @@ static void debug_print_stack(ExecutionContext *ctx, uint32_t sp, uint32_t bp)
 void call_function(
 		   ExecutionContext *ctx, uint32_t callee_module, uint32_t callee_ip, Value *args, uint32_t args_len)
 {
+	char logbuf[128] = {};
 	// Registers
 	uint32_t cp = 0;                        // callstack pointer
 	uint32_t sp = uint32_t(-1);             // stack pointer
@@ -84,12 +94,16 @@ void call_function(
 		}
 
 		OpCode op = bytecode_read_scalar<OpCode>(ctx, mp, &ip);
-
-		fprintf(stdout, "[TRACE] %s\n", OpCode_str[uint8_t(op)]);
+		
+		StringBuilder sb = string_builder_from_buffer(logbuf);
+		string_builder_append(&sb, SV("[TRACE] "));
+		string_builder_append(&sb, SV(OpCode_str[uint8_t(op)]));
+		string_builder_append(&sb, '\n');
+		cross::log(cross::stderr, string_builder_get_string(&sb));
 
 		switch (op) {
 		case OpCode::Halt: {
-			fprintf(stderr, "HALT\n");
+			cross::log(cross::stderr, SV("HALT\n"));
 			debug_print_stack(ctx, sp, bp);
 			__debugbreak();
 			return;
@@ -102,7 +116,12 @@ void call_function(
 			Value val;
 			val.u32 = bytecode_read_scalar<uint32_t>(ctx, mp, &ip);
 			push(ctx, &sp, val);
-			fprintf(stderr, "[DEBUG] | val.u32 = %u\n", val.u32);
+			
+			string_builder_append(&sb, SV("[DEBUG] | val.u32 = "));
+			string_builder_append(&sb, uint64_t(val.u32));
+			string_builder_append(&sb, '\n');
+			cross::log(cross::stderr, string_builder_get_string(&sb));
+
 			break;
 		}
 		case OpCode::Call: {
@@ -129,16 +148,25 @@ void call_function(
 			uint32_t external_function_address = uint32_t(ctx->modules[mp].import_addresses[i_imported_function]);
 			
 			uint8_t argc = bytecode_read_scalar<uint8_t>(ctx, mp, &ip);
-			fprintf(stderr,
-				"[DEBUG] | i_imported_function = %u\n"
-				"[DEBUG] | external_module_address = %u\n"
-				"[DEBUG] | external_function_address = %u\n"
-				"[DEBUG] | argc = %u\n",
-				i_imported_function,
-				external_module_address,
-				external_function_address,
-				argc
-				);
+
+			// debug print
+			string_builder_append(&sb, SV("[DEBUG] | i_imported_function = "));
+			string_builder_append(&sb, uint64_t(i_imported_function));
+			string_builder_append(&sb, '\n');
+			cross::log(cross::stderr, string_builder_get_string(&sb));
+			string_builder_append(&sb, SV("[DEBUG] | external_module_address = "));
+			string_builder_append(&sb, uint64_t(external_module_address));
+			string_builder_append(&sb, '\n');
+			cross::log(cross::stderr, string_builder_get_string(&sb));
+			string_builder_append(&sb, SV("[DEBUG] | external_function_address = "));
+			string_builder_append(&sb, uint64_t(external_function_address));
+			string_builder_append(&sb, '\n');
+			cross::log(cross::stderr, string_builder_get_string(&sb));
+			string_builder_append(&sb, SV("[DEBUG] | argc = "));
+			string_builder_append(&sb, uint64_t(argc));
+			string_builder_append(&sb, '\n');
+			cross::log(cross::stderr, string_builder_get_string(&sb));
+
 			// Push callstack
 			cp += 1;
 			ctx->callstack_ret_module[cp] = mp;
@@ -162,8 +190,13 @@ void call_function(
 			cp -= 1;
 			// Push the return value
 			push(ctx, &sp, return_value);
-			fprintf(stderr, "[DEBUG] | return_value.u32 = %u\n", return_value.u32);
-			
+
+			// debug print
+			string_builder_append(&sb, SV("[DEBUG] | return_value.u32 = "));
+			string_builder_append(&sb, uint64_t(return_value.u32));
+			string_builder_append(&sb, '\n');
+			cross::log(cross::stderr, string_builder_get_string(&sb));
+
 			debug_print_stack(ctx, sp, bp);			
 			break;
 		}
@@ -182,7 +215,13 @@ void call_function(
 		}
 		case OpCode::StoreArg: {
 			uint8_t i_arg = bytecode_read_scalar<uint8_t>(ctx, mp, &ip);
-			fprintf(stderr, "[DEBUG] | i_arg = %u\n", i_arg);
+
+			// debug print
+			string_builder_append(&sb, SV("[DEBUG] | i_arg = "));
+			string_builder_append(&sb, uint64_t(i_arg));
+			string_builder_append(&sb, '\n');
+			cross::log(cross::stderr, string_builder_get_string(&sb));
+
 			// Set the arg to the top of the stack
 			uint32_t local_address = bp - ctx->callstack_argc[cp] + i_arg + 1;
 			ctx->stack[local_address] = pop(ctx, &sp);
@@ -193,7 +232,14 @@ void call_function(
 			// Push the arg on top of the stack
 			uint32_t local_address = bp - ctx->callstack_argc[cp] + i_arg + 1;
 			push(ctx, &sp, ctx->stack[local_address]);
-			fprintf(stderr, "[DEBUG] | i_arg = %u, pushed.u32 = %u\n", i_arg, ctx->stack[local_address].u32);
+			
+			// debug print
+			string_builder_append(&sb, SV("[DEBUG] | i_arg = "));
+			string_builder_append(&sb, uint64_t(i_arg));
+			string_builder_append(&sb, SV(", pushed.u32 = "));
+			string_builder_append(&sb, uint64_t(ctx->stack[local_address].u32));
+			string_builder_append(&sb, '\n');
+			cross::log(cross::stderr, string_builder_get_string(&sb));
 			break;
 		}
 		case OpCode::StoreLocal: {
@@ -201,7 +247,14 @@ void call_function(
 			// Set the local to the top of the stack
 			uint32_t local_address = bp + i_local + 1;
 			ctx->stack[local_address] = pop(ctx, &sp);
-			fprintf(stderr, "[DEBUG] | i_local = %u, popped.u32 %u\n", i_local, ctx->stack[local_address].u32);
+
+			// debug print
+			string_builder_append(&sb, SV("[DEBUG] | i_local = "));
+			string_builder_append(&sb, uint64_t(i_local));
+			string_builder_append(&sb, SV(", popped.u32 = "));
+			string_builder_append(&sb, uint64_t(ctx->stack[local_address].u32));
+			string_builder_append(&sb, '\n');
+			cross::log(cross::stderr, string_builder_get_string(&sb));
 			break;
 		}
 		case OpCode::LoadLocal: {
@@ -209,18 +262,37 @@ void call_function(
 			// Push the local on top of the stack
 			uint32_t local_address = bp + i_local + 1;
 			push(ctx, &sp, ctx->stack[local_address]);
-			fprintf(stderr, "[DEBUG] | i_local = %u, pushed.u32 %u\n", i_local, ctx->stack[local_address].u32);
+
+			// debug print
+			string_builder_append(&sb, SV("[DEBUG] | i_local = "));
+			string_builder_append(&sb, uint64_t(i_local));
+			string_builder_append(&sb, SV(", pushed.u32 = "));
+			string_builder_append(&sb, uint64_t(ctx->stack[local_address].u32));
+			string_builder_append(&sb, '\n');
+			cross::log(cross::stderr, string_builder_get_string(&sb));
 			break;
 		}
 		case OpCode::Load32: {
 			Value ptr = pop(ctx, &sp);
-			fprintf(stderr, "[DEBUG] | ptr = %u\n", ptr.u32);
+			
+			// debug print
+			string_builder_append(&sb, SV("[DEBUG] | ptr = "));
+			string_builder_append(&sb, uint64_t(ptr.u32));
+			string_builder_append(&sb, '\n');
+			cross::log(cross::stderr, string_builder_get_string(&sb));			
 			break;
 		}
 		case OpCode::Store32: {
 			Value operands[2] = {};
 			pop_n(ctx, &sp, operands, 2);
-			fprintf(stderr, "[DEBUG] | ptr = %u, val.u32 = %u\n", operands[1].u32, operands[0].u32);
+
+			// debug print
+			string_builder_append(&sb, SV("[DEBUG] | ptr = "));
+			string_builder_append(&sb, uint64_t(operands[1].u32));
+			string_builder_append(&sb, SV(", val.u32 = "));
+			string_builder_append(&sb, uint64_t(operands[0].u32));
+			string_builder_append(&sb, '\n');
+			cross::log(cross::stderr, string_builder_get_string(&sb));
 			break;
 		}
 		case OpCode::AddI32: {
@@ -229,7 +301,16 @@ void call_function(
 			Value result = {};
 			result.i32 = operands[1].i32 + operands[0].i32;
 			push(ctx, &sp, result);
-			fprintf(stderr, "[DEBUG] | arg0 = %d + arg1 = %d => %d\n", operands[1].u32, operands[0].u32, result.i32);
+
+			// debug print
+			string_builder_append(&sb, SV("[DEBUG] | arg0 = "));
+			string_builder_append(&sb, uint64_t(operands[1].u32));
+			string_builder_append(&sb, SV(" + arg1 = "));
+			string_builder_append(&sb, uint64_t(operands[0].u32));
+			string_builder_append(&sb, SV(" => "));
+			string_builder_append(&sb, uint64_t(result.u32));
+			string_builder_append(&sb, '\n');
+			cross::log(cross::stderr, string_builder_get_string(&sb));
 			break;
 		}
 		case OpCode::SubI32: {
@@ -238,7 +319,16 @@ void call_function(
 			Value result = {};
 			result.i32 = operands[1].i32 - operands[0].i32;
 			push(ctx, &sp, result);
-			fprintf(stderr, "[DEBUG] | arg0 = %d + arg1 = %d => %d\n", operands[1].u32, operands[0].u32, result.i32);
+
+			// debug print
+			string_builder_append(&sb, SV("[DEBUG] | arg0 = "));
+			string_builder_append(&sb, uint64_t(operands[1].u32));
+			string_builder_append(&sb, SV(" + arg1 = "));
+			string_builder_append(&sb, uint64_t(operands[0].u32));
+			string_builder_append(&sb, SV(" => "));
+			string_builder_append(&sb, uint64_t(result.u32));
+			string_builder_append(&sb, '\n');
+			cross::log(cross::stderr, string_builder_get_string(&sb));
 			break;
 		}
 		case OpCode::LteI32: {
@@ -255,7 +345,12 @@ void call_function(
 			for (uint32_t i = 0; i < string_length && i < 64; ++i) {
 				debug_buffer[i] = bytecode_read_scalar<char>(ctx, mp, &ip);
 			}
-			fprintf(stderr, "[DEBUG] %s\n", debug_buffer);
+			
+			// debug print
+			string_builder_append(&sb, SV("[DEBUG] "));
+			string_builder_append(&sb, sv{debug_buffer, string_length});
+			string_builder_append(&sb, '\n');
+			cross::log(cross::stderr, string_builder_get_string(&sb));
 			break;
 		}
 		case OpCode::Count: {

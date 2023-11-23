@@ -1,10 +1,18 @@
 #pragma once
 #define _CRT_SECURE_NO_WARNINGS
 #include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
 
 #define ARRAY_LENGTH(x) sizeof(x) / sizeof(x[0])
+
+// CRT stub
+extern "C"
+{
+void *malloc(uint32_t);
+void *calloc(uint32_t, uint32_t);
+void free(void*);
+void *memset(void *dest, int c, size_t count);
+void *memcpy(void *dest, const void *src, size_t count);
+}
 
 // Text span
 struct span
@@ -37,9 +45,13 @@ struct sv
 	uint32_t length;
 };
 
-inline sv sv_from_null_terminated(const char *null_terminated)
+#define SV(x) sv_from_null_terminated(x)
+constexpr sv sv_from_null_terminated(const char *null_terminated)
 {
-	return sv{null_terminated, uint32_t(strlen(null_terminated))};
+	uint32_t size = 0;
+	while (null_terminated[size] != '\0')
+		size += 1;
+	return sv{null_terminated, size};
 }
 
 inline sv sv_substr(sv s, uint32_t offset, uint32_t length)
@@ -149,4 +161,73 @@ inline void vec_swap_remove(vec<T> *v, uint32_t index)
 		v->data[index] = v->data[v->length - 1];
 	}
 	v->length -= 1;
+}
+
+// string builder
+struct StringBuilder
+{
+	char *buffer;
+	uint32_t size;
+	uint32_t capacity;
+};
+
+template<size_t N>
+inline StringBuilder string_builder_from_buffer(char (&arr)[N])
+{
+	StringBuilder builder = {};
+	builder.buffer = arr;
+	builder.size = 0;
+	builder.capacity = N;
+	return builder;
+}
+
+inline void string_builder_append(StringBuilder *builder, sv content)
+{
+	uint32_t size = builder->size;
+	uint32_t cap = builder->capacity;
+	uint32_t i = 0;
+	for (; i < content.length && size + i < cap; ++i)
+	{
+		builder->buffer[size + i] = content.chars[i];
+	}
+	builder->size += i;
+}
+
+inline void string_builder_append(StringBuilder *builder, uint64_t n)
+{
+	// largest power of 10 greater than n
+	uint32_t divisor = 1;
+	for (uint64_t d = n; d > 10; d = d / 10) {
+		divisor *= 10;
+	}
+	
+	uint32_t size = builder->size;
+	uint32_t cap = builder->capacity;
+	uint32_t i = 0;
+	for (; divisor != 0 && size + i < cap ; ++i)
+	{
+		uint64_t digit = n / divisor;
+		builder->buffer[size + i] = '0' + (digit % 10);
+		divisor = divisor / 10;
+	}
+	builder->size += i;
+}
+
+inline void string_builder_append(StringBuilder *builder, char c)
+{
+	uint32_t size = builder->size;
+	uint32_t cap = builder->capacity;
+	if (size < cap) {
+		builder->buffer[size] = c;
+		builder->size += 1;
+	}
+}
+
+sv string_builder_get_string(StringBuilder *builder)
+{
+	sv result = {};
+	result.chars = builder->buffer;
+	result.length = builder->size;
+	builder->size = 0; // Reset the size to 0 to chain `append` and `get_string`
+	return result;
 }

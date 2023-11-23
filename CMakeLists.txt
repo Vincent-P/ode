@@ -1,6 +1,24 @@
 cmake_minimum_required(VERSION 3.23)
 project(playground LANGUAGES CXX)
 
+# Executable size with CRT
+# Debug 170KB
+# Release 48KB
+# MinSizeRel 43KB
+# RelWithDebInfo 91KB
+
+# Executable with clang freestanding
+# clang++.exe src/main.cpp -o build\ode_size.exe -Os -DUNITY_BUILD -nostdlib -ffreestanding -fuse-ld=lld -fno-stack-check -fno-stack-protector -mno-stack-arg-probe -std=c++20 -lkernel32
+# Debug -O0   60KB
+# Release -O2 37B
+# Size -Os    25KB
+
+# Disable CRT (GS- disable stack checks, Gs<large size> disable chkstk, /stack set size to reserve and commit)
+set(CMAKE_EXE_LINKER_FLAGS "/nodefaultlib /stack:0x200000,200000")
+set(CMAKE_CXX_FLAGS_DEBUG  "")
+set(CMAKE_CXX_FLAGS_RELEASE  "")
+set(CMAKE_CXX_FLAGS "/GS- /Gs1000000000")
+
 add_executable(ode
 src/main.cpp
 src/debug.cpp

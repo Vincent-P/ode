@@ -5,8 +5,6 @@
 #include "opcodes.h"
 
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
 
 // bytecode functions
 
@@ -145,82 +143,6 @@ static void compiler_lookup_function(Compiler *compiler, sv function_name, uint3
 	*out_function = ~uint32_t(0);
 }
 
-template <typename Lambda>
-static Function *compiler_compile_function(Compiler *compiler,
-					   sv function_name,
-					   FunctionType function_type,
-					   TypeID return_type,
-					   Token *arg_identifiers,
-					   TypeID *arg_types,
-					   uint32_t args_length,
-					   Lambda compile_body_fn)
-{
-	CompilerModule *current_module = &compiler->module;
-	uint32_t i_found_module = 0;
-	uint32_t i_found_function = 0;
-	compiler_lookup_function(compiler, function_name, &i_found_module, &i_found_function);
-	if (i_found_module < compiler->vm->compiler_modules.length || i_found_module < compiler->module.functions_length) {
-		// Actually it should be possible to recompile a function if signature has not changed.
-		INIT_ERROR(&compiler->compunit->error, ErrorCode::DuplicateSymbol);
-		return nullptr;
-	}
-
-	if (current_module->functions_length + 1 > current_module->functions_capacity) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
-		return nullptr;
-	}
-
-	// Create a new function symbol
-	Function *function = current_module->functions + current_module->functions_length;
-	function->name = function_name;
-	function->address = current_module->bytecode_length;
-	function->type = function_type;
-	function->return_type = return_type;
-
-	current_module->functions_length += 1;
-
-	// Add a debug label to identify functions easily in the bytecode
-	compiler_bytecode_debug_label(compiler, function_name);
-	// Create a variable scope
-	compiler_push_scope(compiler, current_module->functions_length-1);
-	for (uint32_t i_arg = 0; i_arg < args_length; ++i_arg) {
-		TypeID arg_type = arg_types[i_arg];
-		function->arg_types[function->arg_count] = arg_types[i_arg];
-		function->arg_count += 1;
-
-		uint32_t i_variable = 0;
-		if (!compiler_push_arg(compiler, &arg_identifiers[i_arg], arg_type, &i_variable)) {
-			return nullptr;
-		}
-	}
-
-	// <-- Compile the body
-	TypeID body_type = compile_body_fn();
-	
-	// TODO: As of now, the return opcode always pop a value from the stack. So we have to make sure
-	// that the stack is not empty when the function does not return anything!
-	// Nothing is preventing functions from returning multiple values, so ideally functions should have a return value count? (or implement tuples?)
-	if (type_similar(body_type, UNIT_TYPE)) {
-		compiler_bytecode_push_u32(compiler, 0u);
-	}
-
-	compiler_pop_scope(compiler);
-	compiler_push_opcode(compiler, OpCode::Ret);
-	if (compiler->compunit->error.code != ErrorCode::Ok) {
-		return nullptr;
-	}
-
-	bool valid_return_type = type_similar(return_type, body_type);
-	if (!valid_return_type) {
-		printf("%.*s\n", int(function->name.length), function->name.chars);
-		INIT_ERROR(&compiler->compunit->error, ErrorCode::ExpectedTypeGot);
-		compiler->compunit->error.expected_type = return_type;
-		compiler->compunit->error.got_type = body_type;
-	}
-
-	return function;
-}
-
 uint32_t type_get_size(CompilerModule *module, TypeID id)
 {
 	if (id.builtin.is_user_defined != 0) {
@@ -353,6 +275,81 @@ bool compiler_lookup_variable(Compiler *compiler, const Token *identifier_token,
 	}
 
 	return false;
+}
+
+template <typename Lambda>
+static Function *compiler_compile_function(Compiler *compiler,
+					   sv function_name,
+					   FunctionType function_type,
+					   TypeID return_type,
+					   Token *arg_identifiers,
+					   TypeID *arg_types,
+					   uint32_t args_length,
+					   Lambda compile_body_fn)
+{
+	CompilerModule *current_module = &compiler->module;
+	uint32_t i_found_module = 0;
+	uint32_t i_found_function = 0;
+	compiler_lookup_function(compiler, function_name, &i_found_module, &i_found_function);
+	if (i_found_module < compiler->vm->compiler_modules.length || i_found_module < compiler->module.functions_length) {
+		// Actually it should be possible to recompile a function if signature has not changed.
+		INIT_ERROR(&compiler->compunit->error, ErrorCode::DuplicateSymbol);
+		return nullptr;
+	}
+
+	if (current_module->functions_length + 1 > current_module->functions_capacity) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
+		return nullptr;
+	}
+
+	// Create a new function symbol
+	Function *function = current_module->functions + current_module->functions_length;
+	function->name = function_name;
+	function->address = current_module->bytecode_length;
+	function->type = function_type;
+	function->return_type = return_type;
+
+	current_module->functions_length += 1;
+
+	// Add a debug label to identify functions easily in the bytecode
+	compiler_bytecode_debug_label(compiler, function_name);
+	// Create a variable scope
+	compiler_push_scope(compiler, current_module->functions_length-1);
+	for (uint32_t i_arg = 0; i_arg < args_length; ++i_arg) {
+		TypeID arg_type = arg_types[i_arg];
+		function->arg_types[function->arg_count] = arg_types[i_arg];
+		function->arg_count += 1;
+
+		uint32_t i_variable = 0;
+		if (!compiler_push_arg(compiler, &arg_identifiers[i_arg], arg_type, &i_variable)) {
+			return nullptr;
+		}
+	}
+
+	// <-- Compile the body
+	TypeID body_type = compile_body_fn();
+	
+	// TODO: As of now, the return opcode always pop a value from the stack. So we have to make sure
+	// that the stack is not empty when the function does not return anything!
+	// Nothing is preventing functions from returning multiple values, so ideally functions should have a return value count? (or implement tuples?)
+	if (type_similar(body_type, UNIT_TYPE)) {
+		compiler_bytecode_push_u32(compiler, 0u);
+	}
+
+	compiler_pop_scope(compiler);
+	compiler_push_opcode(compiler, OpCode::Ret);
+	if (compiler->compunit->error.code != ErrorCode::Ok) {
+		return nullptr;
+	}
+
+	bool valid_return_type = type_similar(return_type, body_type);
+	if (!valid_return_type) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode::ExpectedTypeGot);
+		compiler->compunit->error.expected_type = return_type;
+		compiler->compunit->error.got_type = body_type;
+	}
+
+	return function;
 }
 
 // compiler
