@@ -197,7 +197,7 @@ inline void string_builder_append(StringBuilder *builder, uint64_t n)
 {
 	// largest power of 10 greater than n
 	uint32_t divisor = 1;
-	for (uint64_t d = n; d > 10; d = d / 10) {
+	for (uint64_t d = n; d >= 10; d = d / 10) {
 		divisor *= 10;
 	}
 	
