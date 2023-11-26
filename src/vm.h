@@ -1,10 +1,14 @@
 #pragma once
 #include "core.h"
+#include "arena.h"
 #include "error.h"
+#include "compiler.h"
+#include "executor.h"
 
 struct VM;
 struct CompilerModule;
 struct Module;
+struct Arena;
 
 using ForeignFn = void (*)(VM *);
 
@@ -18,12 +22,14 @@ struct VMConfig
 struct VM
 {
 	VMConfig config;
-	vec<CompilerModule> compiler_modules;
-	vec<Module> runtime_modules;
+	CompilerModule compiler_modules[8];
+	uint32_t compiler_modules_length;
+	Module runtime_modules[8];
+	uint32_t runtime_modules_length;
 };
 
-VM *vm_create(VMConfig config);
+VM *vm_create(Arena *arena, VMConfig config);
 Error vm_compile(VM* vm, sv module_name, sv code);
 // compile and try to execute "main" function
-void vm_call(VM* vm, sv module_name, sv function_name);
+void vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem);
 void vm_destroy(VM *vm);

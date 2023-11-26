@@ -4,9 +4,9 @@
 #include "cross.h"
 
 static void print_ast_rec(
-	sv input, const vec<Token> *tokens, const vec<AstNode> *nodes, uint32_t node_index, int indent)
+	sv input, slice<const Token> tokens, slice<const AstNode> nodes, uint32_t node_index, int indent)
 {
-	const AstNode *node = vec_at(nodes, node_index);
+	const AstNode *node = nodes.elements + node_index;
 	if (node->left_child_index != INVALID_NODE_INDEX) {
 		// putchar('(');
 	}
@@ -18,7 +18,7 @@ static void print_ast_rec(
 	}
 
 	if (node->left_child_index != INVALID_NODE_INDEX) {
-		const AstNode *child = vec_at(nodes, node->left_child_index);
+		const AstNode *child = nodes.elements + node->left_child_index;
 		print_ast_rec(input, tokens, nodes, node->left_child_index, indent);
 
 		while (child->right_sibling_index != INVALID_NODE_INDEX) {
@@ -26,26 +26,26 @@ static void print_ast_rec(
 			// putchar('\n');
 			// print_indent(indent + 1);
 			print_ast_rec(input, tokens, nodes, next_child_index, indent + 1);
-			child = vec_at(nodes, next_child_index);
+			child = nodes.elements + next_child_index;
 		}
 
 		// putchar(')');
 	}
 }
 
-void print_ast(sv input, const vec<Token> *tokens, const vec<AstNode> *nodes, uint32_t root_index)
+void print_ast(sv input, slice<const Token> tokens, slice<const AstNode> nodes, uint32_t root_index)
 {
-	const AstNode *root = vec_at(nodes, root_index);
-	if (root_index >= nodes->length || root->left_child_index == INVALID_NODE_INDEX) {
+	const AstNode *root = nodes.elements + root_index;
+	if (root_index >= nodes.length || root->left_child_index == INVALID_NODE_INDEX) {
 		return;
 	}
 
-	const AstNode *child = vec_at(nodes, root->left_child_index);
+	const AstNode *child = nodes.elements + root->left_child_index;
 	print_ast_rec(input, tokens, nodes, root->left_child_index, 0);
 	while (child->right_sibling_index != INVALID_NODE_INDEX) {
 		// putchar('\n');
 		print_ast_rec(input, tokens, nodes, child->right_sibling_index, 0);
-		child = vec_at(nodes, child->right_sibling_index);
+		child = nodes.elements + child->right_sibling_index;
 	}
 	// putchar('\n');
 }

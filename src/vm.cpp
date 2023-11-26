@@ -1,4 +1,5 @@
 #include "vm.h"
+#include "arena.h"
 #include "compiler.h"
 #include "debug.h"
 #include "executor.h"
@@ -6,43 +7,15 @@
 #include "opcodes.h"
 #include "parser.h"
 
-VM *vm_create(VMConfig config)
+VM *vm_create(Arena *arena, VMConfig config)
 {
-	void *memory = calloc(1, sizeof(VM));
-	VM *vm = static_cast<VM *>(memory);
+	VM *vm = (VM*)alloc(arena, sizeof(VM));
 	vm->config = config;
-	vm->compiler_modules = vec_init<CompilerModule>(8);
-	vm->runtime_modules = vec_init<Module>(8);
 	return vm;
 }
 
 void vm_destroy(VM *vm)
 {
-	free(vm);
-}
-
-static CompilerModule module_alloc(sv module_name)
-{
-	CompilerModule new_module = {};
-	const uint32_t functions_capacity = 16;
-	new_module.functions_capacity = functions_capacity;
-	new_module.functions = static_cast<Function *>(calloc(functions_capacity, sizeof(Function)));
-
-	const uint32_t bytecode_capacity = 1024;
-	new_module.bytecode_capacity = bytecode_capacity;
-	new_module.bytecode = static_cast<uint8_t *>(calloc(bytecode_capacity, sizeof(OpCode)));
-
-	const uint32_t types_capacity = 8;
-	new_module.types_capacity = types_capacity;
-	new_module.types = static_cast<UserDefinedType *>(calloc(types_capacity, sizeof(UserDefinedType)));
-
-	const uint32_t imported_capacity = 8;
-	new_module.imported_module_indices = static_cast<uint32_t *>(calloc(imported_capacity, sizeof(uint32_t)));
-	new_module.imported_function_indices = static_cast<uint32_t *>(calloc(imported_capacity, sizeof(uint32_t)));
-	new_module.imported_functions_length = 0;
-
-	new_module.name = module_name;
-	return new_module;
 }
 
 struct CompilationResult
@@ -75,8 +48,6 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 
 	CompilationUnit compunit = {};
 	compunit.input = code;
-	compunit.tokens = vec_init<Token>(4096);
-	compunit.nodes = vec_init<AstNode>(4096);
 	
 	// -- Lex tokens
 	lexer_scan(&compunit);
@@ -107,7 +78,7 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 		StringBuilder sb = string_builder_from_buffer(logbuf);
 
 		string_builder_append(&sb, SV("# Parser[token_length: "));
-		string_builder_append(&sb, uint64_t(compunit.tokens.length));
+		string_builder_append(&sb, uint64_t(compunit.tokens_length));
 		string_builder_append(&sb, SV(", i_current_token: "));
 		string_builder_append(&sb, uint64_t(parser.i_current_token));
 		string_builder_append(&sb, SV("] returned "));
@@ -121,10 +92,10 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 		string_builder_append(&sb, SV("'\n"));
 		cross::log(cross::stderr, string_builder_get_string(&sb));
 
-		if (compunit.tokens.length > 0) {
+		if (compunit.tokens_length > 0) {
 			uint32_t i_last_token =
-				parser.i_current_token < compunit.tokens.length ? parser.i_current_token : compunit.tokens.length - 1;
-			const Token *last_token = vec_at(&compunit.tokens, i_last_token);
+				parser.i_current_token < compunit.tokens_length ? parser.i_current_token : compunit.tokens_length - 1;
+			const Token *last_token = compunit.tokens + i_last_token;
 			sv last_token_str = sv_substr(compunit.input, last_token->span);
 			const char *token_kind_str = TokenKind_str[uint32_t(last_token->kind)];
 
@@ -195,8 +166,7 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 	Compiler compiler = {};
 	compiler.vm = vm;
 	compiler.compunit = &compunit;
-	compiler.scopes = vec_init<LexicalScope>(16);
-	compiler.module = module_alloc(module_name);
+	compiler.module.name = module_name;
 	compiler.module.imports = dep_module_indices;
 	compiler.module.imports_length = require_paths_length;
 	compile_module(&compiler);
@@ -251,7 +221,7 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 	{
 		uint32_t i_imported_module = compiler.module.imported_module_indices[i_import];
 		uint32_t i_imported_function = compiler.module.imported_function_indices[i_import];
-		CompilerModule *imported_module = vec_at(&compiler.vm->compiler_modules, i_imported_module);
+		CompilerModule *imported_module = compiler.vm->compiler_modules + i_imported_module;
 		sv imported_module_name = imported_module->name;
 		sv imported_function_name = imported_module->functions[i_imported_function].name;
 
@@ -267,24 +237,23 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 
 	// -- Copy the new module to the VM
 	uint32_t i_module = 0;
-	for (; i_module < vm->compiler_modules.length; ++i_module) {
-		CompilerModule *module = vec_at(&vm->compiler_modules, i_module);
-		if (sv_equals(module->name, module_name)) {
+	for (; i_module < vm->compiler_modules_length; ++i_module) {
+		if (sv_equals(vm->compiler_modules[i_module].name, module_name)) {
 			break;
 		}
 	}
-	if (i_module >= vm->compiler_modules.length) {
-		if (i_module >= vm->compiler_modules.capacity) {
+	if (i_module >= vm->compiler_modules_length) {
+		if (i_module >= ARRAY_LENGTH(vm->compiler_modules)) {
 			cross::log(cross::stderr, SV("Fatal: module capacity\n"));
 			INIT_ERROR(&compunit.error, ErrorCode::Fatal);
 			result.error = compunit.error;
 			return result;
 		}
-		i_module = vec_append(&vm->compiler_modules, compiler.module);
+		i_module = vm->compiler_modules_length;
+		vm->compiler_modules_length += 1;
 	}
-	else {
-		*vec_at(&vm->compiler_modules, i_module) = compiler.module;
-	}
+	
+	vm->compiler_modules[i_module] = compiler.module;
 	
 	result.i_compiler_module =  i_module;
 	return result;
@@ -294,14 +263,14 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 static void link_runtime_module(VM *vm, uint32_t i_runtime_module)
 {
 	// Link with other runtime modules, checking if they import a function from the new runtime module.
-	Module *runtime_module = vec_at(&vm->runtime_modules, i_runtime_module);
+	Module *runtime_module = vm->runtime_modules + i_runtime_module;
 	const uint32_t our_import_length = runtime_module->import_length;
 	const uint32_t our_export_length = runtime_module->export_length;
 
-	uint32_t runtime_modules_length = vm->runtime_modules.length;
+	uint32_t runtime_modules_length = vm->runtime_modules_length;
 	for (uint32_t m = 0; m < runtime_modules_length; ++m) {
 		if (m != i_runtime_module) {
-			Module *other_module = vec_at(&vm->runtime_modules, m);
+			Module *other_module = vm->runtime_modules + m;
 			const uint32_t other_module_export_length = other_module->export_length;
 			const uint32_t other_module_import_length = other_module->import_length;
 
@@ -352,25 +321,26 @@ static LoadModuleResult load_compiler_module(VM *vm, uint32_t i_compiler_module)
 	LoadModuleResult result = {};
 
 	// Find or create runtime module
-	const CompilerModule *compiler_module = vec_at(&vm->compiler_modules, i_compiler_module);
-	uint32_t runtime_modules_length = vm->runtime_modules.length;
+	const CompilerModule *compiler_module = vm->compiler_modules + i_compiler_module;
+	uint32_t runtime_modules_length = vm->runtime_modules_length;
 	uint32_t i_runtime_module = 0;
 	for (; i_runtime_module < runtime_modules_length; ++i_runtime_module) {
-		Module *runtime_module = vec_at(&vm->runtime_modules, i_runtime_module);
+		Module *runtime_module = vm->runtime_modules + i_runtime_module;
 		if (sv_equals(compiler_module->name, runtime_module->name)) {
 			break;
 		}
 	}
 	if (i_runtime_module >= runtime_modules_length) {
-		if (runtime_modules_length >= vm->runtime_modules.capacity) {
+		if (runtime_modules_length >= ARRAY_LENGTH(vm->runtime_modules)) {
 			INIT_ERROR(&result.error, ErrorCode::Fatal);
 			return result;
 		}
-		i_runtime_module = vec_append(&vm->runtime_modules, {});
+		i_runtime_module = runtime_modules_length;
+		vm->runtime_modules_length += 1;
 	}
 
 	// Fill module data
-	Module *runtime_module = vec_at(&vm->runtime_modules, i_runtime_module);
+	Module *runtime_module = vm->runtime_modules + i_runtime_module;
 	runtime_module->name = compiler_module->name;
 	// Copy bytecode
 	uint32_t bytecode_len = compiler_module->bytecode_length > BYTECODE_LENGTH
@@ -383,8 +353,8 @@ static LoadModuleResult load_compiler_module(VM *vm, uint32_t i_compiler_module)
 	uint32_t f = 0;
 	for (; f < compiler_module->imported_functions_length && f < max_length; ++f) {
 		uint32_t i_external_module = compiler_module->imported_module_indices[f];
-		const CompilerModule *external_module = vec_at(&vm->compiler_modules, i_external_module);
-		Function *external_function = external_module->functions + compiler_module->imported_function_indices[f];
+		const CompilerModule *external_module = vm->compiler_modules + i_external_module;
+		const Function *external_function = external_module->functions + compiler_module->imported_function_indices[f];
 		runtime_module->import_module_names[f] = external_module->name;
 		runtime_module->import_names[f] = external_function->name;
 		
@@ -395,7 +365,7 @@ static LoadModuleResult load_compiler_module(VM *vm, uint32_t i_compiler_module)
 	// Fill export data
 	uint32_t export_length = 0;
 	for (uint32_t e = 0; e < compiler_module->functions_length && e < max_length; ++e) {
-		Function *function = compiler_module->functions + e;
+		const Function *function = compiler_module->functions + e;
 		if (function->type == FunctionType::Global) {
 			runtime_module->export_names[export_length] = function->name;
 			runtime_module->export_addresses[export_length] = function->address;
@@ -435,27 +405,27 @@ Error vm_compile(VM *vm, sv module_name, sv code)
 	return result.error;
 }
 
-void vm_call(VM *vm, sv module_name, sv function_name)
+void vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 {	
-	char logbuf[64] = {};
+	char *log_buffer = (char*)alloc(&temp_mem, 64);
 	
 	// Find the function name in the compiler module
-	const uint32_t modules_len = vm->compiler_modules.length;
+	const uint32_t modules_len = vm->compiler_modules_length;
 	uint32_t i_module = 0;
 	for (; i_module < modules_len; ++i_module) {
-		if (sv_equals(vec_at(&vm->compiler_modules, i_module)->name, module_name)) {
+		if (sv_equals(vm->compiler_modules[i_module].name, module_name)) {
 			break;
 		}
 	}
 	if (i_module >= modules_len) {
-		StringBuilder sb = string_builder_from_buffer(logbuf);
+		StringBuilder sb = string_builder_from_buffer_size(log_buffer, 64);
 		string_builder_append(&sb, SV("Compiler module \""));
 		string_builder_append(&sb, module_name);
 		string_builder_append(&sb, SV("\" not found\n"));
 		cross::log(cross::stderr, string_builder_get_string(&sb));
 		return;
 	}
-	CompilerModule *module = vec_at(&vm->compiler_modules, i_module);
+	CompilerModule *module = vm->compiler_modules + i_module;
 	const uint32_t functions_len = module->functions_length;
 	uint32_t i_entrypoint = 0;
 	uint32_t entrypoint_address = 0;
@@ -471,15 +441,15 @@ void vm_call(VM *vm, sv module_name, sv function_name)
 	}
 
 	// Find the corresponding runtime module
-	const uint32_t runtime_modules_len = vm->runtime_modules.length;
+	const uint32_t runtime_modules_len = vm->runtime_modules_length;
 	uint32_t i_runtime_module = 0;
 	for (; i_runtime_module < runtime_modules_len; ++i_runtime_module) {
-		if (sv_equals(vec_at(&vm->runtime_modules, i_runtime_module)->name, module_name)) {
+		if (sv_equals(vm->runtime_modules[i_runtime_module].name, module_name)) {
 			break;
 		}
 	}
 	if (i_runtime_module >= runtime_modules_len) {
-		StringBuilder sb = string_builder_from_buffer(logbuf);
+		StringBuilder sb = string_builder_from_buffer_size(log_buffer, 64);
 		string_builder_append(&sb, SV("Runtime module \""));
 		string_builder_append(&sb, module_name);
 		string_builder_append(&sb, SV("\" not found\n"));
@@ -487,11 +457,8 @@ void vm_call(VM *vm, sv module_name, sv function_name)
 		return;
 	}
 	
-	ExecutionContext *exec = static_cast<ExecutionContext *>(calloc(1, sizeof(ExecutionContext)));
-	exec->modules = vm->runtime_modules.data;
-	exec->modules_len = vm->runtime_modules.length;
+	ExecutionContext *exec = static_cast<ExecutionContext *>(alloc(&temp_mem, sizeof(ExecutionContext)));
+	exec->modules = vm->runtime_modules;
+	exec->modules_len = vm->runtime_modules_length;
 	call_function(exec, i_runtime_module, entrypoint_address, nullptr, 0);
-
-	free(exec);
-	exec = nullptr;
 }

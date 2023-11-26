@@ -2,26 +2,29 @@
 #include "core.h"
 #include "constants.h"
 #include "error.h"
+#include "parser.h"
 
 struct VM;
-struct AstNode;
 
 struct CompilationUnit
 {
 	sv input;
-	vec<AstNode> nodes;
-	vec<Token> tokens;
 	Error error;
+	uint32_t nodes_length;
+	uint32_t tokens_length;
+	AstNode nodes[4096];
+	Token tokens[4096];
 };
 
+const uint32_t SCOPE_MAX_VARIABLES = 16;
 struct LexicalScope
 {
-	uint32_t i_outer_function;
-	sv *args_name;
-	TypeID *args_type;
+	sv args_name[SCOPE_MAX_VARIABLES];
+	TypeID args_type[SCOPE_MAX_VARIABLES];
 	uint32_t args_length;
-	sv *variables_name;
-	TypeID *variables_type;
+	
+	sv variables_name[SCOPE_MAX_VARIABLES];
+	TypeID variables_type[SCOPE_MAX_VARIABLES];
 	uint32_t variables_length;
 };
 
@@ -56,33 +59,30 @@ struct CompilerModule
 {
 	sv name;
 	// functions containes in this module
-	Function *functions;
-	uint32_t functions_capacity;
+	Function functions[16];
 	uint32_t functions_length;
-	// bytecode for all the functions
-	uint8_t *bytecode;
-	uint32_t bytecode_capacity;
-	uint32_t bytecode_length;
 	// types defined in this  i32;module
-	UserDefinedType *types;
-	uint32_t types_capacity;
+	UserDefinedType types[8];
 	uint32_t types_length;
 	// table of imports module index
 	uint32_t *imports;
 	uint32_t imports_length;
 	// imported functions
-	uint32_t *imported_module_indices;
-	uint32_t *imported_function_indices;
+	uint32_t imported_module_indices[8];
+	uint32_t imported_function_indices[8];
 	uint32_t imported_functions_length;
+	// bytecode for all the functions
+	uint8_t bytecode[1024];
+	uint32_t bytecode_length;
 };
-
 
 struct Compiler
 {
 	VM *vm;
 	CompilationUnit *compunit;
 	
-	vec<LexicalScope> scopes;
+	LexicalScope scopes[16];
+	uint32_t scopes_length;
 	CompilerModule module;
 };
 	

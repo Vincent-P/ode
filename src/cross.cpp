@@ -55,7 +55,7 @@ ReadFileResult read_entire_file(const char* filepath)
 	// Get size on disk
 	uint32_t size = GetFileSize(file, nullptr);
 	// Allocate memory
-        void *file_content = malloc(size + 1);
+        void *file_content = alloc(size + 1);
 	// Read file
 	uint32_t bytes_read = 0;
 	bool success = ReadFile(file, file_content, size, (LPDWORD)&bytes_read, nullptr);
@@ -85,6 +85,13 @@ void log(uint64_t handle, sv message)
 void sleep_ms(unsigned int ms)
 {
 	Sleep(ms);
+}
+
+// -- memory
+void *alloc(uint32_t size)
+{
+	HANDLE process_heap = GetProcessHeap();
+	return HeapAlloc(process_heap, HEAP_ZERO_MEMORY, size);
 }
 #endif
 }

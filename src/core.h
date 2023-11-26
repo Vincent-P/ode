@@ -7,9 +7,6 @@
 // CRT stub
 extern "C"
 {
-void *malloc(uint32_t);
-void *calloc(uint32_t, uint32_t);
-void free(void*);
 void *memset(void *dest, int c, size_t count);
 void *memcpy(void *dest, const void *src, size_t count);
 }
@@ -106,61 +103,28 @@ inline sv sv_offset(sv string, uint32_t offset)
 
 // Small vector
 template <typename T>
-struct vec
+struct slice
 {
-	T *data;
+	T *elements;
 	uint32_t length;
-	uint32_t capacity;
 };
 
-template <typename T>
-inline vec<T> vec_init(uint32_t capacity)
+template<typename T, size_t N>
+inline slice<T> slice_from_array(T (&arr)[N])
 {
-	vec<T> result = {};
-	result.data = static_cast<T *>(calloc(capacity, sizeof(T)));
-	result.capacity = capacity;
-	return result;
+	slice<T> s = {};
+	s.elements = arr;
+	s.length = N;
+	return s;
 }
 
-template <typename T>
-inline void vec_destroy(vec<T> *v)
+template<typename T>
+inline slice<T> slice_from_buffer(T *buf, uint32_t count)
 {
-	free(v->data);
-	*v = {};
-}
-
-template <typename T>
-inline T *vec_at(vec<T> *v, uint32_t index)
-{
-	return v->data + index;
-}
-template <typename T>
-inline const T *vec_at(const vec<T> *v, uint32_t index)
-{
-	return v->data + index;
-}
-
-template <typename T>
-inline uint32_t vec_append(vec<T> *v, T new_value)
-{
-	if (v->length < v->capacity) {
-		uint32_t new_object_index = v->length;
-		v->data[new_object_index] = new_value;
-		v->length += 1;
-		return new_object_index;
-	} else {
-		return v->length;
-	}
-}
-
-template <typename T>
-inline void vec_swap_remove(vec<T> *v, uint32_t index)
-{
-	const bool is_last = index + 1 == v->length;
-	if (!is_last) {
-		v->data[index] = v->data[v->length - 1];
-	}
-	v->length -= 1;
+	slice<T> s = {};
+	s.elements = buf;
+	s.length = count;
+	return s;
 }
 
 // string builder
@@ -178,6 +142,15 @@ inline StringBuilder string_builder_from_buffer(char (&arr)[N])
 	builder.buffer = arr;
 	builder.size = 0;
 	builder.capacity = N;
+	return builder;
+}
+
+inline StringBuilder string_builder_from_buffer_size(char *buf, uint32_t bufsize)
+{
+	StringBuilder builder = {};
+	builder.buffer = buf;
+	builder.size = 0;
+	builder.capacity = bufsize;
 	return builder;
 }
 

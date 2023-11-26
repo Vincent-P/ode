@@ -86,6 +86,8 @@ void lexer_scan(CompilationUnit *compunit)
 		input_offset += token_length;
 
 		// Add the token to our list
-		vec_append(&compunit->tokens, token);
+		uint32_t i_token = compunit->tokens_length;
+		compunit->tokens[i_token] = token;
+		compunit->tokens_length += 1;
 	}
 }

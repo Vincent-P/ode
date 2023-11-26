@@ -11,7 +11,7 @@
 static void compiler_push_opcode(Compiler *compiler, OpCode opcode)
 {
 	CompilerModule *current_module = &compiler->module;
-	if (current_module->bytecode_length + 1 >= current_module->bytecode_capacity) {
+	if (current_module->bytecode_length + 1 >= ARRAY_LENGTH(current_module->bytecode)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
 		return;
 	}
@@ -25,7 +25,7 @@ static T *compiler_push_scalar(Compiler *compiler, T value)
 {
 	CompilerModule *current_module = &compiler->module;
 	uint32_t to_write = sizeof(T);
-	if (current_module->bytecode_length + to_write >= current_module->bytecode_capacity) {
+	if (current_module->bytecode_length + to_write >= ARRAY_LENGTH(current_module->bytecode)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
 		return nullptr;
 	}
@@ -41,7 +41,7 @@ static void compiler_push_sv(Compiler *compiler, sv value)
 	CompilerModule *current_module = &compiler->module;
 
 	uint32_t to_write = uint32_t(sizeof(uint32_t) + value.length * sizeof(char));
-	if (current_module->bytecode_length + to_write >= current_module->bytecode_capacity) {
+	if (current_module->bytecode_length + to_write >= ARRAY_LENGTH(current_module->bytecode)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
 		return;
 	}
@@ -129,7 +129,7 @@ static void compiler_lookup_function(Compiler *compiler, sv function_name, uint3
 	// Search imports
 	for (uint32_t i_import = 0; i_import < current_module->imports_length; ++i_import) {
 		uint32_t i_imported_module = current_module->imports[i_import];
-		CompilerModule *imported_module = vec_at(&compiler->vm->compiler_modules, i_imported_module);
+		CompilerModule *imported_module = compiler->vm->compiler_modules + i_imported_module;
 		for (uint32_t i_function = 0; i_function < imported_module->functions_length; ++i_function) {
 			Function *function = imported_module->functions + i_function;
 			if (function->type == FunctionType::Global && sv_equals(function->name, function_name)) {
@@ -155,49 +155,37 @@ uint32_t type_get_size(CompilerModule *module, TypeID id)
 	}
 }
 
-static constexpr uint32_t SCOPE_MAX_VARIABLES = 16;
-
 void compiler_push_scope(Compiler *compiler, uint32_t i_function)
 {
-	if (compiler->scopes.length >= compiler->scopes.capacity) {
+	if (compiler->scopes_length >= ARRAY_LENGTH(compiler->scopes)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
 		return;
 	}
 
-	LexicalScope new_scope = {};
-	new_scope.i_outer_function = i_function;
-	new_scope.args_name = (sv *)calloc(SCOPE_MAX_VARIABLES, sizeof(sv));
-	new_scope.args_type = (TypeID *)calloc(SCOPE_MAX_VARIABLES, sizeof(TypeID));
-	new_scope.variables_name = (sv *)calloc(SCOPE_MAX_VARIABLES, sizeof(sv));
-	new_scope.variables_type = (TypeID *)calloc(SCOPE_MAX_VARIABLES, sizeof(TypeID));
-	vec_append(&compiler->scopes, new_scope);
+	LexicalScope *new_scope = compiler->scopes + compiler->scopes_length;
+	compiler->scopes_length += 1;
+	*new_scope = {};
 }
 
 void compiler_pop_scope(Compiler *compiler)
 {
-	if (compiler->scopes.length == 0) {
+	if (compiler->scopes_length == 0) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
 		return;
 	}
-
-	uint32_t last_scope_index = compiler->scopes.length - 1;
-	LexicalScope *current_scope = vec_at(&compiler->scopes, last_scope_index);
-	free(current_scope->variables_name);
-	free(current_scope->variables_type);
-	free(current_scope->args_name);
-	free(current_scope->args_type);
-	vec_swap_remove(&compiler->scopes, last_scope_index);
+	
+	compiler->scopes_length -= 1;
 }
 
 bool compiler_push_variable(Compiler *compiler, const Token *identifier_token, TypeID type, uint32_t *i_variable_out)
 {
-	if (compiler->scopes.length >= compiler->scopes.capacity) {
+	if (compiler->scopes_length >= ARRAY_LENGTH(compiler->scopes)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
 		return false;
 	}
 
-	uint32_t last_scope_index = compiler->scopes.length - 1;
-	LexicalScope *current_scope = vec_at(&compiler->scopes, last_scope_index);
+	uint32_t last_scope_index = compiler->scopes_length - 1;
+	LexicalScope *current_scope = compiler->scopes + last_scope_index;
 	if (current_scope->variables_length >= SCOPE_MAX_VARIABLES) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
 		return false;
@@ -217,13 +205,13 @@ bool compiler_push_variable(Compiler *compiler, const Token *identifier_token, T
 
 bool compiler_push_arg(Compiler *compiler, const Token *identifier_token, TypeID type, uint32_t *i_arg_out)
 {
-	if (compiler->scopes.length >= compiler->scopes.capacity) {
+	if (compiler->scopes_length >= ARRAY_LENGTH(compiler->scopes)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
 		return false;
 	}
 
-	uint32_t last_scope_index = compiler->scopes.length - 1;
-	LexicalScope *current_scope = vec_at(&compiler->scopes, last_scope_index);
+	uint32_t last_scope_index = compiler->scopes_length - 1;
+	LexicalScope *current_scope = compiler->scopes + last_scope_index;
 	if (current_scope->variables_length >= SCOPE_MAX_VARIABLES) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
 		return false;
@@ -243,15 +231,15 @@ bool compiler_push_arg(Compiler *compiler, const Token *identifier_token, TypeID
 
 bool compiler_lookup_variable(Compiler *compiler, const Token *identifier_token, TypeID *type_out, uint32_t *i_variable_out, bool *is_variable)
 {
-	if (compiler->scopes.length == 0) {
+	if (compiler->scopes_length == 0) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
 		return false;
 	}
 
 	sv tofind_name = sv_substr(compiler->compunit->input, identifier_token->span);
 
-	for (uint32_t i_scope = compiler->scopes.length - 1; i_scope < compiler->scopes.length; --i_scope) {
-		LexicalScope *scope = vec_at(&compiler->scopes, i_scope);
+	for (uint32_t i_scope = compiler->scopes_length - 1; i_scope < compiler->scopes_length; --i_scope) {
+		LexicalScope *scope = compiler->scopes + i_scope;
 
 		for (uint32_t i_variable = 0; i_variable < scope->variables_length; ++i_variable) {
 			sv variable_name = scope->variables_name[i_variable];
@@ -291,13 +279,13 @@ static Function *compiler_compile_function(Compiler *compiler,
 	uint32_t i_found_module = 0;
 	uint32_t i_found_function = 0;
 	compiler_lookup_function(compiler, function_name, &i_found_module, &i_found_function);
-	if (i_found_module < compiler->vm->compiler_modules.length || i_found_module < compiler->module.functions_length) {
+	if (i_found_module < compiler->vm->compiler_modules_length || i_found_module < compiler->module.functions_length) {
 		// Actually it should be possible to recompile a function if signature has not changed.
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::DuplicateSymbol);
 		return nullptr;
 	}
 
-	if (current_module->functions_length + 1 > current_module->functions_capacity) {
+	if (current_module->functions_length + 1 > ARRAY_LENGTH(current_module->functions)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
 		return nullptr;
 	}
@@ -405,7 +393,7 @@ TypeID compile_expr(Compiler *compiler, const AstNode *node)
 	}
 
 	if (ast_is_atom(node)) {
-		const Token *token = ast_get_token(&compiler->compunit->tokens, node);
+		const Token *token = ast_get_token(compiler->compunit, node);
 		TypeID return_type = compile_atom(compiler, token);
 		return return_type;
 	} else if (ast_has_left_child(node)) {
@@ -425,7 +413,7 @@ TypeID compile_sexprs_return_last(Compiler *compiler, const AstNode *node)
 
 	uint32_t i_next_expr_node = first_expr_node->right_sibling_index;
 	while (ast_is_valid(i_next_expr_node)) {
-		const AstNode *next_expr_node = ast_get_node(&compiler->compunit->nodes, i_next_expr_node);
+		const AstNode *next_expr_node = ast_get_node(compiler->compunit, i_next_expr_node);
 		return_type = compile_expr(compiler, next_expr_node);
 		i_next_expr_node = next_expr_node->right_sibling_index;
 	}
@@ -533,13 +521,13 @@ TypeID compile_define_foreign(Compiler *compiler, const AstNode *node)
 	uint32_t i_found_module = 0;
 	uint32_t i_found_function = 0;
 	compiler_lookup_function(compiler, function_name_token_str, &i_found_module, &i_found_function);
-	if (i_found_module < compiler->vm->compiler_modules.length || i_found_module < compiler->module.functions_length) {
+	if (i_found_module < compiler->vm->compiler_modules_length || i_found_module < compiler->module.functions_length) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::DuplicateSymbol);
 		compiler->compunit->error.span = node->span;
 		return UNIT_TYPE;
 	}
 
-	if (current_module->functions_length + 1 >= current_module->functions_capacity) {
+	if (current_module->functions_length + 1 >= ARRAY_LENGTH(current_module->functions)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
 		compiler->compunit->error.span = node->span;
 		return UNIT_TYPE;
@@ -597,8 +585,9 @@ TypeID compile_struct(Compiler *compiler, const AstNode *node)
 		}
 	}
 	// Not enough space to add a type
-	if (compiler->module.types_length + 1 >= compiler->module.types_capacity) {
+	if (compiler->module.types_length + 1 >= ARRAY_LENGTH(compiler->module.types)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
+		__debugbreak();
 		compiler->compunit->error.span = node->span;
 		return UNIT_TYPE;
 	}
@@ -720,7 +709,7 @@ TypeID compile_let(Compiler *compiler, const AstNode *node)
 // (begin <expr1> <expr2> ...)
 TypeID compile_begin(Compiler *compiler, const AstNode *node)
 {
-	const AstNode *begin_node = ast_get_left_child(&compiler->compunit->nodes, node);
+	const AstNode *begin_node = ast_get_left_child(compiler->compunit, node);
 	// A begin expression must have at least one expr
 	if (!ast_has_right_sibling(begin_node)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::ExpectedExpr);
@@ -728,7 +717,7 @@ TypeID compile_begin(Compiler *compiler, const AstNode *node)
 		return UNIT_TYPE;
 	}
 
-	const AstNode *first_sexpr = ast_get_right_sibling(&compiler->compunit->nodes, begin_node);
+	const AstNode *first_sexpr = ast_get_right_sibling(compiler->compunit, begin_node);
 	return compile_sexprs_return_last(compiler, first_sexpr);
 }
 
@@ -891,7 +880,7 @@ TypeID compile_field_offset(Compiler *compiler, const AstNode *node)
 	}
 
 	bool is_an_identifier = ast_is_atom(nodes.rhs_node);
-	const Token *field_token = vec_at(&compiler->compunit->tokens, nodes.rhs_node->atom_token_index);
+	const Token *field_token = compiler->compunit->tokens + nodes.rhs_node->atom_token_index;
 	is_an_identifier = is_an_identifier && field_token->kind == TokenKind::Identifier;
 	if (!is_an_identifier) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::ExpectedIdentifier);
@@ -1032,8 +1021,8 @@ static_assert(ARRAY_LENGTH(compiler_expr_builtins_str) == ARRAY_LENGTH(compiler_
 TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 {
 	// Get the function name
-	const AstNode *identifier_node = ast_get_left_child(&compiler->compunit->nodes, function_node);
-	const Token *identifier = ast_get_token(&compiler->compunit->tokens, identifier_node);
+	const AstNode *identifier_node = ast_get_left_child(compiler->compunit, function_node);
+	const Token *identifier = ast_get_token(compiler->compunit, identifier_node);
 	sv identifier_str = sv_substr(compiler->compunit->input, identifier->span);
 
 	// Dispatch to the correct builtin compile function (define, iadd, etc)
@@ -1048,7 +1037,7 @@ TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 	uint32_t i_found_module = 0;
 	uint32_t i_found_function = 0;
 	compiler_lookup_function(compiler, identifier_str, &i_found_module, &i_found_function);
-	bool is_external = i_found_module < compiler->vm->compiler_modules.length;
+	bool is_external = i_found_module < compiler->vm->compiler_modules_length;
 	if (!is_external && i_found_function >= compiler->module.functions_length) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::UnknownSymbol);
 		compiler->compunit->error.span = identifier->span;
@@ -1056,7 +1045,7 @@ TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 	}
 	Function *found_function = nullptr;
 	if (is_external) {
-		found_function = vec_at(&compiler->vm->compiler_modules, i_found_module)->functions + i_found_function;
+		found_function = compiler->vm->compiler_modules[i_found_module].functions + i_found_function;
 	} else {
 		found_function = compiler->module.functions + i_found_function;
 	}
@@ -1065,7 +1054,7 @@ TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 	uint32_t i_sig_arg_type = 0;
 	uint32_t i_arg_node = identifier_node->right_sibling_index;
 	while (ast_is_valid(i_arg_node)) {
-		const AstNode *arg_node = ast_get_node(&compiler->compunit->nodes, i_arg_node);
+		const AstNode *arg_node = ast_get_node(compiler->compunit, i_arg_node);
 		// There is an expr but the signature has ended
 		if (i_sig_arg_type >= found_function->arg_count) {
 			INIT_ERROR(&compiler->compunit->error, ErrorCode::UnexpectedExpression);
@@ -1132,7 +1121,7 @@ TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 
 void compile_module(Compiler *compiler)
 {
-	const AstNode *root_node = vec_at(&compiler->compunit->nodes, 0);
+	const AstNode *root_node = compiler->compunit->nodes;
 
 	// Set instruction #0 to halt to detect invalid jump to 0
 	compiler_push_opcode(compiler, OpCode::Halt);
@@ -1140,16 +1129,16 @@ void compile_module(Compiler *compiler)
 	// Compile every S-expression at root level
 	uint32_t i_root_expr = root_node->left_child_index;
 	while (ast_is_valid(i_root_expr)) {
-		const AstNode *root_expr = ast_get_node(&compiler->compunit->nodes, i_root_expr);
+		const AstNode *root_expr = ast_get_node(compiler->compunit, i_root_expr);
 
 		// Validate that a root S-expression starts with a token
-		const AstNode *first_sexpr_member = ast_get_left_child(&compiler->compunit->nodes, root_expr);
+		const AstNode *first_sexpr_member = ast_get_left_child(compiler->compunit, root_expr);
 		const bool is_an_atom = ast_has_left_child(root_expr) && ast_is_atom(first_sexpr_member);
 		if (!is_an_atom) {
 			INIT_ERROR(&compiler->compunit->error, ErrorCode::ExpectedIdentifier);
 			return;
 		}
-		const Token *atom_token = vec_at(&compiler->compunit->tokens, first_sexpr_member->atom_token_index);
+		const Token *atom_token = compiler->compunit->tokens + first_sexpr_member->atom_token_index;
 		const bool is_an_identifier = atom_token->kind == TokenKind::Identifier;
 		if (!is_an_identifier) {
 			INIT_ERROR(&compiler->compunit->error, ErrorCode::ExpectedIdentifier);
@@ -1178,20 +1167,20 @@ void compile_module(Compiler *compiler)
 void compiler_scan_requires(CompilationUnit *compunit, const Token **out_tokens, uint32_t out_tokens_max_length, uint32_t *out_tokens_written)
 {
 	uint32_t tokens_written = 0;
-	const AstNode *root_node = vec_at(&compunit->nodes, 0);
+	const AstNode *root_node = compunit->nodes;
 
 	uint32_t i_root_expr = root_node->left_child_index;
 	while (ast_is_valid(i_root_expr)) {
-		const AstNode *root_expr = ast_get_node(&compunit->nodes, i_root_expr);
+		const AstNode *root_expr = ast_get_node(compunit, i_root_expr);
 
 		// Validate that a root S-expression starts with a token
-		const AstNode *first_sexpr_member = ast_get_left_child(&compunit->nodes, root_expr);
+		const AstNode *first_sexpr_member = ast_get_left_child(compunit, root_expr);
 		bool is_an_atom = ast_has_left_child(root_expr) && ast_is_atom(first_sexpr_member);
 		if (!is_an_atom) {
 			INIT_ERROR(&compunit->error, ErrorCode::ExpectedIdentifier);
 			return;
 		}
-		const Token *atom_token = vec_at(&compunit->tokens, first_sexpr_member->atom_token_index);
+		const Token *atom_token = compunit->tokens + first_sexpr_member->atom_token_index;
 		const bool is_an_identifier = atom_token->kind == TokenKind::Identifier;
 		if (!is_an_identifier) {
 			INIT_ERROR(&compunit->error, ErrorCode::ExpectedIdentifier);
@@ -1213,7 +1202,7 @@ void compiler_scan_requires(CompilationUnit *compunit, const Token **out_tokens,
 				return;
 			}
 
-			const AstNode *require_path_node = ast_get_right_sibling(&compunit->nodes, first_sexpr_member);
+			const AstNode *require_path_node = ast_get_right_sibling(compunit, first_sexpr_member);
 
 			// Check that the argument is a string
 			is_an_atom = ast_is_atom(require_path_node);
@@ -1222,7 +1211,7 @@ void compiler_scan_requires(CompilationUnit *compunit, const Token **out_tokens,
 				compunit->error.span = require_path_node->span;
 				return;
 			}
-			const Token *require_path_token = vec_at(&compunit->tokens, require_path_node->atom_token_index);
+			const Token *require_path_token = compunit->tokens + require_path_node->atom_token_index;
 			if (require_path_token->kind != TokenKind::StringLiteral) {
 				INIT_ERROR(&compunit->error, ErrorCode::ExpectedString);
 				compunit->error.span = require_path_node->span;

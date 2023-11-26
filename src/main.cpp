@@ -3,7 +3,6 @@
 #include "lexer.cpp"
 #include "parser.cpp"
 #include "compiler.cpp"
-#include "stack_allocator.cpp"
 #include "vm.cpp"
 #include "executor.cpp"
 #include "cross.cpp"
@@ -15,6 +14,7 @@
 #include "sokol_time.h"
 
 #include "cross.h"
+#include "arena.h"
 #include "vm.h"
 
 // options
@@ -180,12 +180,17 @@ int main(int argc, const char *argv[])
 	argv[0] = "";
 	argv[1] = "src";
 	argv[2] = "test";
-
-	
         if (argc < 3) {
                 cross::log(cross::stderr, sv_from_null_terminated("Usage: ode.exe <src dir> <main_module> (-w)\n"));
                 return 1;
         }
+
+	uint32_t persistent_memory_size = 1 << 20;
+	uint8_t *persistent_memory = (uint8_t*)cross::alloc(persistent_memory_size);
+	Arena persistent_arena = {};
+	persistent_arena.begin = persistent_memory;
+	persistent_arena.end = persistent_memory + persistent_memory_size;
+	
         // Paths
         src_dir_arg = sv_from_null_terminated(argv[1]);
         const sv main_module_arg = sv_from_null_terminated(argv[2]);
@@ -221,7 +226,7 @@ int main(int argc, const char *argv[])
         vm_config.load_module = on_load_module;
         vm_config.error_callback = on_error;
         vm_config.foreign_callback = on_foreign;
-        VM *vm = vm_create(vm_config);
+        VM *vm = vm_create(&persistent_arena, vm_config);
         // Watch and execute
         bool stop = !watch_opt;
         do {
@@ -252,7 +257,7 @@ int main(int argc, const char *argv[])
                 }
 
                 if (any_module_changed) {
-                        vm_call(vm, modules_name_sv[0], sv_from_null_terminated("main"));
+                        vm_call(vm, modules_name_sv[0], sv_from_null_terminated("main"), persistent_arena);
 			uint64_t timestamp = stm_now();
 
 			char buf[32] = {};
@@ -270,28 +275,6 @@ int main(int argc, const char *argv[])
 
 extern "C"
 {
-void *heap;
-uint32_t heap_current;
-
-void *malloc(uint32_t size)
-{
-	void *heap_before_alloc = (char*)heap + heap_current;
-	heap_current += size;
-	return heap_before_alloc;
-}
-	
-void *calloc(uint32_t nb, uint32_t size)
-{
-	void *heap_before_alloc = (char*)heap + heap_current;
-	heap_current += nb * size;
-	return heap_before_alloc;
-}
-	
-void free(void*)
-{
-}
-
-
 void *memset(void *dest, int c, size_t count)
 {
 	char *bytes = (char *)dest;
@@ -328,10 +311,6 @@ int _fltused;
 	
 int mainCRTStartup()
 {
-	HANDLE process_heap = GetProcessHeap();
-	uint32_t heap_size = (1 << 20);
-	heap = HeapAlloc(process_heap, HEAP_ZERO_MEMORY, heap_size);
-
 	cross::init();
 
 	int argc = 0;

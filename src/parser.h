@@ -31,7 +31,7 @@ struct Parser
 // Invalid index used for both atom_token_index and node indices
 static constexpr uint32_t INVALID_NODE_INDEX = ~uint32_t(0);
 
-vec<AstNode> parse_module(Parser *parser);
+void parse_module(Parser *parser);
 
 // Helpers for AstNode
 inline bool ast_has_right_sibling(const AstNode *node)
@@ -53,26 +53,12 @@ inline bool ast_is_atom(const AstNode *node)
 {
 	return node->atom_token_index != INVALID_NODE_INDEX;
 }
+
 	
-inline const AstNode *ast_get_node(const vec<AstNode> *ast, uint32_t node_index)
-{
-	return vec_at(ast, node_index);
-}
-	
-inline const AstNode *ast_get_left_child(const vec<AstNode> *ast, const AstNode *node)
-{
-	return vec_at(ast, node->left_child_index);
-}
-	
-inline const AstNode *ast_get_right_sibling(const vec<AstNode> *ast, const AstNode *node)
-{
-	return vec_at(ast, node->right_sibling_index);
-}
-	
-inline const Token *ast_get_token(const vec<Token> *tokens, const AstNode *node)
-{
-	return vec_at(tokens, node->atom_token_index);
-}
+const AstNode *ast_get_node(const CompilationUnit *compunit, uint32_t node_index);
+const AstNode *ast_get_left_child(const CompilationUnit *compunit, const AstNode *node);
+const AstNode *ast_get_right_sibling(const CompilationUnit *compunit, const AstNode *node);
+const Token *ast_get_token(const CompilationUnit *compunit, const AstNode *node);
 
 // Typed nodes
 
