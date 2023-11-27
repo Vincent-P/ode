@@ -5,7 +5,6 @@
 enum struct ErrorCode : uint32_t
 {
 	Ok,
-	LexerDone,
 	LexerUnknownToken,
 	UnexpectedToken,
 	ExpectedTokenGotEof,
@@ -27,7 +26,6 @@ enum struct ErrorCode : uint32_t
 
 inline const char *ErrorCode_str[] = {
 	"Ok",
-	"LexerDone",
 	"LexerUnknownToken",
 	"UnexpectedToken",
 	"ExpectedTokenGotEof",

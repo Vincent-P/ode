@@ -51,7 +51,7 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 	
 	// -- Lex tokens
 	lexer_scan(&compunit);
-	if (compunit.error.code != ErrorCode::LexerDone) {
+	if (compunit.error.code != ErrorCode::Ok) {
 		sv error_str = sv_substr(code, compunit.error.span);
 		
 		StringBuilder sb = string_builder_from_buffer(logbuf);
@@ -68,7 +68,7 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 		result.error = compunit.error;
 		return result;
 	}
-	compunit.error.code = ErrorCode::Ok;	// Reset the result to Ok. TODO: remove lexerdone?
+
 	
 	// -- Parse tokens into a parse tree
 	Parser parser = {};

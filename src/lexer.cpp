@@ -42,7 +42,7 @@ void lexer_scan(CompilationUnit *compunit)
 
 		// End of input
 		if (input_offset >= input.length) {
-			error->code = ErrorCode::LexerDone;
+			error->code = ErrorCode::Ok;
 			break;
 		}
 
