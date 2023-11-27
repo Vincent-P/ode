@@ -196,6 +196,17 @@ inline void string_builder_append(StringBuilder *builder, char c)
 	}
 }
 
+inline void string_builder_append(StringBuilder *builder, float f)
+{
+	uint64_t integral = uint64_t(f);
+	uint64_t decimals = uint64_t((f - float(integral)) * 1e9f);
+
+	string_builder_append(builder, integral);
+	string_builder_append(builder, '.');
+	string_builder_append(builder, decimals);
+}
+
+
 sv string_builder_get_string(StringBuilder *builder)
 {
 	sv result = {};

@@ -60,7 +60,7 @@ static void debug_print_stack(ExecutionContext *ctx, uint32_t sp, uint32_t bp)
 		string_builder_append(&sb, SV("] u32 = "));
 		string_builder_append(&sb, uint64_t(ctx->stack[i].u32));
 		string_builder_append(&sb, SV(" | f32 = "));
-		string_builder_append(&sb, uint64_t(ctx->stack[i].f32));
+		string_builder_append(&sb, ctx->stack[i].f32);
 		if (i == bp) {
 			string_builder_append(&sb, SV("  <-- bp"));
 		}
