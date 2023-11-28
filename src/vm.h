@@ -10,8 +10,6 @@ struct CompilerModule;
 struct Module;
 struct Arena;
 
-using ForeignFn = void (*)(VM *);
-
 struct VMConfig
 {
 	bool (*load_module)(sv module_name, sv *out_code);

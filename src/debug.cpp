@@ -89,12 +89,20 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 			PRINT_U32;
 			break;
 		case OpCode::Call:
-			PRINT_BYTE;
+			PRINT_U32;
+			string_builder_append(&sb, ' ');
 			PRINT_BYTE;
 			break;
 		case OpCode::CallInModule:
 			PRINT_BYTE;
+			string_builder_append(&sb, ' ');
 			PRINT_BYTE;
+			string_builder_append(&sb, ' ');
+			PRINT_BYTE;
+			break;
+		case OpCode::CallForeign:
+			PRINT_BYTE;
+			string_builder_append(&sb, ' ');
 			PRINT_BYTE;
 			break;
 		case OpCode::Ret:

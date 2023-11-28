@@ -355,9 +355,10 @@ static LoadModuleResult load_compiler_module(VM *vm, uint32_t i_compiler_module)
 		uint32_t i_external_module = compiler_module->imported_module_indices[f];
 		const CompilerModule *external_module = vm->compiler_modules + i_external_module;
 		const Function *external_function = external_module->functions + compiler_module->imported_function_indices[f];
+
 		runtime_module->import_module_names[f] = external_module->name;
 		runtime_module->import_names[f] = external_function->name;
-		
+	
 		runtime_module->import_module[f] = 0;
 		runtime_module->import_addresses[f] = 0;
 	}
@@ -373,6 +374,19 @@ static LoadModuleResult load_compiler_module(VM *vm, uint32_t i_compiler_module)
 		}
 	}
 	runtime_module->export_length = export_length;
+	// Fill foreign function data
+	for (uint32_t f = 0; f < compiler_module->foreign_functions_length; ++f) {
+		sv foreign_module_name = compiler_module->foreign_functions_module_name[f];
+		sv foreign_function_name = compiler_module->foreign_functions_name[f];
+		ForeignFn callback = vm->config.foreign_callback(foreign_module_name, foreign_function_name);
+		if (callback == nullptr) {
+			__debugbreak();
+		}
+		runtime_module->foreign_function_module_names[f] = foreign_module_name;
+		runtime_module->foreign_function_names[f] = foreign_function_name;
+		runtime_module->foreign_function_callback[f] = callback;
+	}
+	runtime_module->foreign_function_length = compiler_module->foreign_functions_length;
 	
 	// Link to other modules
 	link_runtime_module(vm, i_runtime_module);

@@ -13,6 +13,8 @@ enum struct OpCode : uint8_t
 	Call,
 	// Call <i_imported_function:i8> <num_args:u8> (arg0, arg1, ..., argN)
 	CallInModule,
+	// Call <i_foreign_function:i8> <num_args:u8> (arg0, arg1, ..., argN)
+	CallForeign,
 	// Ret (value)
 	Ret,
 	// ConditionalJump <offset:i32> (condition)
@@ -52,6 +54,7 @@ inline const char *OpCode_str[] = {
 	"PushU32",
 	"Call",
 	"CallInModule",
+	"CallForeign",
 	"Ret",
 	"ConditionalJump",
 	"Jump",

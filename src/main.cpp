@@ -60,12 +60,12 @@ static bool get_module_path(char *out_path, uint32_t *out_path_length, sv src_di
         return true;
 }
 
-void dummy_foreign_func(VM *)
+void dummy_foreign_func()
 {
         cross::log(cross::stdout, SV("Dummy foreign func.\n"));
 }
 
-void log_foreign_func(VM *)
+void log_foreign_func()
 {
         // StackValue arg0 = execution_get_local(ctx, 0);
         // sv arg0_sv = execution_get_str(ctx, arg0.str);
@@ -73,7 +73,7 @@ void log_foreign_func(VM *)
         cross::log(cross::stderr, SV("log foreign func.\n"));
 }
 
-void logi_foreign_func(VM *)
+void logi_foreign_func()
 {
         // StackValue n = execution_get_local(ctx, 0);
         // printf("\n=== HOST: log(%d) ===\n", n.i32);
@@ -316,7 +316,6 @@ int mainCRTStartup()
 	int argc = 0;
 	const char* argv[5] = {};
 	main(argc, argv);
-	
 	return 0;
 }
 }

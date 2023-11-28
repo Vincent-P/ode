@@ -1,8 +1,5 @@
 (require "testlib")
 
-(define-foreign (log ()) (s str))
-(define-foreign (logi ()) (n i32))
-
 (struct Point
 	(x i32)
 	(y i32))
@@ -22,4 +19,6 @@
 	p)
 
 (define (main i32) ()
-	(fib_rec 8))
+	(let n (fib_rec 8))
+	(logi n)
+	n)

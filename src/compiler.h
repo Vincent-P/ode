@@ -71,6 +71,10 @@ struct CompilerModule
 	uint32_t imported_module_indices[8];
 	uint32_t imported_function_indices[8];
 	uint32_t imported_functions_length;
+	// foreign functions
+	sv foreign_functions_module_name[8];
+	sv foreign_functions_name[8];
+	uint32_t foreign_functions_length;
 	// bytecode for all the functions
 	uint8_t bytecode[1024];
 	uint32_t bytecode_length;

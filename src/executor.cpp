@@ -100,7 +100,7 @@ void call_function(
 		string_builder_append(&sb, SV(OpCode_str[uint8_t(op)]));
 		string_builder_append(&sb, '\n');
 		cross::log(cross::stderr, string_builder_get_string(&sb));
-
+		
 		switch (op) {
 		case OpCode::Halt: {
 			cross::log(cross::stderr, SV("HALT\n"));
@@ -138,6 +138,11 @@ void call_function(
 			// Jump to function
 			ip = function_address;
 			bp = sp;
+
+			string_builder_append(&sb, SV("[DEBUG] | function_address = "));
+			string_builder_append(&sb, uint64_t(function_address));
+			string_builder_append(&sb, '\n');
+			cross::log(cross::stderr, string_builder_get_string(&sb));
 			break;
 		}
 		case OpCode::CallInModule: {
@@ -177,6 +182,34 @@ void call_function(
 			mp = external_module_address;
 			ip = external_function_address;
 			bp = sp;
+			break;
+		}
+		case OpCode::CallForeign: {
+			debug_print_stack(ctx, sp, bp);
+			
+			uint8_t i_foreign_function = bytecode_read_scalar<uint8_t>(ctx, mp, &ip);
+			uint8_t argc = bytecode_read_scalar<uint8_t>(ctx, mp, &ip);
+			
+			ForeignFn callback = ctx->modules[mp].foreign_function_callback[i_foreign_function];
+
+			// debug print
+			string_builder_append(&sb, SV("[DEBUG] | i_foreign_function = "));
+			string_builder_append(&sb, uint64_t(i_foreign_function));
+			string_builder_append(&sb, '\n');
+			cross::log(cross::stderr, string_builder_get_string(&sb));
+			string_builder_append(&sb, SV("[DEBUG] | callback = "));
+			string_builder_append(&sb, uint64_t(callback));
+			string_builder_append(&sb, '\n');
+			cross::log(cross::stderr, string_builder_get_string(&sb));
+			string_builder_append(&sb, SV("[DEBUG] | argc = "));
+			string_builder_append(&sb, uint64_t(argc));
+			string_builder_append(&sb, '\n');
+			cross::log(cross::stderr, string_builder_get_string(&sb));
+
+			callback();
+			
+			// Pop arguments
+			sp = sp - argc;
 			break;
 		}
 		case OpCode::Ret: {

@@ -25,18 +25,24 @@ struct ImportTable
 {
 };
 
+using ForeignFn = void(*)();
 struct Module
 {
 	sv name;
 	sv import_module_names[IMPORT_LENGTH]; // module name
 	sv import_names[IMPORT_LENGTH]; // function name
-	uint32_t import_module[IMPORT_LENGTH]; // either bytecode address OR pointer to host function
-	uint64_t import_addresses[IMPORT_LENGTH]; // either bytecode address OR pointer to host function
+	uint32_t import_module[IMPORT_LENGTH]; // runtime module index
+	uint64_t import_addresses[IMPORT_LENGTH]; // function address in module
 	uint32_t import_length;
 	
 	sv export_names[IMPORT_LENGTH]; // function name
 	uint32_t export_addresses[IMPORT_LENGTH]; // function address
 	uint32_t export_length;
+
+	sv foreign_function_module_names[IMPORT_LENGTH];
+	sv foreign_function_names[IMPORT_LENGTH];
+	ForeignFn foreign_function_callback[IMPORT_LENGTH];
+	uint32_t foreign_function_length;
 
 	uint8_t bytecode[BYTECODE_LENGTH];
 	uint32_t bytecode_len;

@@ -76,6 +76,13 @@ static void compiler_bytecode_call_external(Compiler *compiler, uint8_t i_import
 	compiler_push_scalar(compiler, num_args);
 }
 
+static void compiler_bytecode_call_foreign(Compiler *compiler, uint8_t i_foreign_function, uint8_t num_args)
+{
+	compiler_push_opcode(compiler, OpCode::CallForeign);
+	compiler_push_scalar(compiler, i_foreign_function);
+	compiler_push_scalar(compiler, num_args);
+}
+
 static int32_t *compiler_bytecode_conditional_jump(Compiler *compiler, int32_t offset)
 {
 	compiler_push_opcode(compiler, OpCode::ConditionalJump);
@@ -132,7 +139,8 @@ static void compiler_lookup_function(Compiler *compiler, sv function_name, uint3
 		CompilerModule *imported_module = compiler->vm->compiler_modules + i_imported_module;
 		for (uint32_t i_function = 0; i_function < imported_module->functions_length; ++i_function) {
 			Function *function = imported_module->functions + i_function;
-			if (function->type == FunctionType::Global && sv_equals(function->name, function_name)) {
+			bool is_importable = function->type == FunctionType::Global || function->type == FunctionType::Foreign;
+			if (is_importable && sv_equals(function->name, function_name)) {
 				*out_module = i_import;
 				*out_function = i_function;
 				return;
@@ -551,13 +559,17 @@ TypeID compile_define_foreign(Compiler *compiler, const AstNode *node)
 		function->arg_count += 1;
 	}
 	current_module->functions_length += 1;
-	
-	// -- Compiling	
-	// // Add a debug label to identify functions easily in the bytecode
-	// compiler_bytecode_debug_label(compiler, function_name_token_str);
-	// // push argument variables
-	// compiler_bytecode_call_foreign(compiler);
-	// compiler_bytecode_ret(compiler);
+
+	// Add to foreign function list
+	uint32_t foreign_functions_length = current_module->foreign_functions_length;
+	if (foreign_functions_length + 1 >= ARRAY_LENGTH(current_module->foreign_functions_name)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
+		compiler->compunit->error.span = node->span;
+		return UNIT_TYPE;
+	}
+	current_module->foreign_functions_module_name[foreign_functions_length] = current_module->name;
+	current_module->foreign_functions_name[foreign_functions_length] = function->name;
+	current_module->foreign_functions_length += 1;
 	
 	return return_type;
 }
@@ -587,7 +599,6 @@ TypeID compile_struct(Compiler *compiler, const AstNode *node)
 	// Not enough space to add a type
 	if (compiler->module.types_length + 1 >= ARRAY_LENGTH(compiler->module.types)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode::Fatal);
-		__debugbreak();
 		compiler->compunit->error.span = node->span;
 		return UNIT_TYPE;
 	}
@@ -1089,31 +1100,63 @@ TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 		return UNIT_TYPE;
 	}
 
-	// The found function signature matched
-	if (is_external) {
-		// Insert the external function into our import list
-		CompilerModule *current_module = &compiler->module;
-		uint32_t i_imported_function = 0;
-		
-		for (; i_imported_function < current_module->imported_functions_length; ++i_imported_function)
-		{
-			if (current_module->imported_module_indices[i_imported_function] == i_found_module
-			    && current_module->imported_function_indices[i_imported_function] == i_found_function)
+	// -- The found function signature matched
+	if (found_function->type == FunctionType::Foreign) {
+		uint32_t i_foreign_function = i_found_function;
+		if (is_external) {
+			CompilerModule *external_module = compiler->vm->compiler_modules + i_found_module;
+			
+			// If the foreign function is imported from another module, we need to check
+			// if we have already imported it.
+			CompilerModule *current_module = &compiler->module;
+			uint32_t f = 0;
+			for (; f < current_module->foreign_functions_length; ++f)
 			{
-				break;
+				if (sv_equals(current_module->foreign_functions_name[f],
+					      found_function->name))
+				{
+					break;
+				}
+			}
+			// If we haven't found it, add it to our own import
+			if (f >= current_module->foreign_functions_length)
+			{
+				if (current_module->foreign_functions_length >= ARRAY_LENGTH(current_module->foreign_functions_name)) {
+					__debugbreak();
+				}
+				uint32_t new_f = current_module->foreign_functions_length;
+				current_module->foreign_functions_module_name[new_f] = external_module->name;
+				current_module->foreign_functions_name[new_f] = found_function->name;
+				current_module->foreign_functions_length += 1;
+				i_foreign_function = new_f;
 			}
 		}
-		
-		if (i_imported_function >= current_module->imported_functions_length)
-		{
-			uint32_t new_i = current_module->imported_functions_length;
-			current_module->imported_module_indices[new_i] = i_found_module;
-			current_module->imported_function_indices[new_i] = i_found_function;
-			current_module->imported_functions_length += 1;
+		compiler_bytecode_call_foreign(compiler, i_foreign_function, uint8_t(found_function->arg_count));
+	}
+	else {
+		if (is_external) {
+			// Insert the external function into our import list
+			CompilerModule *current_module = &compiler->module;
+			uint32_t i_imported_function = 0;
+			for (; i_imported_function < current_module->imported_functions_length; ++i_imported_function)
+			{
+				if (current_module->imported_module_indices[i_imported_function] == i_found_module
+				    && current_module->imported_function_indices[i_imported_function] == i_found_function)
+				{
+					break;
+				}
+			}
+			if (i_imported_function >= current_module->imported_functions_length)
+			{
+				uint32_t new_i = current_module->imported_functions_length;
+				current_module->imported_module_indices[new_i] = i_found_module;
+				current_module->imported_function_indices[new_i] = i_found_function;
+				current_module->imported_functions_length += 1;
+			}
+			compiler_bytecode_call_external(compiler, uint8_t(i_imported_function), uint8_t(found_function->arg_count));
+		} else {
+			compiler_bytecode_call(compiler, found_function->address, uint8_t(found_function->arg_count));
 		}
-		compiler_bytecode_call_external(compiler, uint8_t(i_imported_function), uint8_t(found_function->arg_count));
-	} else {
-		compiler_bytecode_call(compiler, found_function->address, uint8_t(found_function->arg_count));
 	}
 
 	return found_function->return_type;

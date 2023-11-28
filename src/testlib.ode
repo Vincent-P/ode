@@ -8,3 +8,7 @@
 		(+ (fib_rec (- n 1)) (fib_rec (- n 2)))))
 
 
+(define-foreign (log ()) (s str))
+(define-foreign (logi ()) (n i32))
+
+
