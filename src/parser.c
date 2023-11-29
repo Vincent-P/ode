@@ -39,39 +39,39 @@ static Token parser_current_token(Parser *parser)
 	if (parser->i_current_token < parser->compunit->tokens_length) {
 		return parser->compunit->tokens[parser->i_current_token];
 	} else {
-		parser->compunit->error.code = ErrorCode::ExpectedTokenGotEof;
-		parser->compunit->error.span = {};
+		parser->compunit->error.code = ErrorCode_ExpectedTokenGotEof;
+		parser->compunit->error.span = (span){0};
 		if (parser->compunit->tokens_length > 0) {
 			const Token *last_token = parser->compunit->tokens + (parser->compunit->tokens_length - 1);
 			parser->compunit->error.span = last_token->span;
 		}
-		return {};
+		return (Token){0};
 	}
 }
 
 static Token parser_expect_token(Parser *parser, TokenKind expect_kind)
 {
-	if (parser->compunit->error.code != ErrorCode::Ok) {
-		return {};
+	if (parser->compunit->error.code != ErrorCode_Ok) {
+		return (Token){0};
 	}
 
 	if (parser->i_current_token >= parser->compunit->tokens_length) {
-		parser->compunit->error.code = ErrorCode::ExpectedTokenGotEof;
-		parser->compunit->error.span = {};
+		parser->compunit->error.code = ErrorCode_ExpectedTokenGotEof;
+		parser->compunit->error.span = (span){0};
 		if (parser->compunit->tokens_length > 0) {
 			const Token *last_token = parser->compunit->tokens + (parser->compunit->tokens_length - 1);
 			parser->compunit->error.span = last_token->span;
 		}
-		return {};
+		return (Token){0};
 	}
 
 	Token token = parser->compunit->tokens[parser->i_current_token];
 
 	if (token.kind == expect_kind) {
 		parser->i_current_token += 1;
-		parser->compunit->error.code = ErrorCode::Ok;
+		parser->compunit->error.code = ErrorCode_Ok;
 	} else {
-		parser->compunit->error.code = ErrorCode::UnexpectedToken;
+		parser->compunit->error.code = ErrorCode_UnexpectedToken;
 		parser->compunit->error.span = token.span;
 		parser->expected_token_kind = expect_kind;
 	}
@@ -80,7 +80,7 @@ static Token parser_expect_token(Parser *parser, TokenKind expect_kind)
 
 static uint32_t parser_push_ast_node_atom(Parser *parser, uint32_t token_index)
 {
-	AstNode new_node = {};
+	AstNode new_node = {0};
 	new_node.atom_token_index = token_index;
 	new_node.left_child_index = INVALID_NODE_INDEX;
 	new_node.right_sibling_index = INVALID_NODE_INDEX;
@@ -93,7 +93,7 @@ static uint32_t parser_push_ast_node_atom(Parser *parser, uint32_t token_index)
 
 static uint32_t parser_push_ast_node_sexpr(Parser *parser, uint32_t first_child_index)
 {
-	AstNode new_node = {};
+	AstNode new_node = {0};
 	new_node.atom_token_index = INVALID_NODE_INDEX;
 	new_node.right_sibling_index = INVALID_NODE_INDEX;
 	new_node.left_child_index = first_child_index;
@@ -111,8 +111,8 @@ static uint32_t parse_atom(Parser *parser)
 {
 	Token current_token = parser_current_token(parser);
 
-	bool is_a_valid_atom = current_token.kind == TokenKind::Number || current_token.kind == TokenKind::Identifier
-	                       || current_token.kind == TokenKind::StringLiteral;
+	bool is_a_valid_atom = current_token.kind == TokenKind_Number || current_token.kind == TokenKind_Identifier
+	                       || current_token.kind == TokenKind_StringLiteral;
 	if (is_a_valid_atom) {
 		uint32_t new_node_index = parser_push_ast_node_atom(parser, parser->i_current_token);
 		AstNode *new_node = parser->compunit->nodes + new_node_index;
@@ -122,9 +122,9 @@ static uint32_t parse_atom(Parser *parser)
 		}
 		return new_node_index;
 	} else {
-		parser->compunit->error.code = ErrorCode::UnexpectedToken;
+		parser->compunit->error.code = ErrorCode_UnexpectedToken;
 		parser->compunit->error.span = current_token.span;
-		parser->expected_token_kind = TokenKind::Number;
+		parser->expected_token_kind = TokenKind_Number;
 		return parser->compunit->nodes_length;
 	}
 }
@@ -135,12 +135,12 @@ static uint32_t parse_expression(Parser *parser);
 // () | (identifier exp*)
 static uint32_t parse_s_expression(Parser *parser)
 {
-	auto left_paren_token = parser_expect_token(parser, TokenKind::LeftParen);
+	Token left_paren_token = parser_expect_token(parser, TokenKind_LeftParen);
 	(void)(left_paren_token);
 
 	Token peek_token = parser_current_token(parser);
 	// 0  - Empty list
-	if (peek_token.kind == TokenKind::RightParen) {
+	if (peek_token.kind == TokenKind_RightParen) {
 		parser->i_current_token += 1;
 		return parser_push_ast_node_sexpr(parser, INVALID_NODE_INDEX);
 	}
@@ -152,8 +152,8 @@ static uint32_t parse_s_expression(Parser *parser)
 	// 2+ - arguments to evaluate the first symbol
 	peek_token = parser_current_token(parser);
 	AstNode *current_child = parser->compunit->nodes + first_expr_node_index;
-	while (peek_token.kind != TokenKind::RightParen && peek_token.kind != TokenKind::Invalid
-		   && parser->compunit->error.code == ErrorCode::Ok) {
+	while (peek_token.kind != TokenKind_RightParen && peek_token.kind != TokenKind_Invalid
+		   && parser->compunit->error.code == ErrorCode_Ok) {
 		const uint32_t new_expr_node_index = parse_expression(parser);
 		current_child->right_sibling_index = new_expr_node_index;
 
@@ -164,7 +164,7 @@ static uint32_t parse_s_expression(Parser *parser)
 		peek_token = parser_current_token(parser);
 	}
 
-	auto right_paren_token = parser_expect_token(parser, TokenKind::RightParen);
+	Token right_paren_token = parser_expect_token(parser, TokenKind_RightParen);
 
 	AstNode *sexpr_node = parser->compunit->nodes + sexpr_node_index;
 	sexpr_node->span = span_extend(left_paren_token.span, right_paren_token.span);
@@ -176,7 +176,7 @@ static uint32_t parse_s_expression(Parser *parser)
 static uint32_t parse_expression(Parser *parser)
 {
 	Token i_current_token = parser_current_token(parser);
-	if (i_current_token.kind == TokenKind::LeftParen) {
+	if (i_current_token.kind == TokenKind_LeftParen) {
 		return parse_s_expression(parser);
 	} else {
 		return parse_atom(parser);
@@ -199,7 +199,7 @@ void parse_module(Parser *parser)
 			current_child->right_sibling_index = expr_node_index;
 		}
 		current_child = parser->compunit->nodes + expr_node_index;
-		if (parser->compunit->error.code != ErrorCode::Ok)
+		if (parser->compunit->error.code != ErrorCode_Ok)
 			break;
 	}
 }
@@ -216,7 +216,7 @@ TypeID parse_type(CompilationUnit *compunit, CompilerModule *module, const AstNo
 		for (uint32_t i_builtin_type = 0; i_builtin_type < ARRAY_LENGTH(BuiltinTypeKind_str); ++i_builtin_type) {
 			const char *builtin_str = BuiltinTypeKind_str[i_builtin_type];
 			if (sv_equals(identifier_str, sv_from_null_terminated(builtin_str))) {
-				return type_id_new_builtin(BuiltinTypeKind(i_builtin_type));
+				return type_id_new_builtin((BuiltinTypeKind)i_builtin_type);
 			}
 		}
 
@@ -228,7 +228,7 @@ TypeID parse_type(CompilationUnit *compunit, CompilerModule *module, const AstNo
 		}
 
 		// We haven't found any named type
-		INIT_ERROR(&compunit->error, ErrorCode::UnknownSymbol);
+		INIT_ERROR(&compunit->error, ErrorCode_UnknownSymbol);
 		compunit->error.span = node->span;
 		return UNIT_TYPE;
 	} else {
@@ -241,13 +241,13 @@ TypeID parse_type(CompilationUnit *compunit, CompilerModule *module, const AstNo
 		const AstNode *child0 = ast_get_left_child(compunit, node);
 		// The type is a S-expr, either it is a unit type () or a form starting with a TOKEN
 		if (!ast_is_atom(child0)) {
-			INIT_ERROR(&compunit->error, ErrorCode::ExpectedIdentifier);
+			INIT_ERROR(&compunit->error, ErrorCode_ExpectedIdentifier);
 			compunit->error.span = child0->span;
 			return UNIT_TYPE;
 		}
 		// Assert that there is at least one argument
 		if (!ast_has_right_sibling(child0)) {
-			INIT_ERROR(&compunit->error, ErrorCode::ExpectedExpr);
+			INIT_ERROR(&compunit->error, ErrorCode_ExpectedExpr);
 			compunit->error.span = node->span;
 			return UNIT_TYPE;
 		}
@@ -255,7 +255,7 @@ TypeID parse_type(CompilationUnit *compunit, CompilerModule *module, const AstNo
 		// Assert that there is only one argument
 		if (ast_has_right_sibling(child1)) {
 			const AstNode *child2 = ast_get_right_sibling(compunit, child1);
-			INIT_ERROR(&compunit->error, ErrorCode::UnexpectedExpression);
+			INIT_ERROR(&compunit->error, ErrorCode_UnexpectedExpression);
 			compunit->error.span = child2->span;
 			return UNIT_TYPE;
 		}
@@ -271,7 +271,7 @@ TypeID parse_type(CompilationUnit *compunit, CompilerModule *module, const AstNo
 		}
 
 		// We haven't found any builtin
-		INIT_ERROR(&compunit->error, ErrorCode::UnknownSymbol);
+		INIT_ERROR(&compunit->error, ErrorCode_UnknownSymbol);
 		compunit->error.span = token->span;
 		return UNIT_TYPE;
 	}
@@ -282,7 +282,7 @@ TypeID parse_type(CompilationUnit *compunit, CompilerModule *module, const AstNo
 void parse_define_sig(CompilationUnit *compunit, const AstNode *node, DefineNode *output)
 {
 	if (node->child_count < 3) {
-		INIT_ERROR(&compunit->error, ErrorCode::ExpectedExpr);
+		INIT_ERROR(&compunit->error, ErrorCode_ExpectedExpr);
 		compunit->error.span = node->span;
 		return;
 	}
@@ -293,14 +293,14 @@ void parse_define_sig(CompilationUnit *compunit, const AstNode *node, DefineNode
 
 	// Get the function name node
 	if (name_type_node->child_count != 2) {
-		INIT_ERROR(&compunit->error, ErrorCode::ExpectedExpr);
+		INIT_ERROR(&compunit->error, ErrorCode_ExpectedExpr);
 		compunit->error.span = node->span;
 		return;
 	}
 
 	const AstNode *function_name_node = ast_get_left_child(compunit, name_type_node);
 	if (!ast_is_atom(function_name_node)) {
-		INIT_ERROR(&compunit->error, ErrorCode::ExpectedIdentifier);
+		INIT_ERROR(&compunit->error, ErrorCode_ExpectedIdentifier);
 		compunit->error.span = node->span;
 		return;
 	}
@@ -315,16 +315,16 @@ void parse_define_sig(CompilationUnit *compunit, const AstNode *node, DefineNode
 	while (ast_is_valid(i_arg_node)) {
 		const AstNode *arg_name_node = ast_get_node(compunit, i_arg_node);
 		const Token *arg_name = ast_get_token(compunit, arg_name_node);
-		const bool arg_is_an_identifier = ast_is_atom(arg_name_node) && arg_name->kind == TokenKind::Identifier;
+		const bool arg_is_an_identifier = ast_is_atom(arg_name_node) && arg_name->kind == TokenKind_Identifier;
 		if (!arg_is_an_identifier) {
-			INIT_ERROR(&compunit->error, ErrorCode::ExpectedIdentifier);
+			INIT_ERROR(&compunit->error, ErrorCode_ExpectedIdentifier);
 			compunit->error.span = arglist_node->span;
 			return;
 		}
 
 		const AstNode *arg_type_node = ast_get_right_sibling(compunit, arg_name_node);
 		if (!ast_has_right_sibling(arg_name_node)) {
-			INIT_ERROR(&compunit->error, ErrorCode::ExpectedExpr);
+			INIT_ERROR(&compunit->error, ErrorCode_ExpectedExpr);
 			compunit->error.span = arglist_node->span;
 			return;
 		}
@@ -340,7 +340,7 @@ void parse_define_sig(CompilationUnit *compunit, const AstNode *node, DefineNode
 void parse_define_body(CompilationUnit *compunit, const AstNode *node, DefineNode *output)
 {
 	if (!ast_has_right_sibling(output->arglist_node)) {
-		INIT_ERROR(&compunit->error, ErrorCode::ExpectedExpr);
+		INIT_ERROR(&compunit->error, ErrorCode_ExpectedExpr);
 		compunit->error.span = node->span;
 		return;
 	}
@@ -355,7 +355,7 @@ void parse_struct(CompilationUnit *compunit, const AstNode *node, StructNode *ou
 	// Get struct name node
 	const AstNode *struct_name_node = ast_get_right_sibling(compunit, struct_token_node);
 	if (!ast_has_right_sibling(struct_token_node) || !ast_is_atom(struct_name_node)) {
-		INIT_ERROR(&compunit->error, ErrorCode::ExpectedIdentifier);
+		INIT_ERROR(&compunit->error, ErrorCode_ExpectedIdentifier);
 		compunit->error.span = node->span;
 		return;
 	}
@@ -364,7 +364,7 @@ void parse_struct(CompilationUnit *compunit, const AstNode *node, StructNode *ou
 	// Get fields
 	// Get the first field (a struct MUST have at least one field)
 	if (!ast_has_right_sibling(struct_name_node)) {
-		INIT_ERROR(&compunit->error, ErrorCode::ExpectedExpr);
+		INIT_ERROR(&compunit->error, ErrorCode_ExpectedExpr);
 		compunit->error.span = node->span;
 		return;
 	}
@@ -375,27 +375,27 @@ void parse_struct(CompilationUnit *compunit, const AstNode *node, StructNode *ou
 		// Get the field name
 		const AstNode *field_identifier_node = ast_get_left_child(compunit, field_node);
 		if (!ast_has_left_child(field_node)) {
-			INIT_ERROR(&compunit->error, ErrorCode::ExpectedIdentifier);
+			INIT_ERROR(&compunit->error, ErrorCode_ExpectedIdentifier);
 			compunit->error.span = field_node->span;
 			return;
 		}
 		const Token *field_identifier_token = ast_get_token(compunit, field_identifier_node);
 		const bool is_an_identifier_token_node =
-			ast_is_atom(field_identifier_node) && field_identifier_token->kind == TokenKind::Identifier;
+			ast_is_atom(field_identifier_node) && field_identifier_token->kind == TokenKind_Identifier;
 		if (!is_an_identifier_token_node) {
-			INIT_ERROR(&compunit->error, ErrorCode::ExpectedIdentifier);
+			INIT_ERROR(&compunit->error, ErrorCode_ExpectedIdentifier);
 			compunit->error.span = field_identifier_node->span;
 			return;
 		}
 		// Get the field type
 		if (!ast_has_right_sibling(field_identifier_node)) {
-			INIT_ERROR(&compunit->error, ErrorCode::ExpectedExpr);
+			INIT_ERROR(&compunit->error, ErrorCode_ExpectedExpr);
 			compunit->error.span = field_node->span;
 			return;
 		}
 		const AstNode *field_type_node = ast_get_right_sibling(compunit, field_identifier_node);
 		if (fields_length > MAX_STRUCT_FIELDS) {
-			INIT_ERROR(&compunit->error, ErrorCode::Fatal);
+			INIT_ERROR(&compunit->error, ErrorCode_Fatal);
 			compunit->error.span = field_identifier_node->span;
 			return;
 		}
@@ -414,9 +414,9 @@ void parse_if(CompilationUnit *compunit, const AstNode *node, IfNode *output)
 {
 	if (node->child_count != 4) {
 		if (node->child_count > 4) {
-			INIT_ERROR(&compunit->error, ErrorCode::UnexpectedExpression);
+			INIT_ERROR(&compunit->error, ErrorCode_UnexpectedExpression);
 		} else {
-			INIT_ERROR(&compunit->error, ErrorCode::ExpectedExpr);
+			INIT_ERROR(&compunit->error, ErrorCode_ExpectedExpr);
 		}
 		compunit->error.span = node->span;
 		return;
@@ -433,9 +433,9 @@ void parse_let(CompilationUnit *compunit, const AstNode *node, LetNode *output)
 {
 	if (node->child_count != 3) {
 		if (node->child_count > 3) {
-			INIT_ERROR(&compunit->error, ErrorCode::UnexpectedExpression);
+			INIT_ERROR(&compunit->error, ErrorCode_UnexpectedExpression);
 		} else {
-			INIT_ERROR(&compunit->error, ErrorCode::ExpectedExpr);
+			INIT_ERROR(&compunit->error, ErrorCode_ExpectedExpr);
 		}
 		compunit->error.span = node->span;
 		return;
@@ -451,9 +451,9 @@ void parse_binary_op(CompilationUnit *compunit, const AstNode *node, BinaryOpNod
 {
 	if (node->child_count != 3) {
 		if (node->child_count > 3) {
-			INIT_ERROR(&compunit->error, ErrorCode::UnexpectedExpression);
+			INIT_ERROR(&compunit->error, ErrorCode_UnexpectedExpression);
 		} else {
-			INIT_ERROR(&compunit->error, ErrorCode::ExpectedExpr);
+			INIT_ERROR(&compunit->error, ErrorCode_ExpectedExpr);
 		}
 		compunit->error.span = node->span;
 		return;
@@ -469,9 +469,9 @@ void parse_unary_op(CompilationUnit *compunit, const AstNode *node, UnaryOpNode 
 {
 	if (node->child_count != 2) {
 		if (node->child_count > 2) {
-			INIT_ERROR(&compunit->error, ErrorCode::UnexpectedExpression);
+			INIT_ERROR(&compunit->error, ErrorCode_UnexpectedExpression);
 		} else {
-			INIT_ERROR(&compunit->error, ErrorCode::ExpectedExpr);
+			INIT_ERROR(&compunit->error, ErrorCode_ExpectedExpr);
 		}
 		compunit->error.span = node->span;
 		return;
@@ -487,9 +487,9 @@ void parse_field(CompilationUnit *compunit, const AstNode *node, FieldNode *outp
 {
 	if (node->child_count != 3) {
 		if (node->child_count > 3) {
-			INIT_ERROR(&compunit->error, ErrorCode::UnexpectedExpression);
+			INIT_ERROR(&compunit->error, ErrorCode_UnexpectedExpression);
 		} else {
-			INIT_ERROR(&compunit->error, ErrorCode::ExpectedExpr);
+			INIT_ERROR(&compunit->error, ErrorCode_ExpectedExpr);
 		}
 		compunit->error.span = node->span;
 		return;
@@ -500,8 +500,8 @@ void parse_field(CompilationUnit *compunit, const AstNode *node, FieldNode *outp
 	const AstNode *field_identifier_node = ast_get_right_sibling(compunit, expr_node);
 
 	const Token *field_identifier_token = ast_get_token(compunit, field_identifier_node);
-	if (!ast_is_atom(field_identifier_node) || field_identifier_token->kind != TokenKind::Identifier) {
-		INIT_ERROR(&compunit->error, ErrorCode::ExpectedIdentifier);
+	if (!ast_is_atom(field_identifier_node) || field_identifier_token->kind != TokenKind_Identifier) {
+		INIT_ERROR(&compunit->error, ErrorCode_ExpectedIdentifier);
 		compunit->error.span = field_identifier_node->span;
 		return;
 	}
@@ -515,9 +515,9 @@ void parse_ptr_offset(CompilationUnit *compunit, const AstNode *node, PtrOffsetN
 {
 	if (node->child_count != 4) {
 		if (node->child_count > 4) {
-			INIT_ERROR(&compunit->error, ErrorCode::UnexpectedExpression);
+			INIT_ERROR(&compunit->error, ErrorCode_UnexpectedExpression);
 		} else {
-			INIT_ERROR(&compunit->error, ErrorCode::ExpectedExpr);
+			INIT_ERROR(&compunit->error, ErrorCode_ExpectedExpr);
 		}
 		compunit->error.span = node->span;
 		return;

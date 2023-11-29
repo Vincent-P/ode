@@ -2,29 +2,29 @@
 #include "lexer.h"
 #include "type_id.h"
 
-enum struct ErrorCode : uint32_t
+typedef enum ErrorCode
 {
-	Ok,
-	LexerUnknownToken,
-	UnexpectedToken,
-	ExpectedTokenGotEof,
-	ExpectedStruct,
-	ExpectedIdentifier,
-	ExpectedString,
-	ExpectedExpr,
-	UnexpectedIdentifier,
-	UnexpectedExpression,
-	UnknownSymbol,
-	UnknownField,
-	DuplicateSymbol,
-	TooManyArgs,
-	ExpectedTypeGot,
-	Fatal,
-	Assert,
-	Count,
-};
+	ErrorCode_Ok,
+	ErrorCode_LexerUnknownToken,
+	ErrorCode_UnexpectedToken,
+	ErrorCode_ExpectedTokenGotEof,
+	ErrorCode_ExpectedStruct,
+	ErrorCode_ExpectedIdentifier,
+	ErrorCode_ExpectedString,
+	ErrorCode_ExpectedExpr,
+	ErrorCode_UnexpectedIdentifier,
+	ErrorCode_UnexpectedExpression,
+	ErrorCode_UnknownSymbol,
+	ErrorCode_UnknownField,
+	ErrorCode_DuplicateSymbol,
+	ErrorCode_TooManyArgs,
+	ErrorCode_ExpectedTypeGot,
+	ErrorCode_Fatal,
+	ErrorCode_Assert,
+	ErrorCode_Count,
+} ErrorCode;
 
-inline const char *ErrorCode_str[] = {
+const char *ErrorCode_str[] = {
 	"Ok",
 	"LexerUnknownToken",
 	"UnexpectedToken",
@@ -45,7 +45,7 @@ inline const char *ErrorCode_str[] = {
 	"Count",
 };
 
-struct Error
+typedef struct Error
 {
 	ErrorCode code;
 
@@ -59,12 +59,12 @@ struct Error
 	TypeID got_type;
 	uint64_t ip;
 	uint32_t i_function;
-};
+} Error;
 
 inline void error_trigger(Error *error, ErrorCode code, sv condition_str, sv file, int line)
 {
 	// Don't hide errors
-	if (error->code != ErrorCode::Ok) {
+	if (error->code != ErrorCode_Ok) {
 		return;
 	}
 

@@ -1,28 +1,24 @@
 #pragma once
 #include "core.h"
 
-namespace cross
-{
-void init();
+void cross_init(void);
 
 // -- io
-uint64_t get_file_last_write(const char *path, size_t path_length);
+uint64_t cross_get_file_last_write(const char *path, size_t path_length);
 
-struct ReadFileResult
+typedef struct ReadFileResult
 {
 	sv content;
 	bool success;
-};
-ReadFileResult read_entire_file(const char* filepath);
+} ReadFileResult;
+ReadFileResult cross_read_entire_file(const char* filepath);
 	
-extern uint64_t stdout;
-extern uint64_t stderr;
-void log(uint64_t handle, sv message);
+extern uint64_t cross_stdout;
+extern uint64_t cross_stderr;
+void cross_log(uint64_t handle, sv message);
 
 // -- threads
-void sleep_ms(unsigned int ms);
+void cross_sleep_ms(unsigned int ms);
 
 // -- memory
-void* alloc(uint32_t size);
-
-} // namespace cross
+void* cross_alloc(uint32_t size);

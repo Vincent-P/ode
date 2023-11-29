@@ -5,11 +5,15 @@
 #define ARRAY_LENGTH(x) sizeof(x) / sizeof(x[0])
 
 // CRT stub
-extern "C"
-{
 void *memset(void *dest, int c, size_t count);
 void *memcpy(void *dest, const void *src, size_t count);
-}
+typedef _Bool bool;
+enum Core_Constants
+{
+	false = 0,
+	true = 1,
+};
+#define nullptr (void*)0
 
 // Text span
 struct span
@@ -17,10 +21,11 @@ struct span
 	uint32_t start;
 	uint32_t end;
 };
+typedef struct span span;
 
 inline span span_extend(span a, span b)
 {
-	return span{
+	return (span){
 		a.start < b.start ? a.start : b.start,
 		a.end > b.end ? a.end : b.end,
 	};
@@ -41,24 +46,22 @@ struct sv
 	const char *chars;
 	uint32_t length;
 };
+typedef struct sv sv;
 
 #define SV(x) sv_from_null_terminated(x)
-constexpr sv sv_from_null_terminated(const char *null_terminated)
+#define SV_LIT(x) {.chars = x, .length = sizeof(x)-1}
+
+inline sv sv_from_null_terminated(const char *null_terminated)
 {
 	uint32_t size = 0;
 	while (null_terminated[size] != '\0')
 		size += 1;
-	return sv{null_terminated, size};
-}
-
-inline sv sv_substr(sv s, uint32_t offset, uint32_t length)
-{
-	return sv{s.chars + offset, length};
+	return (sv){null_terminated, size};
 }
 
 inline sv sv_substr(sv s, span span)
 {
-	return sv{s.chars + span.start, span_length(span)};
+	return (sv){s.chars + span.start, span_length(span)};
 }
 
 inline bool sv_equals(sv a, sv b)
@@ -87,7 +90,7 @@ inline int32_t sv_to_int(sv string)
 	const char *cursor = string.chars;
 	const char *end = cursor + string.length;
 	while (cursor < end) {
-		n = n * 10 + int(*cursor - '0');
+		n = n * 10 + (int)(*cursor - '0');
 		cursor += 1;
 	}
 	return n;
@@ -98,33 +101,7 @@ inline sv sv_offset(sv string, uint32_t offset)
 	if (offset > string.length) {
 		offset = string.length;
 	}
-	return sv{string.chars + offset, string.length - offset};
-}
-
-// Small vector
-template <typename T>
-struct slice
-{
-	T *elements;
-	uint32_t length;
-};
-
-template<typename T, size_t N>
-inline slice<T> slice_from_array(T (&arr)[N])
-{
-	slice<T> s = {};
-	s.elements = arr;
-	s.length = N;
-	return s;
-}
-
-template<typename T>
-inline slice<T> slice_from_buffer(T *buf, uint32_t count)
-{
-	slice<T> s = {};
-	s.elements = buf;
-	s.length = count;
-	return s;
+	return (sv){string.chars + offset, string.length - offset};
 }
 
 // string builder
@@ -134,27 +111,18 @@ struct StringBuilder
 	uint32_t size;
 	uint32_t capacity;
 };
+typedef struct StringBuilder StringBuilder;
 
-template<size_t N>
-inline StringBuilder string_builder_from_buffer(char (&arr)[N])
+inline StringBuilder string_builder_from_buffer(char *buf, uint32_t bufsize)
 {
-	StringBuilder builder = {};
-	builder.buffer = arr;
-	builder.size = 0;
-	builder.capacity = N;
-	return builder;
-}
-
-inline StringBuilder string_builder_from_buffer_size(char *buf, uint32_t bufsize)
-{
-	StringBuilder builder = {};
+	StringBuilder builder = {0};
 	builder.buffer = buf;
 	builder.size = 0;
 	builder.capacity = bufsize;
 	return builder;
 }
 
-inline void string_builder_append(StringBuilder *builder, sv content)
+inline void string_builder_append_sv(StringBuilder *builder, sv content)
 {
 	uint32_t size = builder->size;
 	uint32_t cap = builder->capacity;
@@ -166,7 +134,7 @@ inline void string_builder_append(StringBuilder *builder, sv content)
 	builder->size += i;
 }
 
-inline void string_builder_append(StringBuilder *builder, uint64_t n)
+inline void string_builder_append_u64(StringBuilder *builder, uint64_t n)
 {
 	// largest power of 10 greater than n
 	uint32_t divisor = 1;
@@ -186,7 +154,7 @@ inline void string_builder_append(StringBuilder *builder, uint64_t n)
 	builder->size += i;
 }
 
-inline void string_builder_append(StringBuilder *builder, char c)
+inline void string_builder_append_char(StringBuilder *builder, char c)
 {
 	uint32_t size = builder->size;
 	uint32_t cap = builder->capacity;
@@ -196,20 +164,20 @@ inline void string_builder_append(StringBuilder *builder, char c)
 	}
 }
 
-inline void string_builder_append(StringBuilder *builder, float f)
+inline void string_builder_append_f32(StringBuilder *builder, float f)
 {
-	uint64_t integral = uint64_t(f);
-	uint64_t decimals = uint64_t((f - float(integral)) * 1e9f);
+	uint64_t integral = (uint64_t)(f);
+	uint64_t decimals = (uint64_t)((f - (float)(integral)) * 1e9f);
 
-	string_builder_append(builder, integral);
-	string_builder_append(builder, '.');
-	string_builder_append(builder, decimals);
+	string_builder_append_u64(builder, integral);
+	string_builder_append_char(builder, '.');
+	string_builder_append_u64(builder, decimals);
 }
 
 
 sv string_builder_get_string(StringBuilder *builder)
 {
-	sv result = {};
+	sv result = {0};
 	result.chars = builder->buffer;
 	result.length = builder->size;
 	builder->size = 0; // Reset the size to 0 to chain `append` and `get_string`

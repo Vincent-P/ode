@@ -9,7 +9,7 @@
 
 VM *vm_create(Arena *arena, VMConfig config)
 {
-	VM *vm = (VM*)alloc(arena, sizeof(VM));
+	VM *vm = (VM*)arena_alloc(arena, sizeof(VM));
 	vm->config = config;
 	return vm;
 }
@@ -18,52 +18,52 @@ void vm_destroy(VM *vm)
 {
 }
 
-struct CompilationResult
+typedef struct CompilationResult
 {
 	Error error;
 	uint32_t i_compiler_module;
-};
+} CompilationResult;
 
-struct LoadModuleResult
+typedef struct LoadModuleResult
 {
 	Error error;
 	uint32_t i_runtime_module;
-};
+} LoadModuleResult;
 
-struct CompileLoadLinkResult
+typedef struct CompileLoadLinkResult
 {
 	Error error;
 	uint32_t i_compiler_module;
 	uint32_t i_runtime_module;
-};
+} CompileLoadLinkResult;
 
 CompileLoadLinkResult compile_load_link_code(VM *vm, sv module_name, sv code);
 
 // Parse code, compile module.
 static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 {
-	char logbuf[128] = {};
+	char logbuf[128] = {0};
 	
-	CompilationResult result = {};
+	CompilationResult result = {0};
 
-	CompilationUnit compunit = {};
+	CompilationUnit compunit = {0};
 	compunit.input = code;
 	
 	// -- Lex tokens
 	lexer_scan(&compunit);
-	if (compunit.error.code != ErrorCode::Ok) {
+	if (compunit.error.code != ErrorCode_Ok) {
 		sv error_str = sv_substr(code, compunit.error.span);
 		
-		StringBuilder sb = string_builder_from_buffer(logbuf);
+		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 		// # Lexer returned <errorcode>
-		string_builder_append(&sb, SV("# Lexer returned "));
-		string_builder_append(&sb, SV(ErrorCode_str[uint32_t(compunit.error.code)]));
-		string_builder_append(&sb, '\n');
+		string_builder_append_sv(&sb, SV("# Lexer returned "));
+		string_builder_append_sv(&sb, SV(ErrorCode_str[(uint32_t)(compunit.error.code)]));
+		string_builder_append_char(&sb, '\n');
 		// Error at: '<errorstr>'
-		string_builder_append(&sb, SV("Error at: '"));
-		string_builder_append(&sb, error_str);
-		string_builder_append(&sb, SV("'\n"));
-		cross::log(cross::stderr, string_builder_get_string(&sb));
+		string_builder_append_sv(&sb, SV("Error at: '"));
+		string_builder_append_sv(&sb, error_str);
+		string_builder_append_sv(&sb, SV("'\n"));
+		cross_log(cross_stderr, string_builder_get_string(&sb));
 		
 		result.error = compunit.error;
 		return result;
@@ -71,47 +71,47 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 
 	
 	// -- Parse tokens into a parse tree
-	Parser parser = {};
+	Parser parser = {0};
 	parser.compunit = &compunit;
 	parse_module(&parser);
-	if (compunit.error.code != ErrorCode::Ok) {
-		StringBuilder sb = string_builder_from_buffer(logbuf);
+	if (compunit.error.code != ErrorCode_Ok) {
+		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 
-		string_builder_append(&sb, SV("# Parser[token_length: "));
-		string_builder_append(&sb, uint64_t(compunit.tokens_length));
-		string_builder_append(&sb, SV(", i_current_token: "));
-		string_builder_append(&sb, uint64_t(parser.i_current_token));
-		string_builder_append(&sb, SV("] returned "));
-		string_builder_append(&sb, SV(ErrorCode_str[uint32_t(compunit.error.code)]));
-		string_builder_append(&sb, SV("'\n"));
-		cross::log(cross::stderr, string_builder_get_string(&sb));
+		string_builder_append_sv(&sb, SV("# Parser[token_length: "));
+		string_builder_append_u64(&sb, (uint64_t)(compunit.tokens_length));
+		string_builder_append_sv(&sb, SV(", i_current_token: "));
+		string_builder_append_u64(&sb, (uint64_t)(parser.i_current_token));
+		string_builder_append_sv(&sb, SV("] returned "));
+		string_builder_append_sv(&sb, SV(ErrorCode_str[(uint32_t)(compunit.error.code)]));
+		string_builder_append_sv(&sb, SV("'\n"));
+		cross_log(cross_stderr, string_builder_get_string(&sb));
 
 		sv error_str = sv_substr(code, compunit.error.span);
-		string_builder_append(&sb, SV("Error at: '"));
-		string_builder_append(&sb, error_str);
-		string_builder_append(&sb, SV("'\n"));
-		cross::log(cross::stderr, string_builder_get_string(&sb));
+		string_builder_append_sv(&sb, SV("Error at: '"));
+		string_builder_append_sv(&sb, error_str);
+		string_builder_append_sv(&sb, SV("'\n"));
+		cross_log(cross_stderr, string_builder_get_string(&sb));
 
 		if (compunit.tokens_length > 0) {
 			uint32_t i_last_token =
 				parser.i_current_token < compunit.tokens_length ? parser.i_current_token : compunit.tokens_length - 1;
 			const Token *last_token = compunit.tokens + i_last_token;
 			sv last_token_str = sv_substr(compunit.input, last_token->span);
-			const char *token_kind_str = TokenKind_str[uint32_t(last_token->kind)];
+			const char *token_kind_str = TokenKind_str[(uint32_t)(last_token->kind)];
 
-			string_builder_append(&sb, SV("# Last seen token is "));
-			string_builder_append(&sb, SV(token_kind_str));
-			string_builder_append(&sb, '[');
-			string_builder_append(&sb, last_token_str);
-			string_builder_append(&sb, ']');
-			string_builder_append(&sb, '\n');
-			cross::log(cross::stderr, string_builder_get_string(&sb));
+			string_builder_append_sv(&sb, SV("# Last seen token is "));
+			string_builder_append_sv(&sb, SV(token_kind_str));
+			string_builder_append_char(&sb, '[');
+			string_builder_append_sv(&sb, last_token_str);
+			string_builder_append_char(&sb, ']');
+			string_builder_append_char(&sb, '\n');
+			cross_log(cross_stderr, string_builder_get_string(&sb));
 		}
-		if (parser.expected_token_kind != TokenKind::Invalid) {
-			string_builder_append(&sb, SV("# Expected token of kind"));
-			string_builder_append(&sb, SV(TokenKind_str[uint32_t(parser.expected_token_kind)]));
-			string_builder_append(&sb, '\n');
-			cross::log(cross::stderr, string_builder_get_string(&sb));
+		if (parser.expected_token_kind != TokenKind_Invalid) {
+			string_builder_append_sv(&sb, SV("# Expected token of kind"));
+			string_builder_append_sv(&sb, SV(TokenKind_str[(uint32_t)(parser.expected_token_kind)]));
+			string_builder_append_char(&sb, '\n');
+			cross_log(cross_stderr, string_builder_get_string(&sb));
 
 		}
 		result.error = compunit.error;
@@ -119,24 +119,24 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 	}
 
 	// -- Compile dependencies first
-	const Token *require_paths[16] = {};
-	uint32_t dep_module_indices[16] = {};
+	const Token *require_paths[16] = {0};
+	uint32_t dep_module_indices[16] = {0};
 	uint32_t require_paths_length = 0;
 	compiler_scan_requires(&compunit, require_paths, 16, &require_paths_length);
 	if (require_paths_length == 16) {
-		INIT_ERROR(&compunit.error, ErrorCode::Fatal);
-		cross::log(cross::stderr, SV("Too much requires!\n"));
+		INIT_ERROR(&compunit.error, ErrorCode_Fatal);
+		cross_log(cross_stderr, SV("Too much requires!\n"));
 	}
-	if (compunit.error.code != ErrorCode::Ok) {
-		StringBuilder sb = string_builder_from_buffer(logbuf);
+	if (compunit.error.code != ErrorCode_Ok) {
+		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 		Error err = compunit.error;
-		string_builder_append(&sb, err.file);
-		string_builder_append(&sb, ':');
-		string_builder_append(&sb, uint64_t(err.line));
-		string_builder_append(&sb, SV(":0: error: scan_requires[] returned "));
-		string_builder_append(&sb, SV(ErrorCode_str[uint32_t(err.code)]));
-		string_builder_append(&sb, '\n');
-		cross::log(cross::stderr, string_builder_get_string(&sb));
+		string_builder_append_sv(&sb, err.file);
+		string_builder_append_char(&sb, ':');
+		string_builder_append_u64(&sb, (uint64_t)(err.line));
+		string_builder_append_sv(&sb, SV(":0: error: scan_requires[] returned "));
+		string_builder_append_sv(&sb, SV(ErrorCode_str[(uint32_t)(err.code)]));
+		string_builder_append_char(&sb, '\n');
+		cross_log(cross_stderr, string_builder_get_string(&sb));
 		result.error = compunit.error;
 		return result;
 	}
@@ -145,17 +145,17 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 		// HACK: Because string literals are substring of the code (and not properly interned), we have double quotes
 		dep_module_name.chars += 1;
 		dep_module_name.length -= 2;
-		sv dep_input = {};
+		sv dep_input = {0};
 		// Get the code from the load_module callback
 		bool loading_success = vm->config.load_module(dep_module_name, &dep_input);
 		if (!loading_success) {
-			INIT_ERROR(&compunit.error, ErrorCode::Fatal);
+			INIT_ERROR(&compunit.error, ErrorCode_Fatal);
 			result.error = compunit.error;
 			return result;
 		}
 
 		CompileLoadLinkResult dep_result = compile_load_link_code(vm, dep_module_name, dep_input);
-		if (dep_result.error.code != ErrorCode::Ok) {
+		if (dep_result.error.code != ErrorCode_Ok) {
 			result.error = dep_result.error;
 			return result;
 		}
@@ -163,60 +163,60 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 	}
 	
 	// -- Compile the parse tree into bytecode
-	Compiler compiler = {};
+	Compiler compiler = {0};
 	compiler.vm = vm;
 	compiler.compunit = &compunit;
 	compiler.module.name = module_name;
 	compiler.module.imports = dep_module_indices;
 	compiler.module.imports_length = require_paths_length;
 	compile_module(&compiler);
-	if (compunit.error.code != ErrorCode::Ok) {
+	if (compunit.error.code != ErrorCode_Ok) {
 		Error err = compunit.error;
-		StringBuilder sb = string_builder_from_buffer(logbuf);
+		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 		// <file>:<line>:0: error Compiler[] returned <errcode>
-		string_builder_append(&sb, err.file);
-		string_builder_append(&sb, ':');
-		string_builder_append(&sb, uint64_t(err.line));
-		string_builder_append(&sb, SV(":0: error: Compiler[] returned "));
-		string_builder_append(&sb, SV(ErrorCode_str[uint32_t(err.code)]));
-		string_builder_append(&sb, '\n');
-		cross::log(cross::stderr, string_builder_get_string(&sb));
+		string_builder_append_sv(&sb, err.file);
+		string_builder_append_char(&sb, ':');
+		string_builder_append_u64(&sb, (uint64_t)(err.line));
+		string_builder_append_sv(&sb, SV(":0: error: Compiler[] returned "));
+		string_builder_append_sv(&sb, SV(ErrorCode_str[(uint32_t)(err.code)]));
+		string_builder_append_char(&sb, '\n');
+		cross_log(cross_stderr, string_builder_get_string(&sb));
 
 		// Error at: <error_str>
-		string_builder_append(&sb, SV("Error at: "));
+		string_builder_append_sv(&sb, SV("Error at: "));
 		sv error_str = sv_substr(code, err.span);
-		string_builder_append(&sb, error_str);
-		string_builder_append(&sb, '\n');
-		cross::log(cross::stderr, string_builder_get_string(&sb));
+		string_builder_append_sv(&sb, error_str);
+		string_builder_append_char(&sb, '\n');
+		cross_log(cross_stderr, string_builder_get_string(&sb));
 
 		// # expected type #<raw> <type_str>
 		const char *expected_type_str = "(struct)";
 		if (!type_id_is_user_defined(err.expected_type)) {
-			expected_type_str = BuiltinTypeKind_str[uint32_t(err.expected_type.builtin.kind)];
+			expected_type_str = BuiltinTypeKind_str[(uint32_t)(err.expected_type.builtin.kind)];
 		}		
-		string_builder_append(&sb, SV("# expected type #"));
-		string_builder_append(&sb, uint64_t(err.expected_type.raw));
-		string_builder_append(&sb, ' ');
-		string_builder_append(&sb, SV(expected_type_str));
-		string_builder_append(&sb, '\n');
-		cross::log(cross::stderr, string_builder_get_string(&sb));
+		string_builder_append_sv(&sb, SV("# expected type #"));
+		string_builder_append_u64(&sb, (uint64_t)(err.expected_type.raw));
+		string_builder_append_char(&sb, ' ');
+		string_builder_append_sv(&sb, SV(expected_type_str));
+		string_builder_append_char(&sb, '\n');
+		cross_log(cross_stderr, string_builder_get_string(&sb));
 
 		// # got type #<raw> <type_str>
 		const char *got_type_str = "(struct)";
 		if (!type_id_is_user_defined(err.got_type)) {
-			got_type_str = BuiltinTypeKind_str[uint32_t(err.got_type.builtin.kind)];
+			got_type_str = BuiltinTypeKind_str[(uint32_t)(err.got_type.builtin.kind)];
 		}		
-		string_builder_append(&sb, SV("# got type #"));
-		string_builder_append(&sb, uint64_t(err.got_type.raw));
-		string_builder_append(&sb, ' ');
-		string_builder_append(&sb, SV(got_type_str));
-		string_builder_append(&sb, '\n');
-		cross::log(cross::stderr, string_builder_get_string(&sb));
+		string_builder_append_sv(&sb, SV("# got type #"));
+		string_builder_append_u64(&sb, (uint64_t)(err.got_type.raw));
+		string_builder_append_char(&sb, ' ');
+		string_builder_append_sv(&sb, SV(got_type_str));
+		string_builder_append_char(&sb, '\n');
+		cross_log(cross_stderr, string_builder_get_string(&sb));
 		
 		result.error = compunit.error;
 		return result;
 	}
-	cross::log(cross::stderr, SV("\nCompilation success:\n"));
+	cross_log(cross_stderr, SV("\nCompilation success:\n"));
 	for (uint32_t i_import = 0; i_import < compiler.module.imported_functions_length; ++i_import)
 	{
 		uint32_t i_imported_module = compiler.module.imported_module_indices[i_import];
@@ -225,13 +225,13 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 		sv imported_module_name = imported_module->name;
 		sv imported_function_name = imported_module->functions[i_imported_function].name;
 
-		StringBuilder sb = string_builder_from_buffer(logbuf);
-		string_builder_append(&sb, SV("imported function: "));
-		string_builder_append(&sb, imported_module_name);
-		string_builder_append(&sb, ' ');
-		string_builder_append(&sb, imported_function_name);
-		string_builder_append(&sb, '\n');
-		cross::log(cross::stderr, string_builder_get_string(&sb));
+		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
+		string_builder_append_sv(&sb, SV("imported function: "));
+		string_builder_append_sv(&sb, imported_module_name);
+		string_builder_append_char(&sb, ' ');
+		string_builder_append_sv(&sb, imported_function_name);
+		string_builder_append_char(&sb, '\n');
+		cross_log(cross_stderr, string_builder_get_string(&sb));
 	}
 	print_bytecode(compiler.module.bytecode, compiler.module.bytecode_length);
 
@@ -244,8 +244,8 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 	}
 	if (i_module >= vm->compiler_modules_length) {
 		if (i_module >= ARRAY_LENGTH(vm->compiler_modules)) {
-			cross::log(cross::stderr, SV("Fatal: module capacity\n"));
-			INIT_ERROR(&compunit.error, ErrorCode::Fatal);
+			cross_log(cross_stderr, SV("Fatal: module capacity\n"));
+			INIT_ERROR(&compunit.error, ErrorCode_Fatal);
 			result.error = compunit.error;
 			return result;
 		}
@@ -318,7 +318,7 @@ static void link_runtime_module(VM *vm, uint32_t i_runtime_module)
 
 static LoadModuleResult load_compiler_module(VM *vm, uint32_t i_compiler_module)
 {
-	LoadModuleResult result = {};
+	LoadModuleResult result = {0};
 
 	// Find or create runtime module
 	const CompilerModule *compiler_module = vm->compiler_modules + i_compiler_module;
@@ -332,7 +332,7 @@ static LoadModuleResult load_compiler_module(VM *vm, uint32_t i_compiler_module)
 	}
 	if (i_runtime_module >= runtime_modules_length) {
 		if (runtime_modules_length >= ARRAY_LENGTH(vm->runtime_modules)) {
-			INIT_ERROR(&result.error, ErrorCode::Fatal);
+			INIT_ERROR(&result.error, ErrorCode_Fatal);
 			return result;
 		}
 		i_runtime_module = runtime_modules_length;
@@ -367,7 +367,7 @@ static LoadModuleResult load_compiler_module(VM *vm, uint32_t i_compiler_module)
 	uint32_t export_length = 0;
 	for (uint32_t e = 0; e < compiler_module->functions_length && e < max_length; ++e) {
 		const Function *function = compiler_module->functions + e;
-		if (function->type == FunctionType::Global) {
+		if (function->type == FunctionType_Global) {
 			runtime_module->export_names[export_length] = function->name;
 			runtime_module->export_addresses[export_length] = function->address;
 			export_length += 1;
@@ -396,15 +396,15 @@ static LoadModuleResult load_compiler_module(VM *vm, uint32_t i_compiler_module)
 
 CompileLoadLinkResult compile_load_link_code(VM *vm, sv module_name, sv code)
 {
-	CompileLoadLinkResult result = {};
+	CompileLoadLinkResult result = {0};
 	CompilationResult comp_result = compile_code(vm, module_name, code);
-	if (comp_result.error.code != ErrorCode::Ok) {
+	if (comp_result.error.code != ErrorCode_Ok) {
 		result.error = comp_result.error;
 		return result;
 	}
 
 	LoadModuleResult load_result = load_compiler_module(vm, comp_result.i_compiler_module);
-	if (load_result.error.code != ErrorCode::Ok){
+	if (load_result.error.code != ErrorCode_Ok){
 		result.error = load_result.error;
 		return result;
 	}
@@ -421,7 +421,7 @@ Error vm_compile(VM *vm, sv module_name, sv code)
 
 void vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 {	
-	char *log_buffer = (char*)alloc(&temp_mem, 64);
+	char *log_buffer = (char*)arena_alloc(&temp_mem, 64);
 	
 	// Find the function name in the compiler module
 	const uint32_t modules_len = vm->compiler_modules_length;
@@ -432,11 +432,11 @@ void vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 		}
 	}
 	if (i_module >= modules_len) {
-		StringBuilder sb = string_builder_from_buffer_size(log_buffer, 64);
-		string_builder_append(&sb, SV("Compiler module \""));
-		string_builder_append(&sb, module_name);
-		string_builder_append(&sb, SV("\" not found\n"));
-		cross::log(cross::stderr, string_builder_get_string(&sb));
+		StringBuilder sb = string_builder_from_buffer(log_buffer, 64);
+		string_builder_append_sv(&sb, SV("Compiler module \""));
+		string_builder_append_sv(&sb, module_name);
+		string_builder_append_sv(&sb, SV("\" not found\n"));
+		cross_log(cross_stderr, string_builder_get_string(&sb));
 		return;
 	}
 	CompilerModule *module = vm->compiler_modules + i_module;
@@ -450,7 +450,7 @@ void vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 		}
 	}
 	if (i_entrypoint >= functions_len) {
-		cross::log(cross::stderr, SV("main not found\n"));
+		cross_log(cross_stderr, SV("main not found\n"));
 		return;
 	}
 
@@ -463,15 +463,15 @@ void vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 		}
 	}
 	if (i_runtime_module >= runtime_modules_len) {
-		StringBuilder sb = string_builder_from_buffer_size(log_buffer, 64);
-		string_builder_append(&sb, SV("Runtime module \""));
-		string_builder_append(&sb, module_name);
-		string_builder_append(&sb, SV("\" not found\n"));
-		cross::log(cross::stderr, string_builder_get_string(&sb));
+		StringBuilder sb = string_builder_from_buffer(log_buffer, 64);
+		string_builder_append_sv(&sb, SV("Runtime module \""));
+		string_builder_append_sv(&sb, module_name);
+		string_builder_append_sv(&sb, SV("\" not found\n"));
+		cross_log(cross_stderr, string_builder_get_string(&sb));
 		return;
 	}
 	
-	ExecutionContext *exec = static_cast<ExecutionContext *>(alloc(&temp_mem, sizeof(ExecutionContext)));
+	ExecutionContext *exec = (ExecutionContext*)(arena_alloc(&temp_mem, sizeof(ExecutionContext)));
 	exec->modules = vm->runtime_modules;
 	exec->modules_len = vm->runtime_modules_length;
 	call_function(exec, i_runtime_module, entrypoint_address, nullptr, 0);

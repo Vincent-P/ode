@@ -4,9 +4,9 @@
 #include "error.h"
 #include "parser.h"
 
-struct VM;
+typedef struct VM VM;
 
-struct CompilationUnit
+typedef struct CompilationUnit
 {
 	sv input;
 	Error error;
@@ -14,10 +14,9 @@ struct CompilationUnit
 	uint32_t tokens_length;
 	AstNode nodes[4096];
 	Token tokens[4096];
-};
+} CompilationUnit;
 
-const uint32_t SCOPE_MAX_VARIABLES = 16;
-struct LexicalScope
+typedef struct LexicalScope
 {
 	sv args_name[SCOPE_MAX_VARIABLES];
 	TypeID args_type[SCOPE_MAX_VARIABLES];
@@ -26,9 +25,9 @@ struct LexicalScope
 	sv variables_name[SCOPE_MAX_VARIABLES];
 	TypeID variables_type[SCOPE_MAX_VARIABLES];
 	uint32_t variables_length;
-};
+} LexicalScope;
 
-struct UserDefinedType
+typedef struct UserDefinedType
 {
 	sv name;
 	sv field_names[MAX_STRUCT_FIELDS];
@@ -36,16 +35,16 @@ struct UserDefinedType
 	uint32_t field_offsets[MAX_STRUCT_FIELDS];
 	uint32_t field_count;
 	uint32_t size;
-};
+} UserDefinedType;
 
-enum struct FunctionType : uint8_t
+typedef enum FunctionType
 {
-	Local,
-	Global,
-	Foreign
-};
+	FunctionType_Local,
+	FunctionType_Global,
+	FunctionType_Foreign
+} FunctionType;
 
-struct Function
+typedef struct Function
 {
 	sv name;
 	uint32_t address; // offset into the compiler bytecode
@@ -53,9 +52,9 @@ struct Function
 	uint32_t arg_count;
 	TypeID return_type;
 	FunctionType type;
-};
+} Function;
 
-struct CompilerModule
+typedef struct CompilerModule
 {
 	sv name;
 	// functions containes in this module
@@ -78,9 +77,9 @@ struct CompilerModule
 	// bytecode for all the functions
 	uint8_t bytecode[1024];
 	uint32_t bytecode_length;
-};
+} CompilerModule;
 
-struct Compiler
+typedef struct Compiler
 {
 	VM *vm;
 	CompilationUnit *compunit;
@@ -88,7 +87,7 @@ struct Compiler
 	LexicalScope scopes[16];
 	uint32_t scopes_length;
 	CompilerModule module;
-};
+} Compiler;
 	
 void compiler_scan_requires(CompilationUnit *compunit, const Token **out_tokens, uint32_t out_tokens_max_length, uint32_t *out_tokens_written);
 void compile_module(Compiler *compiler);

@@ -1,19 +1,21 @@
 #pragma once
 #include "core.h"
 
-struct CompilationUnit;
+typedef struct CompilationUnit CompilationUnit;
 
-enum struct TokenKind : uint8_t
+enum TokenKind
 {
-	Invalid,
-	LeftParen,
-	RightParen,
-	Number,
-	Identifier,
-	StringLiteral,
-	Count,
+	TokenKind_Invalid,
+	TokenKind_LeftParen,
+	TokenKind_RightParen,
+	TokenKind_Number,
+	TokenKind_Identifier,
+	TokenKind_StringLiteral,
+	TokenKind_Count,
 };
-inline const char *TokenKind_str[] = {
+typedef enum TokenKind TokenKind;
+
+const char *TokenKind_str[] = {
 	"Invalid",
 	"LeftParen",
 	"RightParen",
@@ -21,12 +23,13 @@ inline const char *TokenKind_str[] = {
 	"Identifier",
 	"StringLiteral",
 };
-static_assert(ARRAY_LENGTH(TokenKind_str) == uint64_t(TokenKind::Count));
+_Static_assert(ARRAY_LENGTH(TokenKind_str) == (uint64_t)(TokenKind_Count));
 
 struct Token
 {
 	TokenKind kind;
 	span span;
 };
+typedef struct Token Token;
 
 void lexer_scan(CompilationUnit *compunit);

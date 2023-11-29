@@ -1,54 +1,55 @@
 #pragma once
 #include "core.h"
 
-enum struct OpCode : uint8_t
+enum OpCode
 {
 	// Halt the execution, set to 0 so that uninitialized bytecode halts.
-	Halt = 0,
+	OpCode_Halt = 0,
 	// Do nothing.
-	Nop,
+	OpCode_Nop,
 	// PushU32 <constant:i32>
-	PushU32,
+	OpCode_PushU32,
 	// Call <address:u32> <num_args:u8> (arg0, arg1, ..., argN)
-	Call,
+	OpCode_Call,
 	// Call <i_imported_function:i8> <num_args:u8> (arg0, arg1, ..., argN)
-	CallInModule,
+	OpCode_CallInModule,
 	// Call <i_foreign_function:i8> <num_args:u8> (arg0, arg1, ..., argN)
-	CallForeign,
+	OpCode_CallForeign,
 	// Ret (value)
-	Ret,
+	OpCode_Ret,
 	// ConditionalJump <offset:i32> (condition)
-	ConditionalJump,
+	OpCode_ConditionalJump,
 	// Jump <offset:i32>
-	Jump,
+	OpCode_Jump,
 	// Set a value of an argument (before the function stack)
 	// StoreArg <i_arg:i8> (value)
-	StoreArg,
+	OpCode_StoreArg,
 	// Get a value of an argument
 	// LoadArg <i_arg:i8>
-	LoadArg,
+	OpCode_LoadArg,
 	// Set a value starting from the function stack
 	// StoreLocal <i_local:i8> (value)
-	StoreLocal,
+	OpCode_StoreLocal,
 	// Get a value starting from the function stack
 	// LoadLocal <i_local:i8>
-	LoadLocal,
+	OpCode_LoadLocal,
 	// LoadU32 (ptr)
-	Load32,
+	OpCode_Load32,
 	// StoreU32 (ptr, value)
-	Store32,
+	OpCode_Store32,
 	// AddI32 (arg0, arg1)
-	AddI32,
+	OpCode_AddI32,
 	// SubI32 (arg0, arg1)
-	SubI32,
+	OpCode_SubI32,
 	// LteI32 (arg0, arg1)
-	LteI32,
+	OpCode_LteI32,
 	// Debug instruction with a string
-	DebugLabel,
-	Count,
+	OpCode_DebugLabel,
+	OpCode_Count,
 };
+typedef enum OpCode OpCode;
 
-inline const char *OpCode_str[] = {
+const char *OpCode_str[] = {
 	"Halt",
 	"Nop",
 	"PushU32",
@@ -69,4 +70,4 @@ inline const char *OpCode_str[] = {
 	"LteI32",
 	"DebugLabel",
 };
-static_assert(ARRAY_LENGTH(OpCode_str) == uint8_t(OpCode::Count));
+_Static_assert(ARRAY_LENGTH(OpCode_str) == (uint8_t)(OpCode_Count));

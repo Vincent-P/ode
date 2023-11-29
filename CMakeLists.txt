@@ -8,7 +8,7 @@ project(playground LANGUAGES CXX)
 # RelWithDebInfo 91KB
 
 # Executable with clang freestanding
-# clang++.exe src/main.cpp -o build\ode_size.exe -Os -DUNITY_BUILD -nostdlib -ffreestanding -fuse-ld=lld -fno-stack-check -fno-stack-protector -mno-stack-arg-probe -std=c++20 -lkernel32
+# clang++.exe src/main.c -o build\ode_size.exe -Os -DUNITY_BUILD -nostdlib -ffreestanding -fuse-ld=lld -fno-stack-check -fno-stack-protector -mno-stack-arg-probe -std=c++20 -lkernel32
 # Debug -O0   60KB
 # Release -O2 37B
 # Size -Os    25KB
@@ -20,14 +20,14 @@ set(CMAKE_CXX_FLAGS_RELEASE  "")
 set(CMAKE_CXX_FLAGS "/GS- /Gs1000000000")
 
 add_executable(ode
-src/main.cpp
-src/debug.cpp
-src/lexer.cpp
-src/parser.cpp
-src/compiler.cpp
-src/stack_allocator.cpp
-src/vm.cpp
-src/executor.cpp)
+src/main.c
+src/debug.c
+src/lexer.c
+src/parser.c
+src/compiler.c
+src/stack_allocator.c
+src/vm.c
+src/executor.c)
 
 target_compile_options(ode PRIVATE
     $<$<CXX_COMPILER_ID:Clang,GNU>:-march=native>

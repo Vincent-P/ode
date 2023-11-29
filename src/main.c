@@ -1,11 +1,11 @@
 #if defined(UNITY_BUILD)
-#include "debug.cpp"
-#include "lexer.cpp"
-#include "parser.cpp"
-#include "compiler.cpp"
-#include "vm.cpp"
-#include "executor.cpp"
-#include "cross.cpp"
+#include "debug.c"
+#include "lexer.c"
+#include "parser.c"
+#include "compiler.c"
+#include "vm.c"
+#include "executor.c"
+#include "cross.c"
 #endif
 
 #define _CRT_SECURE_NO_WARNINGS
@@ -18,9 +18,9 @@
 #include "vm.h"
 
 // options
-sv src_dir_arg = {};
+sv src_dir_arg = {0};
 // modules
-using NameBuffer = char[64];
+typedef char NameBuffer[64];
 NameBuffer modules_name[32];
 sv modules_name_sv[32];
 NameBuffer modules_path[32];
@@ -60,36 +60,36 @@ static bool get_module_path(char *out_path, uint32_t *out_path_length, sv src_di
         return true;
 }
 
-void dummy_foreign_func()
+void dummy_foreign_func(void)
 {
-        cross::log(cross::stdout, SV("Dummy foreign func.\n"));
+        cross_log(cross_stdout, SV("Dummy foreign func.\n"));
 }
 
-void log_foreign_func()
+void log_foreign_func(void)
 {
         // StackValue arg0 = execution_get_local(ctx, 0);
         // sv arg0_sv = execution_get_str(ctx, arg0.str);
         // printf("\n=== HOST: log(\"%.*s\") ===\n", int(arg0_sv.length), arg0_sv.chars);
-        cross::log(cross::stderr, SV("log foreign func.\n"));
+        cross_log(cross_stderr, SV("log foreign func.\n"));
 }
 
-void logi_foreign_func()
+void logi_foreign_func(void)
 {
         // StackValue n = execution_get_local(ctx, 0);
         // printf("\n=== HOST: log(%d) ===\n", n.i32);
-        cross::log(cross::stderr, SV("logi foreign func.\n"));
+        cross_log(cross_stderr, SV("logi foreign func.\n"));
 }
 
 ForeignFn on_foreign(sv module_name, sv function_name)
 {
-	char logbuf[64] = {};
-	StringBuilder sb = string_builder_from_buffer(logbuf);
-	string_builder_append(&sb, SV("=== HOST: On foreign function: module "));
-	string_builder_append(&sb, module_name);
-	string_builder_append(&sb, SV(" function "));
-	string_builder_append(&sb, function_name);
-	string_builder_append(&sb, SV(" ===\n"));
-	cross::log(cross::stdout, string_builder_get_string(&sb));
+	char logbuf[64] = {0};
+	StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
+	string_builder_append_sv(&sb, SV("=== HOST: On foreign function: module "));
+	string_builder_append_sv(&sb, module_name);
+	string_builder_append_sv(&sb, SV(" function "));
+	string_builder_append_sv(&sb, function_name);
+	string_builder_append_sv(&sb, SV(" ===\n"));
+	cross_log(cross_stdout, string_builder_get_string(&sb));
 
         if (sv_equals(function_name, sv_from_null_terminated("log"))) {
                 return log_foreign_func;
@@ -102,28 +102,28 @@ ForeignFn on_foreign(sv module_name, sv function_name)
 
 bool on_load_module(sv module_name, sv *out_code)
 {
-	char logbuf[64]  = {};
-	StringBuilder sb = string_builder_from_buffer(logbuf);
+	char logbuf[64]  = {0};
+	StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 	
         // Open the module file
-        char module_path[64] = {};
+        char module_path[64] = {0};
         uint32_t module_path_length = 64;
         bool success = get_module_path(module_path, &module_path_length, src_dir_arg, module_name);
         if (!success) {
                 return false;
         }
-        cross::ReadFileResult file_content = cross::read_entire_file(module_path);
+        ReadFileResult file_content = cross_read_entire_file(module_path);
 	if (!file_content.success) {
-		string_builder_append(&sb, SV("Cannot open file "));
-		string_builder_append(&sb, sv{module_path, module_path_length});
-		string_builder_append(&sb, '\n');
-                cross::log(cross::stderr, string_builder_get_string(&sb));
+		string_builder_append_sv(&sb, SV("Cannot open file "));
+		string_builder_append_sv(&sb, (sv){module_path, module_path_length});
+		string_builder_append_char(&sb, '\n');
+                cross_log(cross_stderr, string_builder_get_string(&sb));
                 return false;
 	}
-	string_builder_append(&sb, SV("Load module: "));
-	string_builder_append(&sb, sv{module_path, module_path_length-1});
-	string_builder_append(&sb, '\n');
-        cross::log(cross::stderr, string_builder_get_string(&sb));
+	string_builder_append_sv(&sb, SV("Load module: "));
+	string_builder_append_sv(&sb, (sv){module_path, module_path_length-1});
+	string_builder_append_char(&sb, '\n');
+        cross_log(cross_stderr, string_builder_get_string(&sb));
 
         *out_code = file_content.content;
         // Register the module in our modules array
@@ -153,25 +153,25 @@ bool on_load_module(sv module_name, sv *out_code)
         return true;
 }
 
-void on_error(VM *, Error err)
+void on_error(VM *vm, Error err)
 {
-	char buf[96] = {};
-	StringBuilder sb = string_builder_from_buffer(buf);
+	char buf[96] = {0};
+	StringBuilder sb = string_builder_from_buffer(buf, sizeof(buf));
         if (err.file.chars != nullptr) {
 		// <file>:<line>:0: error: 
-		string_builder_append(&sb, err.file);
-		string_builder_append(&sb, ':');
-		string_builder_append(&sb, uint64_t(err.line));
-		string_builder_append(&sb, SV(":0: error: "));
+		string_builder_append_sv(&sb, err.file);
+		string_builder_append_char(&sb, ':');
+		string_builder_append_u64(&sb, (uint64_t)(err.line));
+		string_builder_append_sv(&sb, SV(":0: error: "));
         }
-	string_builder_append(&sb, SV(ErrorCode_str[uint32_t(err.code)]));
+	string_builder_append_sv(&sb, SV(ErrorCode_str[(uint32_t)(err.code)]));
 	// EXECUTOR FAILED at (<ip>): <msg>
-	string_builder_append(&sb, SV(" EXECUTOR FAILED at ("));
-	string_builder_append(&sb, uint64_t(err.ip));
-	string_builder_append(&sb, SV("): "));
-	string_builder_append(&sb, err.msg);
-	string_builder_append(&sb, '\n');
-	cross::log(cross::stderr, string_builder_get_string(&sb));
+	string_builder_append_sv(&sb, SV(" EXECUTOR FAILED at ("));
+	string_builder_append_u64(&sb, (uint64_t)(err.ip));
+	string_builder_append_sv(&sb, SV("): "));
+	string_builder_append_sv(&sb, err.msg);
+	string_builder_append_char(&sb, '\n');
+	cross_log(cross_stderr, string_builder_get_string(&sb));
 }
 
 int main(int argc, const char *argv[])
@@ -181,13 +181,13 @@ int main(int argc, const char *argv[])
 	argv[1] = "src";
 	argv[2] = "test";
         if (argc < 3) {
-                cross::log(cross::stderr, sv_from_null_terminated("Usage: ode.exe <src dir> <main_module> (-w)\n"));
+                cross_log(cross_stderr, sv_from_null_terminated("Usage: ode.exe <src dir> <main_module> (-w)\n"));
                 return 1;
         }
 
 	uint32_t persistent_memory_size = 1 << 20;
-	uint8_t *persistent_memory = (uint8_t*)cross::alloc(persistent_memory_size);
-	Arena persistent_arena = {};
+	uint8_t *persistent_memory = (uint8_t*)cross_alloc(persistent_memory_size);
+	Arena persistent_arena = {0};
 	persistent_arena.begin = persistent_memory;
 	persistent_arena.end = persistent_memory + persistent_memory_size;
 	
@@ -222,7 +222,7 @@ int main(int argc, const char *argv[])
         modules_file_last_write[0] = 0;
  
         // Create the VM
-        VMConfig vm_config = {};
+        VMConfig vm_config = {0};
         vm_config.load_module = on_load_module;
         vm_config.error_callback = on_error;
         vm_config.foreign_callback = on_foreign;
@@ -232,25 +232,25 @@ int main(int argc, const char *argv[])
         do {
                 bool any_module_changed = false;
                 for (uint32_t i_module = 0; i_module < modules_len; ++i_module) {
-                        const uint64_t last_write = cross::get_file_last_write(modules_path_sv[i_module].chars, modules_path_sv[i_module].length);
+                        const uint64_t last_write = cross_get_file_last_write(modules_path_sv[i_module].chars, modules_path_sv[i_module].length);
                         if (last_write != modules_file_last_write[i_module]) {
                                 modules_file_last_write[i_module] = last_write;
                                 any_module_changed = true;
     
                                 // read entire source code
-                                cross::ReadFileResult file_content = cross::read_entire_file(modules_path[i_module]);
+                                ReadFileResult file_content = cross_read_entire_file(modules_path[i_module]);
 				if (!file_content.success) {
-					char buf[64] = {};
-					StringBuilder sb = string_builder_from_buffer(buf);
-					string_builder_append(&sb, SV("Cannot open file "));
-					string_builder_append(&sb, modules_path_sv[i_module]);
-					string_builder_append(&sb, '\n');			
-					cross::log(cross::stderr, string_builder_get_string(&sb));
+					char buf[64] = {0};
+					StringBuilder sb = string_builder_from_buffer(buf, sizeof(buf));
+					string_builder_append_sv(&sb, SV("Cannot open file "));
+					string_builder_append_sv(&sb, modules_path_sv[i_module]);
+					string_builder_append_char(&sb, '\n');			
+					cross_log(cross_stderr, string_builder_get_string(&sb));
                                         return 1;
 				}
                                 // compile
                                 Error error = vm_compile(vm, modules_name_sv[i_module], file_content.content);
-				if (error.code != ErrorCode::Ok) {
+				if (error.code != ErrorCode_Ok) {
 					on_error(vm, error);
 				}
                         }
@@ -260,21 +260,19 @@ int main(int argc, const char *argv[])
                         vm_call(vm, modules_name_sv[0], sv_from_null_terminated("main"), persistent_arena);
 			uint64_t timestamp = stm_now();
 
-			char buf[32] = {};
-			StringBuilder sb = string_builder_from_buffer(buf);
-			string_builder_append(&sb, SV("Done executing at "));
-			string_builder_append(&sb, timestamp);
-			string_builder_append(&sb, '\n');			
-			cross::log(cross::stdout, string_builder_get_string(&sb));
+			char buf[32] = {0};
+			StringBuilder sb = string_builder_from_buffer(buf, sizeof(buf));
+			string_builder_append_sv(&sb, SV("Done executing at "));
+			string_builder_append_u64(&sb, timestamp);
+			string_builder_append_char(&sb, '\n');			
+			cross_log(cross_stdout, string_builder_get_string(&sb));
                 }
   
-                cross::sleep_ms(33);
+                cross_sleep_ms(33);
         } while (!stop);
         return 0;
 }
 
-extern "C"
-{
 void *memset(void *dest, int c, size_t count)
 {
 	char *bytes = (char *)dest;
@@ -309,13 +307,12 @@ void *memmove(void *dest, const void *src, size_t count)
 
 int _fltused;
 	
-int mainCRTStartup()
+int mainCRTStartup(void)
 {
-	cross::init();
+	cross_init();
 
 	int argc = 0;
-	const char* argv[5] = {};
+	const char* argv[5] = {0};
 	main(argc, argv);
 	return 0;
-}
 }

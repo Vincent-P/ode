@@ -7,7 +7,7 @@
 struct CompilationUnit;
 
 // Generic LISP tree node
-struct AstNode
+typedef struct AstNode
 {
 	span span;
 	uint32_t child_count;
@@ -16,9 +16,9 @@ struct AstNode
 	// Not null if s-expr
 	uint32_t left_child_index;
 	uint32_t right_sibling_index;
-};
+} AstNode;
 
-struct Parser
+typedef struct Parser
 {
 	// input
 	CompilationUnit* compunit;
@@ -26,10 +26,10 @@ struct Parser
 	uint32_t i_current_token;
 	// error handling
 	TokenKind expected_token_kind;
-};
+} Parser;
 
 // Invalid index used for both atom_token_index and node indices
-static constexpr uint32_t INVALID_NODE_INDEX = ~uint32_t(0);
+const uint32_t INVALID_NODE_INDEX = ~0u;
 
 void parse_module(Parser *parser);
 
@@ -62,7 +62,7 @@ const Token *ast_get_token(const CompilationUnit *compunit, const AstNode *node)
 
 // Typed nodes
 
-struct DefineNode
+typedef struct DefineNode
 {
 	const Token *function_name_token;
 	Token arg_identifiers[MAX_ARGUMENTS];
@@ -72,52 +72,52 @@ struct DefineNode
 	uint32_t args_length;
 	// internal
 	const AstNode *arglist_node;
-};
+} DefineNode;
 
-struct StructNode
+typedef struct StructNode
 {
 	const Token *struct_name_token;
 	Token field_identifiers[MAX_STRUCT_FIELDS];
 	const AstNode *field_type_nodes[MAX_STRUCT_FIELDS];
 	uint32_t fields_length;
-};
+} StructNode;
 
-struct IfNode
+typedef struct IfNode
 {
 	const AstNode *cond_expr_node;
 	const AstNode *then_expr_node;
 	const AstNode *else_expr_node;
-};
+} IfNode;
 
-struct LetNode
+typedef struct LetNode
 {
 	const Token *name_token;
 	const AstNode *value_node;
-};
+} LetNode;
 
-struct BinaryOpNode
+typedef struct BinaryOpNode
 {
 	const AstNode *lhs_node;
 	const AstNode *rhs_node;
-};
+} BinaryOpNode;
 
-struct UnaryOpNode
+typedef struct UnaryOpNode
 {
 	const AstNode *value_node;
-};
+} UnaryOpNode;
 
-struct FieldNode
+typedef struct FieldNode
 {
 	const AstNode *expr_node;
 	const Token *field_token;
-};
+} FieldNode;
 
-struct PtrOffsetNodes
+typedef struct PtrOffsetNodes
 {
 	const AstNode * return_type_node;
 	const AstNode *base_pointer_node;
 	const AstNode *offset_node;
-};
+} PtrOffsetNodes;
 
 TypeID parse_type(CompilationUnit *, CompilerModule*, const AstNode *node);
 void parse_define_sig(CompilationUnit*, const AstNode *node, DefineNode *output);

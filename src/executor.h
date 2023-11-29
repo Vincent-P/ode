@@ -2,31 +2,30 @@
 #include <stdint.h>
 #include "core.h"
 
-const uint32_t BYTECODE_LENGTH = (32 << 10);
-const uint32_t IMPORT_LENGTH = 64;
+enum Executor_Constants
+{
+	BYTECODE_LENGTH = (32 << 10),
+	IMPORT_LENGTH = 64,
+};
 
-union Value
+typedef union Value
 {
 	int32_t  i32; // int
 	float    f32; // float
 	uint32_t u32; // uint or ptr or bool
-};
+} Value;
 
-enum struct ValueKind
+typedef enum ValueKind
 {
-	I32,
-	F32,
-	U32,
-	PTR,
-	BOOL,
-};
+	ValueKind_I32,
+	ValueKind_F32,
+	ValueKind_U32,
+	ValueKind_PTR,
+	ValueKind_BOOL,
+} ValueKind;
 
-struct ImportTable
-{
-};
-
-using ForeignFn = void(*)();
-struct Module
+typedef void(*ForeignFn)(void);
+typedef struct Module
 {
 	sv name;
 	sv import_module_names[IMPORT_LENGTH]; // module name
@@ -46,10 +45,10 @@ struct Module
 
 	uint8_t bytecode[BYTECODE_LENGTH];
 	uint32_t bytecode_len;
-};
+} Module;
 
 // We will need to move modules out of the context to support multiple threads of execution
-struct ExecutionContext
+typedef struct ExecutionContext
 {
 	// code
 	Module *modules;
@@ -61,6 +60,6 @@ struct ExecutionContext
 	uint32_t callstack_ret_address[64];
 	uint32_t callstack_ret_bp[64];
 	uint32_t callstack_argc[64]; // number of arguments
-};
+} ExecutionContext;
 
 void call_function(ExecutionContext *ctx, uint32_t callee_module, uint32_t callee_ip, Value *args, uint32_t args_len);

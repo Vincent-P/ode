@@ -24,7 +24,7 @@ static bool is_whitespace(char c)
 
 void lexer_scan(CompilationUnit *compunit)
 {
-	if (compunit->error.code != ErrorCode::Ok) {
+	if (compunit->error.code != ErrorCode_Ok) {
 		return;
 	}
 
@@ -42,31 +42,31 @@ void lexer_scan(CompilationUnit *compunit)
 
 		// End of input
 		if (input_offset >= input.length) {
-			error->code = ErrorCode::Ok;
+			error->code = ErrorCode_Ok;
 			break;
 		}
 
-		Token token = {};
+		Token token = {0};
 		token.span.start = input_offset;
 		uint32_t token_length = 1;
 
 		const char first_char = input.chars[input_offset];
 		if (first_char == '(') {
-			token.kind = TokenKind::LeftParen;
+			token.kind = TokenKind_LeftParen;
 		} else if (first_char == ')') {
-			token.kind = TokenKind::RightParen;
+			token.kind = TokenKind_RightParen;
 		} else if ('0' <= first_char && first_char <= '9') {
 			char next_char = input.chars[input_offset + token_length];
 			while (token_length < input.length && '0' <= next_char && next_char <= '9') {
 				token_length += 1;
 				next_char = input.chars[input_offset + token_length];
 			}
-			token.kind = TokenKind::Number;
+			token.kind = TokenKind_Number;
 		} else if (is_identifier_first_char(first_char)) {
 			while (token_length < input.length && is_identifier_char(input.chars[input_offset + token_length])) {
 				token_length += 1;
 			}
-			token.kind = TokenKind::Identifier;
+			token.kind = TokenKind_Identifier;
 		} else if (first_char == '"') {
 			while (token_length < input.length && input.chars[input_offset + token_length] != '"') {
 				token_length += 1;
@@ -76,10 +76,10 @@ void lexer_scan(CompilationUnit *compunit)
 			}
 			// Eat the ending double-quote
 			token_length += 1;
-			token.kind = TokenKind::StringLiteral;
+			token.kind = TokenKind_StringLiteral;
 		} else {
-			error->code = ErrorCode::LexerUnknownToken;
-			error->span = span{input_offset, input_offset + 1};
+			error->code = ErrorCode_LexerUnknownToken;
+			error->span = (span){input_offset, input_offset + 1};
 			break;
 		}
 		token.span.end = token.span.start + token_length;

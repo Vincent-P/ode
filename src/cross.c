@@ -8,23 +8,21 @@
 #error "Unknown platform"
 #endif
 
-namespace cross
-{
 #if defined(_WIN32)
 // -- io
-uint64_t stdout;
-uint64_t stderr;
+uint64_t cross_stdout;
+uint64_t cross_stderr;
 
-void init()
+void cross_init(void)
 {
-	stdout = uint64_t(GetStdHandle(STD_OUTPUT_HANDLE));
-	stderr = uint64_t(GetStdHandle(STD_ERROR_HANDLE));
+	cross_stdout = (uint64_t)(GetStdHandle(STD_OUTPUT_HANDLE));
+	cross_stderr = (uint64_t)(GetStdHandle(STD_ERROR_HANDLE));
 }
 
-uint64_t get_file_last_write(const char *path, size_t path_length)
+uint64_t cross_get_file_last_write(const char *path, size_t path_length)
 {
-	wchar_t wide_path[256] = {};
-	MultiByteToWideChar(CP_UTF8, MB_PRECOMPOSED, path, int(path_length), &wide_path[0], 256);
+	wchar_t wide_path[256] = {0};
+	MultiByteToWideChar(CP_UTF8, MB_PRECOMPOSED, path, (int)path_length, &wide_path[0], 256);
 
 	HANDLE file =
 		CreateFileW(wide_path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -33,7 +31,7 @@ uint64_t get_file_last_write(const char *path, size_t path_length)
 		return 0;
 	}
 
-	FILETIME last_write_time = {};
+	FILETIME last_write_time = {0};
 	GetFileTime(file, nullptr, nullptr, &last_write_time);
 	CloseHandle(file);
 
@@ -43,9 +41,9 @@ uint64_t get_file_last_write(const char *path, size_t path_length)
 	return time.QuadPart;
 }
 
-ReadFileResult read_entire_file(const char* filepath)
+ReadFileResult cross_read_entire_file(const char* filepath)
 {
-	ReadFileResult result = {};
+	ReadFileResult result = {0};
 	// Open file
         HANDLE file = CreateFileA(filepath, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (file == INVALID_HANDLE_VALUE) {
@@ -55,7 +53,7 @@ ReadFileResult read_entire_file(const char* filepath)
 	// Get size on disk
 	uint32_t size = GetFileSize(file, nullptr);
 	// Allocate memory
-        void *file_content = alloc(size + 1);
+        void *file_content = cross_alloc(size + 1);
 	// Read file
 	uint32_t bytes_read = 0;
 	bool success = ReadFile(file, file_content, size, (LPDWORD)&bytes_read, nullptr);
@@ -67,14 +65,14 @@ ReadFileResult read_entire_file(const char* filepath)
 	// Close
         ((char*)file_content)[size] = 0;	
         CloseHandle(file);
-        result.content = sv{(char*)file_content, size};
+        result.content = (sv){(char*)file_content, size};
 	result.success = true;
 	return result;
 }
 
-void log(uint64_t handle, sv message)
+void cross_log(uint64_t handle, sv message)
 {
-	bool success = WriteFile(HANDLE(handle), message.chars, message.length, nullptr, nullptr);
+	bool success = WriteFile((HANDLE)handle, message.chars, message.length, nullptr, nullptr);
 	if (!success)
 		__debugbreak();
 }
@@ -82,16 +80,15 @@ void log(uint64_t handle, sv message)
 
 // -- threads
 
-void sleep_ms(unsigned int ms)
+void cross_sleep_ms(unsigned int ms)
 {
 	Sleep(ms);
 }
 
 // -- memory
-void *alloc(uint32_t size)
+void *cross_alloc(uint32_t size)
 {
 	HANDLE process_heap = GetProcessHeap();
 	return HeapAlloc(process_heap, HEAP_ZERO_MEMORY, size);
 }
 #endif
-}
