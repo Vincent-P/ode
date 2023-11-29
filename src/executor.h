@@ -24,7 +24,8 @@ typedef enum ValueKind
 	ValueKind_BOOL,
 } ValueKind;
 
-typedef void(*ForeignFn)(void);
+typedef void(*ForeignFn)(Value*, uint32_t);
+
 typedef struct Module
 {
 	sv name;

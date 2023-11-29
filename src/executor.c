@@ -213,7 +213,7 @@ void call_function(
 			string_builder_append_char(&sb, '\n');
 			cross_log(cross_stderr, string_builder_get_string(&sb));
 
-			callback();
+			callback(ctx->stack + sp - argc + 1, argc);
 			
 			// Pop arguments
 			sp = sp - argc;

@@ -1060,6 +1060,7 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 				if (sv_equals(current_module->foreign_functions_name[f],
 					      found_function->name))
 				{
+					i_foreign_function = f;
 					break;
 				}
 			}
@@ -1076,7 +1077,7 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 				i_foreign_function = new_f;
 			}
 		}
-		compiler_bytecode_call_foreign(compiler, i_foreign_function, (uint8_t)(found_function->arg_count));
+		compiler_bytecode_call_foreign(compiler, (uint8_t)i_foreign_function, (uint8_t)(found_function->arg_count));
 	}
 	else {
 		if (is_external) {

@@ -21,4 +21,5 @@
 (define (main i32) ()
 	(let n (fib_rec 8))
 	(logi n)
+	(logi 32)
 	n)
