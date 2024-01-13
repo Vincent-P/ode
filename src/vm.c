@@ -16,6 +16,7 @@ VM *vm_create(Arena *arena, VMConfig config)
 
 void vm_destroy(VM *vm)
 {
+	(void)vm;
 }
 
 typedef struct CompilationResult
@@ -52,17 +53,13 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 	// -- Lex tokens
 	lexer_scan(&compunit);
 	if (compunit.error.code != ErrorCode_Ok) {
-		sv error_str = sv_substr(code, compunit.error.span);
-		
 		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 		// # Lexer returned <errorcode>
 		string_builder_append_sv(&sb, SV("# Lexer returned "));
 		string_builder_append_sv(&sb, SV(ErrorCode_str[(uint32_t)(compunit.error.code)]));
 		string_builder_append_char(&sb, '\n');
 		// Error at: '<errorstr>'
-		string_builder_append_sv(&sb, SV("Error at: '"));
-		string_builder_append_sv(&sb, error_str);
-		string_builder_append_sv(&sb, SV("'\n"));
+		build_error_at(code, compunit.error.span, &sb);
 		cross_log(cross_stderr, string_builder_get_string(&sb));
 		
 		result.error = compunit.error;
@@ -85,11 +82,7 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 		string_builder_append_sv(&sb, SV(ErrorCode_str[(uint32_t)(compunit.error.code)]));
 		string_builder_append_sv(&sb, SV("'\n"));
 		cross_log(cross_stderr, string_builder_get_string(&sb));
-
-		sv error_str = sv_substr(code, compunit.error.span);
-		string_builder_append_sv(&sb, SV("Error at: '"));
-		string_builder_append_sv(&sb, error_str);
-		string_builder_append_sv(&sb, SV("'\n"));
+		build_error_at(code, compunit.error.span, &sb);
 		cross_log(cross_stderr, string_builder_get_string(&sb));
 
 		if (compunit.tokens_length > 0) {
@@ -183,33 +176,22 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 		cross_log(cross_stderr, string_builder_get_string(&sb));
 
 		// Error at: <error_str>
-		string_builder_append_sv(&sb, SV("Error at: "));
-		sv error_str = sv_substr(code, err.span);
-		string_builder_append_sv(&sb, error_str);
-		string_builder_append_char(&sb, '\n');
+		build_error_at(code, compunit.error.span, &sb);
 		cross_log(cross_stderr, string_builder_get_string(&sb));
 
 		// # expected type #<raw> <type_str>
-		const char *expected_type_str = "(struct)";
-		if (!type_id_is_user_defined(err.expected_type)) {
-			expected_type_str = BuiltinTypeKind_str[(uint32_t)(err.expected_type.builtin.kind)];
-		}		
 		string_builder_append_sv(&sb, SV("# expected type #"));
 		string_builder_append_u64(&sb, (uint64_t)(err.expected_type.raw));
 		string_builder_append_char(&sb, ' ');
-		string_builder_append_sv(&sb, SV(expected_type_str));
+		type_build_string(&sb, err.expected_type);
 		string_builder_append_char(&sb, '\n');
 		cross_log(cross_stderr, string_builder_get_string(&sb));
 
 		// # got type #<raw> <type_str>
-		const char *got_type_str = "(struct)";
-		if (!type_id_is_user_defined(err.got_type)) {
-			got_type_str = BuiltinTypeKind_str[(uint32_t)(err.got_type.builtin.kind)];
-		}		
 		string_builder_append_sv(&sb, SV("# got type #"));
 		string_builder_append_u64(&sb, (uint64_t)(err.got_type.raw));
 		string_builder_append_char(&sb, ' ');
-		string_builder_append_sv(&sb, SV(got_type_str));
+		type_build_string(&sb, err.got_type);
 		string_builder_append_char(&sb, '\n');
 		cross_log(cross_stderr, string_builder_get_string(&sb));
 		

@@ -8,7 +8,8 @@ enum TokenKind
 	TokenKind_Invalid,
 	TokenKind_LeftParen,
 	TokenKind_RightParen,
-	TokenKind_Number,
+	TokenKind_UnsignedNumber,
+	TokenKind_SignedNumber,
 	TokenKind_Identifier,
 	TokenKind_StringLiteral,
 	TokenKind_Count,
@@ -19,7 +20,8 @@ const char *TokenKind_str[] = {
 	"Invalid",
 	"LeftParen",
 	"RightParen",
-	"Number",
+	"UnsignedNumber",
+	"SignedNumber",
 	"Identifier",
 	"StringLiteral",
 };
@@ -29,6 +31,7 @@ struct Token
 {
 	TokenKind kind;
 	span span;
+	uint32_t data;
 };
 typedef struct Token Token;
 

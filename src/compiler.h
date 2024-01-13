@@ -12,8 +12,15 @@ typedef struct CompilationUnit
 	Error error;
 	uint32_t nodes_length;
 	uint32_t tokens_length;
+	// AST
 	AstNode nodes[4096];
+	// Tokens
 	Token tokens[4096];
+	uint32_t token_unsigned_numbers[128]; // data for numbers
+	int32_t token_signed_numbers[128]; // data for numbers
+	uint16_t token_strings_offset[128]; // offset into the string buffer
+	uint16_t token_strings_length[128]; // length of the string
+	char token_string_buffer[128]; // buffer for strings
 } CompilationUnit;
 
 typedef struct LexicalScope
@@ -86,6 +93,8 @@ typedef struct Compiler
 	
 	LexicalScope scopes[16];
 	uint32_t scopes_length;
+	uint32_t loop_end_ips[16];
+	uint32_t loop_end_ips_length;
 	CompilerModule module;
 } Compiler;
 	

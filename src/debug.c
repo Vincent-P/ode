@@ -43,7 +43,7 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 			break;
 		case OpCode_Call:
 			PRINT_U32;
-			string_builder_append_char(&sb, ' ');
+		string_builder_append_char(&sb, ' ');
 			PRINT_BYTE;
 			break;
 		case OpCode_CallInModule:
@@ -75,6 +75,8 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 		case OpCode_AddI32:
 		case OpCode_SubI32:
 		case OpCode_LteI32:
+		case OpCode_GteI32:
+		case OpCode_And:
 			break;
 		case OpCode_DebugLabel: {
 			const uint32_t *bytecode_u32 = (const uint32_t*)(bytecode + offset + 1);
@@ -94,4 +96,21 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 		string_builder_append_char(&sb, '\n');
 		cross_log(cross_stderr, string_builder_get_string(&sb));
 	}
+}
+
+void build_error_at(sv code, span error, StringBuilder *sb)
+{
+	sv error_str = sv_substr(code, error);
+	uint32_t line = 1;
+	for (uint32_t i = 0; i < error.start; ++i) {
+		if (code.chars[i] == '\n') {
+			line += 1;
+		}
+	}
+	// Error at: '<errorstr>'
+	string_builder_append_sv(sb, SV("Error at line "));
+	string_builder_append_u64(sb, line);
+	string_builder_append_sv(sb, SV(": '"));
+	string_builder_append_sv(sb, error_str);
+	string_builder_append_sv(sb, SV("'\n"));
 }

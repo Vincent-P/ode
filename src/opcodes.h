@@ -33,6 +33,7 @@ enum OpCode
 	// Get a value starting from the function stack
 	// LoadLocal <i_local:i8>
 	OpCode_LoadLocal,
+	// -- Integers
 	// LoadU32 (ptr)
 	OpCode_Load32,
 	// StoreU32 (ptr, value)
@@ -43,6 +44,11 @@ enum OpCode
 	OpCode_SubI32,
 	// LteI32 (arg0, arg1)
 	OpCode_LteI32,
+	// GteI32 (arg0, arg1)
+	OpCode_GteI32,
+	// -- Logic
+	// Binary AND
+	OpCode_And,
 	// Debug instruction with a string
 	OpCode_DebugLabel,
 	OpCode_Count,
@@ -68,6 +74,8 @@ const char *OpCode_str[] = {
 	"AddI32",
 	"SubI32",
 	"LteI32",
+	"GteI32",
+	"And",
 	"DebugLabel",
 };
 _Static_assert(ARRAY_LENGTH(OpCode_str) == (uint8_t)(OpCode_Count));

@@ -111,7 +111,7 @@ static uint32_t parse_atom(Parser *parser)
 {
 	Token current_token = parser_current_token(parser);
 
-	bool is_a_valid_atom = current_token.kind == TokenKind_Number || current_token.kind == TokenKind_Identifier
+	bool is_a_valid_atom = current_token.kind == TokenKind_UnsignedNumber || current_token.kind == TokenKind_SignedNumber || current_token.kind == TokenKind_Identifier
 	                       || current_token.kind == TokenKind_StringLiteral;
 	if (is_a_valid_atom) {
 		uint32_t new_node_index = parser_push_ast_node_atom(parser, parser->i_current_token);
@@ -124,7 +124,7 @@ static uint32_t parse_atom(Parser *parser)
 	} else {
 		parser->compunit->error.code = ErrorCode_UnexpectedToken;
 		parser->compunit->error.span = current_token.span;
-		parser->expected_token_kind = TokenKind_Number;
+		parser->expected_token_kind = TokenKind_UnsignedNumber;
 		return parser->compunit->nodes_length;
 	}
 }
@@ -213,10 +213,29 @@ TypeID parse_type(CompilationUnit *compunit, CompilerModule *module, const AstNo
 		sv identifier_str = sv_substr(compunit->input, identifier->span);
 
 		// Search builtin types
-		for (uint32_t i_builtin_type = 0; i_builtin_type < ARRAY_LENGTH(BuiltinTypeKind_str); ++i_builtin_type) {
-			const char *builtin_str = BuiltinTypeKind_str[i_builtin_type];
-			if (sv_equals(identifier_str, sv_from_null_terminated(builtin_str))) {
-				return type_id_new_builtin((BuiltinTypeKind)i_builtin_type);
+		const TypeID builtin_types[] = {
+			type_id_new_builtin(BuiltinTypeKind_Unit),
+			type_id_new_signed(NumberWidth_8),
+			type_id_new_signed(NumberWidth_16),
+			type_id_new_signed(NumberWidth_32),
+			type_id_new_signed(NumberWidth_64),
+			type_id_new_unsigned(NumberWidth_8),
+			type_id_new_unsigned(NumberWidth_16),
+			type_id_new_unsigned(NumberWidth_32),
+			type_id_new_unsigned(NumberWidth_64),
+			type_id_new_builtin(BuiltinTypeKind_Bool),
+			type_id_new_builtin(BuiltinTypeKind_Float),
+			type_id_new_builtin(BuiltinTypeKind_Str),
+		};
+		char builtin_type_name_buf[32] = {0};
+		StringBuilder sb;
+		for (uint32_t i_builtin_type = 0; i_builtin_type < ARRAY_LENGTH(builtin_types); ++i_builtin_type) {
+			TypeID type_id = builtin_types[i_builtin_type];
+			sb = string_builder_from_buffer(builtin_type_name_buf, sizeof(builtin_type_name_buf));
+			type_build_string(&sb, type_id);
+			const sv builtin_str = string_builder_get_string(&sb);
+			if (sv_equals(identifier_str, builtin_str)) {
+				return type_id;
 			}
 		}
 

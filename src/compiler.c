@@ -50,6 +50,21 @@ static uint32_t *compiler_push_u32(Compiler *compiler, uint32_t value)
 	return bytecode;
 }
 
+static int32_t *compiler_push_i32(Compiler *compiler, int32_t value)
+{
+	CompilerModule *current_module = &compiler->module;
+	uint32_t to_write = sizeof(int32_t);
+	if (current_module->bytecode_length + to_write >= ARRAY_LENGTH(current_module->bytecode)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		return nullptr;
+	}
+
+	int32_t *bytecode = (int32_t *)(current_module->bytecode + current_module->bytecode_length);
+	bytecode[0] = value;
+	current_module->bytecode_length += to_write;
+	return bytecode;
+}
+
 static void compiler_push_sv(Compiler *compiler, sv value)
 {
 	CompilerModule *current_module = &compiler->module;
@@ -74,6 +89,12 @@ static void compiler_bytecode_push_u32(Compiler *compiler, uint32_t value)
 {
 	compiler_push_opcode(compiler, OpCode_PushU32);
 	compiler_push_u32(compiler, value);
+}
+
+static void compiler_bytecode_push_i32(Compiler *compiler, int32_t value)
+{
+	compiler_push_opcode(compiler, OpCode_PushU32);
+	compiler_push_i32(compiler, value);
 }
 
 static void compiler_bytecode_call(Compiler *compiler, uint32_t address, uint8_t num_args)
@@ -172,7 +193,19 @@ uint32_t type_get_size(CompilerModule *module, TypeID id)
 			return ~0u;
 		}
 		return module->types[id.user_defined.index].size;
+	} else if (id.builtin.kind == BuiltinTypeKind_Signed || id.builtin.kind == BuiltinTypeKind_Unsigned) {
+		return 1 << id.builtin.number_width;
 	} else {
+		const uint32_t BuiltinTypeKind_size[] = {
+			0,
+			0,
+			0,
+			1,
+			4,
+			8,
+			8,
+		};
+		_Static_assert(ARRAY_LENGTH(BuiltinTypeKind_size) == BuiltinTypeKind_Count, "fail");
 		return BuiltinTypeKind_size[(uint32_t)id.builtin.kind];
 	}
 }
@@ -197,6 +230,40 @@ static void compiler_pop_scope(Compiler *compiler)
 	}
 	
 	compiler->scopes_length -= 1;
+}
+
+static void compiler_push_loop_end_ip(Compiler *compiler, uint32_t loop_end_ip)
+{
+	if (compiler->loop_end_ips_length >= ARRAY_LENGTH(compiler->loop_end_ips)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		return;
+	}
+
+	uint32_t *new_loop_end_ip = compiler->loop_end_ips + compiler->loop_end_ips_length;
+	compiler->loop_end_ips_length += 1;
+	*new_loop_end_ip = loop_end_ip;
+}
+
+static uint32_t compiler_pop_loop_end_ip(Compiler *compiler)
+{
+	if (compiler->loop_end_ips_length == 0 || compiler->loop_end_ips_length >= ARRAY_LENGTH(compiler->loop_end_ips)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		return 0;
+	}
+
+	uint32_t loop_end_ip = compiler->loop_end_ips[compiler->loop_end_ips_length];
+	compiler->loop_end_ips_length -= 1;
+	return loop_end_ip;
+}
+
+static uint32_t compiler_last_loop_end_ip(Compiler *compiler)
+{
+	if (compiler->loop_end_ips_length == 0 || compiler->loop_end_ips_length >= ARRAY_LENGTH(compiler->loop_end_ips)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		return 0;
+	}
+
+	return compiler->loop_end_ips[compiler->loop_end_ips_length];
 }
 
 static bool compiler_push_variable(Compiler *compiler, const Token *identifier_token, TypeID type, uint32_t *i_variable_out)
@@ -295,7 +362,7 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *node);
 
 static TypeID compile_atom(Compiler *compiler, const Token *token)
 {
-	sv token_sv = sv_substr(compiler->compunit->input, token->span);
+	// sv token_sv = sv_substr(compiler->compunit->input, token->span);
 
 	if (token->kind == TokenKind_Identifier) {
 		// Refer a declared variable
@@ -314,12 +381,42 @@ static TypeID compile_atom(Compiler *compiler, const Token *token)
 			compiler_bytecode_load_arg(compiler, (uint8_t)(i_variable));
 		}
 		return ty;
-	} else if (token->kind == TokenKind_Number) {
+	} else if (token->kind == TokenKind_UnsignedNumber) {
 		// An integer constant
 		// <number>
-		int32_t token_number = sv_to_int(token_sv);
-		compiler_bytecode_push_u32(compiler, (uint32_t)(token_number));
-		return type_id_new_builtin(BuiltinTypeKind_Int);
+		uint32_t token_number = (uint32_t)compiler->compunit->token_unsigned_numbers[token->data];
+		compiler_bytecode_push_u32(compiler, token_number);
+		// Try to reduce the number size as much as possible.
+		TypeID type_id = type_id_new_builtin(BuiltinTypeKind_Unsigned);
+		if (token_number <= 0xFFu) {
+			type_id.builtin.number_width = NumberWidth_8;
+		} else if (token_number <= 0xFFFFu) {
+			// u16
+		} else if (token_number <= 0xFFFFFFFFu) {
+			// u32
+		}
+		else {
+			// u64
+		}
+		return type_id;
+	} else if (token->kind == TokenKind_SignedNumber) {
+		// An integer constant
+		// (-)<number>
+		int32_t token_number = compiler->compunit->token_signed_numbers[token->data];
+		compiler_bytecode_push_i32(compiler, token_number);
+		// Try to reduce the number size as much as possible.
+		TypeID type_id = type_id_new_builtin(BuiltinTypeKind_Signed);
+		if (-0x7F-1 <= token_number && token_number <= 0x7F) {
+			type_id.builtin.number_width = NumberWidth_8;
+		} else if (-0x7FFF-1 <= token_number && token_number <= 0x7FFF) {
+			// i16
+		} else if (-0x7FFFFFFF-1 <= token_number && token_number <= 0x7FFFFFFF) {
+			// i32
+		}
+		else {
+			// i64
+		}
+		return type_id;
 	} else if (token->kind == TokenKind_StringLiteral) {
 		// A string literal
 		// "str"
@@ -435,7 +532,7 @@ static TypeID compile_function_defininition(Compiler *compiler, const AstNode *n
 		return UNIT_TYPE;
 	}
 	// Typecheck the body expression
-	bool valid_return_type = type_similar(return_type, body_type);
+	bool valid_return_type = type_similar(body_type, return_type);
 	if (!valid_return_type) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
 		compiler->compunit->error.expected_type = return_type;
@@ -582,6 +679,8 @@ static TypeID compile_struct(Compiler *compiler, const AstNode *node)
 
 static TypeID compile_require(Compiler *compiler, const AstNode *node)
 {
+	(void)compiler;
+	(void)node;
 	return UNIT_TYPE;
 }
 
@@ -631,7 +730,7 @@ static TypeID compile_if(Compiler *compiler, const AstNode *node)
 	*jump_to_true_branch = then_branch_address;
 	*jump_to_end = end_address;
 
-	bool valid_return_type = type_similar(then_expr, else_expr);
+	bool valid_return_type = type_similar(else_expr, then_expr);
 	if (!valid_return_type) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
 		compiler->compunit->error.span = node->span;
@@ -640,6 +739,56 @@ static TypeID compile_if(Compiler *compiler, const AstNode *node)
 	}
 
 	return then_expr;
+}
+
+static TypeID compile_loop(Compiler *compiler, const AstNode *node)
+{
+	const AstNode *loop_node = ast_get_left_child(compiler->compunit, node);
+	// A loop expression must have at least one expr
+	if (!ast_has_right_sibling(loop_node)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedExpr);
+		compiler->compunit->error.span = node->span;
+		return UNIT_TYPE;
+	}
+
+	uint32_t *jump_to_loop_begin = compiler_bytecode_jump(compiler, 0);
+	uint32_t jump_to_loop_end_ip = compiler->module.bytecode_length;
+	uint32_t *jump_to_loop_end = compiler_bytecode_jump(compiler, 0);
+	// Push the address of the jump to the loop end, break will jump there.
+	compiler_push_loop_end_ip(compiler, jump_to_loop_end_ip);
+
+	// Get the beginning of the loop
+	uint32_t loop_begin_ip = compiler->module.bytecode_length;
+	compiler_push_opcode(compiler, OpCode_Nop);
+	// Compile exprs
+	const AstNode *first_sexpr = ast_get_right_sibling(compiler->compunit, loop_node);
+	/*TypeID last_expr_type =*/ compile_sexprs_return_last(compiler, first_sexpr);
+	// Jump to the beginning of the loop
+	compiler_bytecode_jump(compiler, loop_begin_ip);
+	uint32_t loop_end_ip = compiler->module.bytecode_length;
+
+	compiler_pop_loop_end_ip(compiler);
+
+	// Fixup jump addresses
+	*jump_to_loop_begin = loop_begin_ip;
+	*jump_to_loop_end = loop_end_ip;
+	
+	return UNIT_TYPE;
+}
+
+static TypeID compile_break(Compiler *compiler, const AstNode *node)
+{
+	const AstNode *break_node = ast_get_left_child(compiler->compunit, node);
+	// A break expression DOES NOT have any children
+	if (ast_has_right_sibling(break_node)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_UnexpectedExpression);
+		compiler->compunit->error.span = node->span;
+		return UNIT_TYPE;
+	}
+
+	uint32_t jump_to_end_of_the_loop_ip = compiler_last_loop_end_ip(compiler);
+	compiler_bytecode_jump(compiler, jump_to_end_of_the_loop_ip);
+	return UNIT_TYPE;
 }
 
 static TypeID compile_let(Compiler *compiler, const AstNode *node)
@@ -677,8 +826,105 @@ static TypeID compile_begin(Compiler *compiler, const AstNode *node)
 	return compile_sexprs_return_last(compiler, first_sexpr);
 }
 
+
+typedef struct CompileBinaryOpCodeResult
+{
+	TypeID lhs;
+	TypeID rhs;
+	bool success;
+} CompileBinaryOpCodeResult;
+
+// Parse 2 arguments, typecheck them, and push opcode, if expected_type is UNIT, expected_type becomes lhs
 // (<op> <lhs> <rhs>)
-static TypeID compile_binary_opcode(Compiler *compiler, const AstNode *node, TypeID type, OpCode opcode)
+static CompileBinaryOpCodeResult compile_binary_opcode(Compiler *compiler, const AstNode *node, TypeID expected_type)
+{
+	// -- Parsing
+	BinaryOpNode nodes = {0};
+	parse_binary_op(compiler->compunit, node, &nodes);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return (CompileBinaryOpCodeResult){0};
+	}
+
+	// -- Type checking
+	TypeID lhs = compile_expr(compiler, nodes.lhs_node);
+	TypeID rhs = compile_expr(compiler, nodes.rhs_node);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return (CompileBinaryOpCodeResult){0};
+	}
+
+	if (type_similar(expected_type, UNIT_TYPE)) {
+		expected_type = lhs;
+	}
+	
+	bool lhs_valid = type_similar(lhs, expected_type);
+	bool rhs_valid = type_similar(rhs, expected_type);
+
+	if (!lhs_valid) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
+		compiler->compunit->error.expected_type = expected_type;
+		compiler->compunit->error.got_type = lhs;
+		compiler->compunit->error.span = nodes.lhs_node->span;
+		return (CompileBinaryOpCodeResult){0};
+	}
+
+	if (!rhs_valid) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
+		compiler->compunit->error.expected_type = expected_type;
+		compiler->compunit->error.got_type = rhs;
+		compiler->compunit->error.span = nodes.rhs_node->span;
+		return (CompileBinaryOpCodeResult){0};
+	}
+	
+	CompileBinaryOpCodeResult result = {0};
+	result.lhs = lhs;
+	result.rhs = rhs;
+	result.success = true;
+	return result;
+}
+
+// Add two integers
+static TypeID compile_iadd(Compiler *compiler, const AstNode *node)
+{
+	TypeID int_type_id = type_id_new_signed(NumberWidth_32);
+	CompileBinaryOpCodeResult res = compile_binary_opcode(compiler, node, int_type_id);
+	if (!res.success) {
+		return UNIT_TYPE;
+	}
+
+	compiler_push_opcode(compiler, OpCode_AddI32);
+	return res.lhs;
+}
+
+// Substract two integers
+static TypeID compile_isub(Compiler *compiler, const AstNode *node)
+{
+	TypeID int_type_id = type_id_new_signed(NumberWidth_32);
+	CompileBinaryOpCodeResult res = compile_binary_opcode(compiler, node, int_type_id);
+	if (!res.success) {
+		return UNIT_TYPE;
+	}
+
+	compiler_push_opcode(compiler, OpCode_SubI32);
+	return res.lhs;
+}
+
+// Compare two integers
+// (<= <lhs> <rhs>)
+static TypeID compile_ltethan(Compiler *compiler, const AstNode *node)
+{
+	TypeID int_type_id = type_id_new_signed(NumberWidth_32);
+	CompileBinaryOpCodeResult res = compile_binary_opcode(compiler, node, int_type_id);
+	if (!res.success) {
+		return UNIT_TYPE;
+	}
+
+	compiler_push_opcode(compiler, OpCode_LteI32);
+	return type_id_new_builtin(BuiltinTypeKind_Bool);
+}
+
+// Compare two integers
+// (>= <lhs> <rhs>)
+static TypeID compile_gtethan(Compiler *compiler, const AstNode *node)
 {
 	// -- Parsing
 	BinaryOpNode nodes = {0};
@@ -686,20 +932,23 @@ static TypeID compile_binary_opcode(Compiler *compiler, const AstNode *node, Typ
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
-
 	// -- Type checking
-	TypeID lhs = compile_expr(compiler, nodes.lhs_node);
-	TypeID rhs = compile_expr(compiler, nodes.rhs_node);
+	const TypeID lhs = compile_expr(compiler, nodes.lhs_node);
+	const TypeID rhs = compile_expr(compiler, nodes.rhs_node);
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
-
-	bool lhs_valid = type_similar(lhs, type);
-	bool rhs_valid = type_similar(rhs, type);
-
+	TypeID expected_type = type_id_new_signed(NumberWidth_32);
+	if (type_id_is_builtin(lhs)) {
+		if (lhs.builtin.kind == BuiltinTypeKind_Unsigned) {
+			expected_type = type_id_new_unsigned(NumberWidth_32);
+		}
+	}
+	const bool lhs_valid = type_similar(lhs, expected_type);
+	const bool rhs_valid = type_similar(rhs, expected_type);
 	if (!lhs_valid) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.expected_type = type;
+		compiler->compunit->error.expected_type = expected_type;
 		compiler->compunit->error.got_type = lhs;
 		compiler->compunit->error.span = nodes.lhs_node->span;
 		return UNIT_TYPE;
@@ -707,39 +956,34 @@ static TypeID compile_binary_opcode(Compiler *compiler, const AstNode *node, Typ
 
 	if (!rhs_valid) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.expected_type = type;
+		compiler->compunit->error.expected_type = expected_type;
 		compiler->compunit->error.got_type = rhs;
 		compiler->compunit->error.span = nodes.rhs_node->span;
 		return UNIT_TYPE;
 	}
 
-	compiler_push_opcode(compiler, opcode);
+	// -- Codegen
+	if (type_similar(lhs, type_id_new_signed(NumberWidth_32))) {
+		compiler_push_opcode(compiler, OpCode_GteI32);
+	}
+	else {
+		compiler_push_opcode(compiler, OpCode_GteI32);
+	}
 
-	return lhs;
+	return type_id_new_builtin(BuiltinTypeKind_Bool);
 }
 
-// Add two integers
-static TypeID compile_iadd(Compiler *compiler, const AstNode *node)
+// Perform a logical AND
+// (and <lhs> <rhs>)
+static TypeID compile_and(Compiler *compiler, const AstNode *node)
 {
-	TypeID int_type_id = type_id_new_builtin(BuiltinTypeKind_Int);
-	return compile_binary_opcode(compiler, node, int_type_id, OpCode_AddI32);
-}
+	CompileBinaryOpCodeResult res = compile_binary_opcode(compiler, node, UNIT_TYPE);
+	if (!res.success) {
+		return UNIT_TYPE;
+	}
 
-// Substract two integers
-static TypeID compile_isub(Compiler *compiler, const AstNode *node)
-{
-	TypeID int_type_id = type_id_new_builtin(BuiltinTypeKind_Int);
-	return compile_binary_opcode(compiler, node, int_type_id, OpCode_SubI32);
-}
-
-// Compare two integers
-// (<= <lhs> <rhs>)
-static TypeID compile_ltethan(Compiler *compiler, const AstNode *node)
-{
-	TypeID int_type_id = type_id_new_builtin(BuiltinTypeKind_Int);
-	TypeID bool_type_id = type_id_new_builtin(BuiltinTypeKind_Bool);
-	compile_binary_opcode(compiler, node, int_type_id, OpCode_LteI32);
-	return bool_type_id;
+	compiler_push_opcode(compiler, OpCode_And);
+	return type_id_new_builtin(BuiltinTypeKind_Bool);
 }
 
 // Load a value at the given memory address
@@ -789,7 +1033,7 @@ static TypeID compile_store(Compiler *compiler, const AstNode *node)
 
 	// Typecheck
 	TypeID expected_pointer_type = type_id_pointer_from(expr_type_id);
-	if (!type_similar(expected_pointer_type, addr_type_id)) {
+	if (!type_similar(addr_type_id, expected_pointer_type)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
 		compiler->compunit->error.span = nodes.lhs_node->span;
 		compiler->compunit->error.expected_type = expected_pointer_type;
@@ -814,7 +1058,7 @@ static TypeID compile_sizeof(Compiler *compiler, const AstNode *node)
 	TypeID expr_type = parse_type(compiler->compunit, &compiler->module, nodes.value_node);
 	uint32_t type_size = type_get_size(&compiler->module, expr_type);
 	compiler_bytecode_push_u32(compiler, type_size);
-	return type_id_new_builtin(BuiltinTypeKind_Int);
+	return type_id_new_unsigned(NumberWidth_32);
 }
 
 static TypeID compile_field_offset(Compiler *compiler, const AstNode *node)
@@ -856,7 +1100,7 @@ static TypeID compile_field_offset(Compiler *compiler, const AstNode *node)
 		if (sv_equals(type->field_names[i_field], field_identifier_str)) {
 			uint32_t val = type->field_offsets[i_field];
 			compiler_bytecode_push_u32(compiler, val);
-			return type_id_new_builtin(BuiltinTypeKind_Int);
+			return type_id_new_unsigned(NumberWidth_32);
 		}
 	}
 
@@ -911,7 +1155,7 @@ static TypeID compile_ptr_offset(Compiler *compiler, const AstNode *node)
 
 	// Check that the provided offset is an int
 	TypeID offset_type = compile_expr(compiler, nodes.offset_node);
-	TypeID expected_offset_type = type_id_new_builtin(BuiltinTypeKind_Int);
+	TypeID expected_offset_type = type_id_new_unsigned(NumberWidth_32);
 	if (!type_similar(offset_type, expected_offset_type)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
 		compiler->compunit->error.span = nodes.offset_node->span;
@@ -945,11 +1189,15 @@ _Static_assert(ARRAY_LENGTH(compiler_top_builtins_str) == ARRAY_LENGTH(compiler_
 
 const CompilerBuiltin compiler_expr_builtins[] = {
 	compile_if,
+	compile_loop,
+	compile_break,
 	compile_let,
 	compile_begin,
 	compile_iadd,
 	compile_isub,
 	compile_ltethan,
+	compile_gtethan,
+	compile_and,
 	compile_store,
 	compile_load,
 	compile_sizeof,
@@ -959,11 +1207,15 @@ const CompilerBuiltin compiler_expr_builtins[] = {
 };
 const sv compiler_expr_builtins_str[] = {
 	SV_LIT("if"),
+	SV_LIT("loop"),
+	SV_LIT("break"),
 	SV_LIT("let"),
 	SV_LIT("begin"),
 	SV_LIT("+"),
 	SV_LIT("-"),
 	SV_LIT("<="),
+	SV_LIT(">="),
+	SV_LIT("and"),
 	SV_LIT("_store"),
 	SV_LIT("_load"),
 	SV_LIT("_sizeof"),

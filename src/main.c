@@ -1,5 +1,6 @@
 #if defined(UNITY_BUILD)
 #include "debug.c"
+#include "type_id.c"
 #include "lexer.c"
 #include "parser.c"
 #include "compiler.c"
@@ -291,6 +292,9 @@ int main(int argc, const char *argv[])
         return 0;
 }
 
+
+// CRT
+
 void *memset(void *dest, int c, size_t count)
 {
 	char *bytes = (char *)dest;
@@ -324,7 +328,7 @@ void *memmove(void *dest, const void *src, size_t count)
 }
 
 int _fltused;
-	
+
 int mainCRTStartup(void)
 {
 	cross_init();

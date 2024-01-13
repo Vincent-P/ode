@@ -379,6 +379,22 @@ void call_function(
 			push(ctx, &sp, result);
 			break;
 		}
+		case OpCode_GteI32: {
+			Value operands[2] = {0};
+			pop_n(ctx, &sp, operands, 2);
+			Value result = {0};
+			result.i32 = operands[1].i32 >= operands[0].i32;
+			push(ctx, &sp, result);
+			break;
+		}
+		case OpCode_And: {
+			Value operands[2] = {0};
+			pop_n(ctx, &sp, operands, 2);
+			Value result = {0};
+			result.u32 = operands[1].u32 & operands[0].u32;
+			push(ctx, &sp, result);
+			break;
+		}
 		case OpCode_DebugLabel: {
 			char debug_buffer[64] = {0};
 			uint32_t string_length = bytecode_read_u32(ctx, mp, &ip);
