@@ -183,6 +183,7 @@ literal type:
 
 inline bool type_similar(TypeID operand_id, TypeID expected_id)
 {
+	// Primitive types automatic conversions
 	if (type_id_is_builtin(operand_id) && type_id_is_builtin(expected_id)) {
 		// Unsigned conversions
 		if (operand_id.builtin.kind == BuiltinTypeKind_Unsigned) {
@@ -194,6 +195,14 @@ inline bool type_similar(TypeID operand_id, TypeID expected_id)
 				// An unsigned number is compatible with stricly wider signed.
 				return operand_id.builtin.number_width < expected_id.builtin.number_width;
 			}
+		}
+
+		// Integers to bool
+		if (expected_id.builtin.kind == BuiltinTypeKind_Bool) {
+			return operand_id.builtin.kind == BuiltinTypeKind_Bool
+			       || operand_id.builtin.kind == BuiltinTypeKind_Unsigned
+			       || operand_id.builtin.kind == BuiltinTypeKind_Signed
+			;
 		}
 	}
 	return operand_id.raw == expected_id.raw;

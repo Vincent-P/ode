@@ -31,20 +31,20 @@
 	(let i-line 0)
 	(let i-first 0)
 	(let false 0)
+	(let true 1)
 	(let has-first false)
 	(let i-last 0)
 	(let i 0)
 	(loop
 		(if (>= i input-length) (break) ())
-		(let c (load (_ptr_offset (* u8) input i)))
+		(let c (_load (_ptr_offset (* u8) input i)))
 		(if (is_digit c)
 			(if has-first
 				(set i-last i)
-				(seq
+				(begin
 					(set i-first i)
 					(set has-first true)))
 			(if (= c 10)
 				(set i-line (+ i-line 1))
-				(set has-first false)
-				()))
+				(set has-first false)))
 		(set i (+ i 1))))

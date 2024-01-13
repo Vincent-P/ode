@@ -76,6 +76,7 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 		case OpCode_SubI32:
 		case OpCode_LteI32:
 		case OpCode_GteI32:
+		case OpCode_EqI32:
 		case OpCode_And:
 			break;
 		case OpCode_DebugLabel: {

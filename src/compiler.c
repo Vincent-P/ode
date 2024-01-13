@@ -130,6 +130,12 @@ static uint32_t *compiler_bytecode_jump(Compiler *compiler, uint32_t address)
 	return compiler_push_u32(compiler, address);
 }
 
+static void compiler_bytecode_store_arg(Compiler *compiler, uint8_t i_arg)
+{
+	compiler_push_opcode(compiler, OpCode_StoreArg);
+	compiler_push_u8(compiler, i_arg);
+}
+
 static void compiler_bytecode_load_arg(Compiler *compiler, uint8_t i_arg)
 {
 	compiler_push_opcode(compiler, OpCode_LoadArg);
@@ -699,7 +705,9 @@ static TypeID compile_if(Compiler *compiler, const AstNode *node)
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
-	if (!type_id_is_builtin(cond_expr) || cond_expr.builtin.kind != BuiltinTypeKind_Bool) {
+	
+	TypeID bool_type = type_id_new_builtin(BuiltinTypeKind_Bool);
+	if (!type_similar(cond_expr, bool_type)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
 		compiler->compunit->error.span = nodes.cond_expr_node->span;
 		compiler->compunit->error.expected_type = type_id_new_builtin(BuiltinTypeKind_Bool);
@@ -808,6 +816,42 @@ static TypeID compile_let(Compiler *compiler, const AstNode *node)
 	}
 
 	compiler_bytecode_store_local(compiler, (uint8_t)(i_variable));
+	return UNIT_TYPE;
+}
+
+static TypeID compile_set(Compiler *compiler, const AstNode *node)
+{
+	LetNode nodes = {0};
+	parse_let(compiler->compunit, node, &nodes);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+
+	TypeID variable_type = UNIT_TYPE;
+	uint32_t i_variable = 0;
+	bool is_variable = true;
+	if (!compiler_lookup_variable(compiler, nodes.name_token, &variable_type, &i_variable, &is_variable)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_UnknownSymbol);
+		compiler->compunit->error.span = nodes.name_token->span;
+		return UNIT_TYPE;
+	}
+
+	TypeID expr_type = compile_expr(compiler, nodes.value_node);
+
+	if (!type_similar(expr_type, variable_type)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
+		compiler->compunit->error.expected_type = variable_type;
+		compiler->compunit->error.got_type = expr_type;
+		compiler->compunit->error.span = nodes.value_node->span;
+		return UNIT_TYPE;
+	}
+
+	if (is_variable) {
+		compiler_bytecode_store_local(compiler, (uint8_t)i_variable);
+	}
+	else {
+		compiler_bytecode_store_arg(compiler, (uint8_t)i_variable);
+	}
 	return UNIT_TYPE;
 }
 
@@ -968,6 +1012,57 @@ static TypeID compile_gtethan(Compiler *compiler, const AstNode *node)
 	}
 	else {
 		compiler_push_opcode(compiler, OpCode_GteI32);
+	}
+
+	return type_id_new_builtin(BuiltinTypeKind_Bool);
+}
+
+// Compare two integers
+// (= <lhs> <rhs>)
+static TypeID compile_eq(Compiler *compiler, const AstNode *node)
+{
+	// -- Parsing
+	BinaryOpNode nodes = {0};
+	parse_binary_op(compiler->compunit, node, &nodes);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+	// -- Type checking
+	const TypeID lhs = compile_expr(compiler, nodes.lhs_node);
+	const TypeID rhs = compile_expr(compiler, nodes.rhs_node);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+	TypeID expected_type = type_id_new_signed(NumberWidth_32);
+	if (type_id_is_builtin(lhs)) {
+		if (lhs.builtin.kind == BuiltinTypeKind_Unsigned) {
+			expected_type = type_id_new_unsigned(NumberWidth_32);
+		}
+	}
+	const bool lhs_valid = type_similar(lhs, expected_type);
+	const bool rhs_valid = type_similar(rhs, expected_type);
+	if (!lhs_valid) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
+		compiler->compunit->error.expected_type = expected_type;
+		compiler->compunit->error.got_type = lhs;
+		compiler->compunit->error.span = nodes.lhs_node->span;
+		return UNIT_TYPE;
+	}
+
+	if (!rhs_valid) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
+		compiler->compunit->error.expected_type = expected_type;
+		compiler->compunit->error.got_type = rhs;
+		compiler->compunit->error.span = nodes.rhs_node->span;
+		return UNIT_TYPE;
+	}
+
+	// -- Codegen
+	if (type_similar(lhs, type_id_new_signed(NumberWidth_32))) {
+		compiler_push_opcode(compiler, OpCode_EqI32);
+	}
+	else {
+		compiler_push_opcode(compiler, OpCode_EqI32);
 	}
 
 	return type_id_new_builtin(BuiltinTypeKind_Bool);
@@ -1192,11 +1287,13 @@ const CompilerBuiltin compiler_expr_builtins[] = {
 	compile_loop,
 	compile_break,
 	compile_let,
+	compile_set,
 	compile_begin,
 	compile_iadd,
 	compile_isub,
 	compile_ltethan,
 	compile_gtethan,
+	compile_eq,
 	compile_and,
 	compile_store,
 	compile_load,
@@ -1210,11 +1307,13 @@ const sv compiler_expr_builtins_str[] = {
 	SV_LIT("loop"),
 	SV_LIT("break"),
 	SV_LIT("let"),
+	SV_LIT("set"),
 	SV_LIT("begin"),
 	SV_LIT("+"),
 	SV_LIT("-"),
 	SV_LIT("<="),
 	SV_LIT(">="),
+	SV_LIT("="),
 	SV_LIT("and"),
 	SV_LIT("_store"),
 	SV_LIT("_load"),

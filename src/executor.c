@@ -387,6 +387,14 @@ void call_function(
 			push(ctx, &sp, result);
 			break;
 		}
+		case OpCode_EqI32: {
+			Value operands[2] = {0};
+			pop_n(ctx, &sp, operands, 2);
+			Value result = {0};
+			result.i32 = operands[1].i32 == operands[0].i32;
+			push(ctx, &sp, result);
+			break;
+		}
 		case OpCode_And: {
 			Value operands[2] = {0};
 			pop_n(ctx, &sp, operands, 2);
