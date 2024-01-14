@@ -19,6 +19,11 @@
 	p)
 
 (define (main i32) ()
+	(let day1_input
+"1abc2
+pqr3stu8vwx
+a1b2c3d4e5f
+treb7uchet")
 	(let n (fib_rec 8))
 	(logi n)
 	(logi 32)

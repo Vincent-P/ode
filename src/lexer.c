@@ -35,6 +35,9 @@ void lexer_scan(CompilationUnit *compunit)
 	sv input = compunit->input;
 
 	uint32_t token_number_size = 0;
+	uint32_t token_string_size = 0; // Number of string token
+	uint32_t string_buffer_offset = 0; // Current offset into the string buffer
+	
 	uint32_t input_offset = 0;
 	while (true) {
 		// Eat all whitespace
@@ -109,15 +112,39 @@ void lexer_scan(CompilationUnit *compunit)
 			}
 			token.kind = TokenKind_Identifier;
 		} else if (first_char == '"') {
+
+			if (token_string_size >= ARRAY_LENGTH(compunit->token_strings_offset)) {
+				// maximum string count reached.
+				__debugbreak();
+			}
+
+			// Write the string literal to the string buffer
+			uint32_t escaped_string_size = 0;
+			compunit->token_strings_offset[token_string_size] = string_buffer_offset;
+
 			while (token_length < input.length && input.chars[input_offset + token_length] != '"') {
+
+				// TODO: Handle escape sequences
+				if (string_buffer_offset + escaped_string_size >= ARRAY_LENGTH(compunit->token_string_buffer)) {
+					// Crash if we overflow the string buffer
+					__debugbreak();
+				}
+				compunit->token_string_buffer[string_buffer_offset + escaped_string_size] = input.chars[input_offset + token_length];
+				escaped_string_size += 1;
+				
 				token_length += 1;
 			}
+			compunit->token_strings_length[token_string_size] = escaped_string_size;
+			
 			// TODO: Handle string to eof error
 			if (token_length >= input.length) {
+				__debugbreak();
 			}
 			// Eat the ending double-quote
 			token_length += 1;
+			token.data = token_string_size;
 			token.kind = TokenKind_StringLiteral;
+			token_string_size += 1;
 		} else {
 			error->code = ErrorCode_LexerUnknownToken;
 			error->span = (span){input_offset, input_offset + 1};

@@ -40,7 +40,16 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 		case OpCode_Nop: break;
 		case OpCode_PushU32:
 			PRINT_U32;
+		break;
+		case OpCode_PushStr: {
+			const uint32_t *bytecode_u32 = (const uint32_t*)(bytecode + offset + 1);
+			const uint32_t string_index = bytecode_u32[0];
+			string_builder_append_char(&sb, '#');
+			string_builder_append_u64(&sb, (uint64_t)string_index);
+			offset += sizeof(uint32_t);
+			
 			break;
+		}
 		case OpCode_Call:
 			PRINT_U32;
 		string_builder_append_char(&sb, ' ');

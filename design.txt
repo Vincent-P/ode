@@ -1,0 +1,38 @@
+; store-local <var_ident> <value>                    trivial
+; bool / true / false                                trivial
+; u8 / u32                                           kinda hard
+; u32 =                                              trivial
+; pointer_offset                                     done
+
+(define (is_digit bool) (c u8)
+	(and (<= '0' c) ( <= c '9')))
+
+(define (day1 ()) (input (* u8) input-length u32)
+	(let i-line 0)
+	(let i-first 0)
+	(let has-first false)
+	(let i-last 0)
+	(let i 0)
+	(loop
+		(if (>= i input_end) (break) ())
+		(let c (load (_ptr_offset (* u8) input i)))
+		(if (is_digit c)
+			(if has-first
+				(set i-last i)
+				(seq
+					(set i-first i)
+					(set has-first true)))
+			(if (= c '\n')
+				(set i-line (+ i-line 1))
+				(set has-first false)
+				()))
+		(set i (+ i 1))))
+
+
+==
+Current progress:
+Code compiles, with some stubs.
+Passing strings as (* u8) needs to be implemented. There is probably no need for a Str type in the compiler.
+- The string buffer should be copied from CompilerModule to Module.
+- Pointers need to have at least 3 differents types: Host (external memory from C), Image (readonly memory compiled in the module), Native/Local/Heap (offset into the memory owned by the VM).
+

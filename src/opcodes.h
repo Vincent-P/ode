@@ -9,6 +9,8 @@ enum OpCode
 	OpCode_Nop,
 	// PushU32 <constant:i32>
 	OpCode_PushU32,
+	// PushStr <constant_offset:u32>
+	OpCode_PushStr,
 	// Call <address:u32> <num_args:u8> (arg0, arg1, ..., argN)
 	OpCode_Call,
 	// Call <i_imported_function:i8> <num_args:u8> (arg0, arg1, ..., argN)
@@ -61,6 +63,7 @@ const char *OpCode_str[] = {
 	"Halt",
 	"Nop",
 	"PushU32",
+	"PushStr",
 	"Call",
 	"CallInModule",
 	"CallForeign",

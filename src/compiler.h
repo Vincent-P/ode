@@ -18,8 +18,8 @@ typedef struct CompilationUnit
 	Token tokens[4096];
 	uint32_t token_unsigned_numbers[128]; // data for numbers
 	int32_t token_signed_numbers[128]; // data for numbers
-	uint16_t token_strings_offset[128]; // offset into the string buffer
-	uint16_t token_strings_length[128]; // length of the string
+	uint32_t token_strings_offset[128]; // offset into the string buffer
+	uint32_t token_strings_length[128]; // length of the string
 	char token_string_buffer[128]; // buffer for strings
 } CompilationUnit;
 
@@ -64,10 +64,10 @@ typedef struct Function
 typedef struct CompilerModule
 {
 	sv name;
-	// functions containes in this module
+	// functions contained in this module
 	Function functions[16];
 	uint32_t functions_length;
-	// types defined in this  i32;module
+	// types defined in this module
 	UserDefinedType types[8];
 	uint32_t types_length;
 	// table of imports module index
@@ -81,6 +81,9 @@ typedef struct CompilerModule
 	sv foreign_functions_module_name[8];
 	sv foreign_functions_name[8];
 	uint32_t foreign_functions_length;
+	// constant memory
+	uint8_t constants[128];
+	uint32_t constants_length;
 	// bytecode for all the functions
 	uint8_t bytecode[1024];
 	uint32_t bytecode_length;

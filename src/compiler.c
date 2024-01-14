@@ -1,5 +1,5 @@
 #include "compiler.h"
-#include "lexer.h"
+xo#include "lexer.h"
 #include "parser.h"
 #include "vm.h"
 #include "opcodes.h"
@@ -50,6 +50,24 @@ static uint32_t *compiler_push_u32(Compiler *compiler, uint32_t value)
 	return bytecode;
 }
 
+static uint32_t compiler_push_str(Compiler *compiler, sv value)
+{
+	CompilerModule *current_module = &compiler->module;
+	uint32_t to_write = value.length;
+	if (current_module->constants_length + to_write >= ARRAY_LENGTH(current_module->constants)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		return 0;
+	}
+
+	uint32_t offset = current_module->constants_length;
+	uint8_t *constants_memory = current_module->constants + offset;
+	for (uint32_t i = 0; i < to_write; ++i) {
+		constants_memory[i] = (uint8_t)value.chars[i];
+	}
+	current_module->constants_length += to_write;
+	return offset;
+}
+
 static int32_t *compiler_push_i32(Compiler *compiler, int32_t value)
 {
 	CompilerModule *current_module = &compiler->module;
@@ -89,6 +107,13 @@ static void compiler_bytecode_push_u32(Compiler *compiler, uint32_t value)
 {
 	compiler_push_opcode(compiler, OpCode_PushU32);
 	compiler_push_u32(compiler, value);
+}
+
+static void compiler_bytecode_push_str(Compiler *compiler, sv value)
+{
+	uint32_t constants_offset = compiler_push_str(compiler, value);
+	compiler_push_opcode(compiler, OpCode_PushStr);
+	compiler_push_u32(compiler, constants_offset);
 }
 
 static void compiler_bytecode_push_i32(Compiler *compiler, int32_t value)
@@ -368,8 +393,6 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *node);
 
 static TypeID compile_atom(Compiler *compiler, const Token *token)
 {
-	// sv token_sv = sv_substr(compiler->compunit->input, token->span);
-
 	if (token->kind == TokenKind_Identifier) {
 		// Refer a declared variable
 		// <identifier>
@@ -426,8 +449,14 @@ static TypeID compile_atom(Compiler *compiler, const Token *token)
 	} else if (token->kind == TokenKind_StringLiteral) {
 		// A string literal
 		// "str"
-		// sv value_sv = sv_substr(token_sv, span{1, (uint32_t)(token_sv.length) - 2});
-		// TODO: push  constant
+		uint32_t string_index = token->data;
+		uint32_t string_offset = compiler->compunit->token_strings_offset[string_index];
+		uint32_t string_length = compiler->compunit->token_strings_length[string_index];
+		sv literal = {
+			.chars = compiler->compunit->token_string_buffer + string_offset,
+			.length = string_length,
+		};
+		compiler_bytecode_push_str(compiler, literal);
 		TypeID new_type_id = type_id_new_builtin(BuiltinTypeKind_Str);
 		return new_type_id;
 	} else {

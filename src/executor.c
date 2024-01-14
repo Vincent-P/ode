@@ -131,6 +131,20 @@ void call_function(
 
 			break;
 		}
+		case OpCode_PushStr: {
+			const uint32_t string_index = bytecode_read_u32(ctx, mp, &ip);
+				
+			Value val;
+			val.u32 = string_index;
+			push(ctx, &sp, val);
+			
+			string_builder_append_sv(&sb, SV("[DEBUG] | val.u32 = "));
+			string_builder_append_u64(&sb, (uint64_t)(val.u32));
+			string_builder_append_char(&sb, '\n');
+			cross_log(cross_stderr, string_builder_get_string(&sb));
+
+			break;
+		}
 		case OpCode_Call: {
 			debug_print_stack(ctx, sp, bp);
 			
