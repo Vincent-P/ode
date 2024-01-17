@@ -35,15 +35,20 @@ enum OpCode
 	// Get a value starting from the function stack
 	// LoadLocal <i_local:i8>
 	OpCode_LoadLocal,
-	// -- Integers
+	// -- Pointers
 	// Load8 (ptr)
 	OpCode_Load8,
 	// Load16 (ptr)
 	OpCode_Load16,
 	// Load32 (ptr)
 	OpCode_Load32,
-	// StoreU32 (ptr, value)
+	// Store8 (ptr, value)
+	OpCode_Store8,
+	// Store16 (ptr, value)
+	OpCode_Store16,
+	// Store32 (ptr, value)
 	OpCode_Store32,
+	// -- Integers
 	// AddI32 (arg0, arg1)
 	OpCode_AddI32,
 	// SubI32 (arg0, arg1)
@@ -81,6 +86,8 @@ const char *OpCode_str[] = {
 	"Load8",
 	"Load16",
 	"Load32",
+	"Store8",
+	"Store16",
 	"Store32",
 	"AddI32",
 	"SubI32",

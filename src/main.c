@@ -68,21 +68,26 @@ static void dummy_foreign_func(Value *stack, uint32_t arg_count)
 
 static void log_foreign_func(Value *stack, uint32_t arg_count)
 {
-        // StackValue arg0 = execution_get_local(ctx, 0);
-        // sv arg0_sv = execution_get_str(ctx, arg0.str);
-        // printf("\n=== HOST: log(\"%.*s\") ===\n", int(arg0_sv.length), arg0_sv.chars);
-	if (arg_count != 1) {
-		cross_log(cross_stderr, SV("===HOST: log_foreign_func: expected 1 argument\n"));
+	if (arg_count != 2) {
+		cross_log(cross_stderr, SV("===HOST: log_foreign_func: expected 2 arguments\n"));
 	}
 	else {
-		cross_log(cross_stdout, SV("===HOST: log_foreign_func\n"));
+		Pointer chars = stack[0].ptr;
+		uint32_t len = stack[1].u32;
+		
+		char logbuf[64] = {0};
+		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
+		string_builder_append_sv(&sb, SV("=== HOST: log_foreign_func: ptr{"));
+		string_builder_append_u64(&sb, (uint64_t)chars.offset);
+		string_builder_append_sv(&sb, SV("}, len{"));
+		string_builder_append_u64(&sb, (uint64_t)len);
+		string_builder_append_sv(&sb, SV("} ===\n"));
+		cross_log(cross_stdout, string_builder_get_string(&sb));
 	}
 }
 
 static void logi_foreign_func(Value *stack, uint32_t arg_count)
 {
-        // StackValue n = execution_get_local(ctx, 0);
-        // printf("\n=== HOST: log(%d) ===\n", n.i32);
         cross_log(cross_stderr, SV("logi foreign func.\n"));
 
 	if (arg_count != 1) {

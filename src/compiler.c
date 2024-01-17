@@ -574,6 +574,7 @@ static TypeID compile_function_defininition(Compiler *compiler, const AstNode *n
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
 		compiler->compunit->error.expected_type = return_type;
 		compiler->compunit->error.got_type = body_type;
+		compiler->compunit->error.span = define_node.body_node->span;
 	}
 	return function->return_type;
 }
@@ -1180,7 +1181,21 @@ static TypeID compile_store(Compiler *compiler, const AstNode *node)
 		return UNIT_TYPE;
 	}
 
-	compiler_push_opcode(compiler, OpCode_Store32);
+	uint32_t value_type_size = type_get_size(&compiler->module, expr_type_id);
+	
+	OpCode opcode = OpCode_Halt;
+	if (value_type_size == 1) {
+		opcode = OpCode_Store8;
+	} else if (value_type_size == 2) {
+		opcode = OpCode_Store16;
+	} else if (value_type_size == 4) {
+		opcode = OpCode_Store32;
+	} else {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		return UNIT_TYPE;
+	}
+	
+	compiler_push_opcode(compiler, opcode);
 	return UNIT_TYPE;
 }
 

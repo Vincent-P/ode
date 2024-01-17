@@ -442,12 +442,93 @@ void call_function(
 			cross_log(cross_stderr, string_builder_get_string(&sb));			
 			break;
 		}
+		case OpCode_Store8: {
+			Value operands[2] = {0};
+			pop_n(ctx, &sp, operands, 2);
+			uint8_t value = operands[0].u8;
+			Pointer ptr = operands[1].ptr;
+
+			// DEBUG
+			if (ptr.type >= PointerType_Count) {
+				__debugbreak();
+			}
+
+			uint8_t *memory = NULL;
+			switch (ptr.type) {
+				case PointerType_Host: {
+					__debugbreak();
+					break;
+				}
+				case PointerType_Image: {
+					memory = ctx->modules[mp].constants + ptr.offset;
+					break;
+				}
+				case PointerType_Heap: {
+					__debugbreak();
+					break;
+				}
+			}
+
+			uint8_t *memory_u8 = (uint8_t*)memory;
+			*memory_u8 = value;
+				
+			// debug print
+			string_builder_append_sv(&sb, SV("[DEBUG] | ptr = "));
+			string_builder_append_sv(&sb, sv_from_null_terminated(PointerType_str[ptr.type]));
+			string_builder_append_char(&sb, ' ');
+			string_builder_append_u64(&sb, (uint64_t)ptr.offset);
+			string_builder_append_sv(&sb, SV(", val.u32 = "));
+			string_builder_append_u64(&sb, (uint64_t)value);
+			string_builder_append_char(&sb, '\n');
+			cross_log(cross_stderr, string_builder_get_string(&sb));
+			break;
+		}
+		case OpCode_Store16: {
+			Value operands[2] = {0};
+			pop_n(ctx, &sp, operands, 2);
+			uint16_t value = operands[0].u16;
+			Pointer ptr = operands[1].ptr;
+
+			// DEBUG
+			if (ptr.type >= PointerType_Count) {
+				__debugbreak();
+			}
+
+			uint8_t *memory = NULL;
+			switch (ptr.type) {
+				case PointerType_Host: {
+					__debugbreak();
+					break;
+				}
+				case PointerType_Image: {
+					memory = ctx->modules[mp].constants + ptr.offset;
+					break;
+				}
+				case PointerType_Heap: {
+					__debugbreak();
+					break;
+				}
+			}
+
+			uint16_t *memory_u16 = (uint16_t*)memory;
+			*memory_u16 = value;
+				
+			// debug print
+			string_builder_append_sv(&sb, SV("[DEBUG] | ptr = "));
+			string_builder_append_sv(&sb, sv_from_null_terminated(PointerType_str[ptr.type]));
+			string_builder_append_char(&sb, ' ');
+			string_builder_append_u64(&sb, (uint64_t)ptr.offset);
+			string_builder_append_sv(&sb, SV(", val.u32 = "));
+			string_builder_append_u64(&sb, (uint64_t)(value));
+			string_builder_append_char(&sb, '\n');
+			cross_log(cross_stderr, string_builder_get_string(&sb));
+			break;
+		}
 		case OpCode_Store32: {
 			Value operands[2] = {0};
 			pop_n(ctx, &sp, operands, 2);
-
-			Pointer ptr = operands[0].ptr;
-			uint32_t value = operands[1].u32;
+			uint32_t value = operands[0].u32;
+			Pointer ptr = operands[1].ptr;
 
 			// DEBUG
 			if (ptr.type >= PointerType_Count) {
@@ -479,7 +560,7 @@ void call_function(
 			string_builder_append_char(&sb, ' ');
 			string_builder_append_u64(&sb, (uint64_t)ptr.offset);
 			string_builder_append_sv(&sb, SV(", val.u32 = "));
-			string_builder_append_u64(&sb, (uint64_t)(operands[0].u32));
+			string_builder_append_u64(&sb, (uint64_t)value);
 			string_builder_append_char(&sb, '\n');
 			cross_log(cross_stderr, string_builder_get_string(&sb));
 			break;
@@ -526,6 +607,17 @@ void call_function(
 			Value result = {0};
 			result.i32 = operands[1].i32 <= operands[0].i32;
 			push(ctx, &sp, result);
+			
+
+			// debug print
+			string_builder_append_sv(&sb, SV("[DEBUG] | "));
+			string_builder_append_u64(&sb, (uint64_t)operands[1].u32);
+			string_builder_append_sv(&sb, SV(" <= "));
+			string_builder_append_u64(&sb, (uint64_t)operands[0].u32);
+			string_builder_append_sv(&sb, SV(" = "));
+			string_builder_append_u64(&sb, (uint64_t)result.u32);
+			string_builder_append_char(&sb, '\n');
+			cross_log(cross_stderr, string_builder_get_string(&sb));
 			break;
 		}
 		case OpCode_GteI32: {
