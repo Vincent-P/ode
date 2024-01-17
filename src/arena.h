@@ -7,7 +7,7 @@ typedef struct Arena
 	uint8_t *end;
 } Arena;
 
-void *arena_alloc(Arena *a, uint32_t size)
+inline void *arena_alloc(Arena *a, uint32_t size)
 {
 	uint32_t capacity = (uint32_t)(a->end - a->begin);
 	if (1 > capacity / size) {
@@ -19,7 +19,7 @@ void *arena_alloc(Arena *a, uint32_t size)
 	return memset(p, 0, total);
 }
 
-void *arena_alloc_n(Arena *a, uint32_t size, uint32_t count)
+inline void *arena_alloc_n(Arena *a, uint32_t size, uint32_t count)
 {
 	uint32_t capacity = (uint32_t)(a->end - a->begin);
 	if (count > capacity / size) {

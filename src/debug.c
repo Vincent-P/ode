@@ -79,6 +79,8 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 		case OpCode_LoadLocal:
 			PRINT_BYTE;
 			break;
+		case OpCode_Load8:
+		case OpCode_Load16:
 		case OpCode_Load32:
 		case OpCode_Store32:
 		case OpCode_AddI32:

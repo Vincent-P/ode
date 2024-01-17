@@ -179,18 +179,14 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 		build_error_at(code, compunit.error.span, &sb);
 		cross_log(cross_stderr, string_builder_get_string(&sb));
 
-		// # expected type #<raw> <type_str>
-		string_builder_append_sv(&sb, SV("# expected type #"));
-		string_builder_append_u64(&sb, (uint64_t)(err.expected_type.raw));
-		string_builder_append_char(&sb, ' ');
+		// # expected type <type_str>
+		string_builder_append_sv(&sb, SV("# expected type "));
 		type_build_string(&sb, err.expected_type);
 		string_builder_append_char(&sb, '\n');
 		cross_log(cross_stderr, string_builder_get_string(&sb));
 
-		// # got type #<raw> <type_str>
-		string_builder_append_sv(&sb, SV("# got type #"));
-		string_builder_append_u64(&sb, (uint64_t)(err.got_type.raw));
-		string_builder_append_char(&sb, ' ');
+		// # got type <type_str>
+		string_builder_append_sv(&sb, SV("# got type "));
 		type_build_string(&sb, err.got_type);
 		string_builder_append_char(&sb, '\n');
 		cross_log(cross_stderr, string_builder_get_string(&sb));
@@ -324,6 +320,9 @@ static LoadModuleResult load_compiler_module(VM *vm, uint32_t i_compiler_module)
 	// Fill module data
 	Module *runtime_module = vm->runtime_modules + i_runtime_module;
 	runtime_module->name = compiler_module->name;
+	// Copy constants
+	_Static_assert(sizeof(compiler_module->constants) == sizeof(runtime_module->constants));
+	memcpy(runtime_module->constants, compiler_module->constants, sizeof(compiler_module->constants));
 	// Copy bytecode
 	uint32_t bytecode_len = compiler_module->bytecode_length > BYTECODE_LENGTH
 				? BYTECODE_LENGTH

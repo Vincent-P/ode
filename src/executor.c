@@ -2,6 +2,13 @@
 #include "opcodes.h"
 #include "cross.h"
 
+static const char* PointerType_str[] = {
+	"PointerType_Host",
+	"PointerType_Image",
+	"PointerType_Heap",
+};
+_Static_assert(ARRAY_LENGTH(PointerType_str) == PointerType_Count);
+
 static uint8_t bytecode_read_u8(ExecutionContext *ctx, uint32_t mp, uint32_t *ip)
 {
 	uint8_t *bytecode = ctx->modules[mp].bytecode;
@@ -132,14 +139,21 @@ void call_function(
 			break;
 		}
 		case OpCode_PushStr: {
-			const uint32_t string_index = bytecode_read_u32(ctx, mp, &ip);
-				
+			const uint32_t string_offset = bytecode_read_u32(ctx, mp, &ip);
+
+			const uint8_t *memory = ctx->modules[mp].constants + string_offset;
+			const uint32_t *memory_u32 = (uint32_t*)memory;
+			const uint32_t string_length = *memory_u32;
+			
 			Value val;
-			val.u32 = string_index;
+			val.ptr.type = PointerType_Image;
+			val.ptr.offset = string_offset + sizeof(string_length);
 			push(ctx, &sp, val);
 			
-			string_builder_append_sv(&sb, SV("[DEBUG] | val.u32 = "));
-			string_builder_append_u64(&sb, (uint64_t)(val.u32));
+			string_builder_append_sv(&sb, SV("[DEBUG] | str = "));
+			string_builder_append_sv(&sb, sv_from_null_terminated(PointerType_str[val.ptr.type]));
+			string_builder_append_char(&sb, ' ');
+			string_builder_append_u64(&sb, (uint64_t)val.ptr.offset);
 			string_builder_append_char(&sb, '\n');
 			cross_log(cross_stderr, string_builder_get_string(&sb));
 
@@ -326,12 +340,104 @@ void call_function(
 			cross_log(cross_stderr, string_builder_get_string(&sb));
 			break;
 		}
-		case OpCode_Load32: {
-			Value ptr = pop(ctx, &sp);
+		case OpCode_Load8: {
+			Pointer ptr = pop(ctx, &sp).ptr;
+
+			uint8_t *memory = NULL;
+			switch (ptr.type) {
+				case PointerType_Host: {
+					__debugbreak();
+					break;
+				}
+				case PointerType_Image: {
+					memory = ctx->modules[mp].constants + ptr.offset;
+					break;
+				}
+				case PointerType_Heap: {
+					__debugbreak();
+					break;
+				}
+			}
+
+			Value result = {0};
+			result.u8 = *(uint8_t*)memory;
+			push(ctx, &sp, result);
 			
 			// debug print
 			string_builder_append_sv(&sb, SV("[DEBUG] | ptr = "));
-			string_builder_append_u64(&sb, (uint64_t)(ptr.u32));
+			string_builder_append_sv(&sb, sv_from_null_terminated(PointerType_str[ptr.type]));
+			string_builder_append_char(&sb, ' ');
+			string_builder_append_u64(&sb, (uint64_t)ptr.offset);
+			string_builder_append_sv(&sb, SV(" | deref.u8 = "));
+			string_builder_append_u64(&sb, (uint64_t)(result.u8));
+			string_builder_append_char(&sb, '\n');
+			cross_log(cross_stderr, string_builder_get_string(&sb));			
+			break;
+		}
+		case OpCode_Load16: {
+			Pointer ptr = pop(ctx, &sp).ptr;
+
+			uint8_t *memory = NULL;
+			switch (ptr.type) {
+				case PointerType_Host: {
+					__debugbreak();
+					break;
+				}
+				case PointerType_Image: {
+					memory = ctx->modules[mp].constants + ptr.offset;
+					break;
+				}
+				case PointerType_Heap: {
+					__debugbreak();
+					break;
+				}
+			}
+
+			Value result = {0};
+			result.u16 = *(uint16_t*)memory;
+			push(ctx, &sp, result);
+			
+			// debug print
+			string_builder_append_sv(&sb, SV("[DEBUG] | ptr = "));
+			string_builder_append_sv(&sb, sv_from_null_terminated(PointerType_str[ptr.type]));
+			string_builder_append_char(&sb, ' ');
+			string_builder_append_u64(&sb, (uint64_t)ptr.offset);
+			string_builder_append_sv(&sb, SV(" | deref.u16 = "));
+			string_builder_append_u64(&sb, (uint64_t)(result.u16));
+			string_builder_append_char(&sb, '\n');
+			cross_log(cross_stderr, string_builder_get_string(&sb));			
+			break;
+		}
+		case OpCode_Load32: {
+			Pointer ptr = pop(ctx, &sp).ptr;
+
+			uint8_t *memory = NULL;
+			switch (ptr.type) {
+				case PointerType_Host: {
+					__debugbreak();
+					break;
+				}
+				case PointerType_Image: {
+					memory = ctx->modules[mp].constants + ptr.offset;
+					break;
+				}
+				case PointerType_Heap: {
+					__debugbreak();
+					break;
+				}
+			}
+
+			Value result = {0};
+			result.u32 = *(uint32_t*)memory;
+			push(ctx, &sp, result);
+			
+			// debug print
+			string_builder_append_sv(&sb, SV("[DEBUG] | ptr = "));
+			string_builder_append_sv(&sb, sv_from_null_terminated(PointerType_str[ptr.type]));
+			string_builder_append_char(&sb, ' ');
+			string_builder_append_u64(&sb, (uint64_t)ptr.offset);
+			string_builder_append_sv(&sb, SV(" | deref.u32 = "));
+			string_builder_append_u64(&sb, (uint64_t)(result.u32));
 			string_builder_append_char(&sb, '\n');
 			cross_log(cross_stderr, string_builder_get_string(&sb));			
 			break;
@@ -340,9 +446,38 @@ void call_function(
 			Value operands[2] = {0};
 			pop_n(ctx, &sp, operands, 2);
 
+			Pointer ptr = operands[0].ptr;
+			uint32_t value = operands[1].u32;
+
+			// DEBUG
+			if (ptr.type >= PointerType_Count) {
+				__debugbreak();
+			}
+
+			uint8_t *memory = NULL;
+			switch (ptr.type) {
+				case PointerType_Host: {
+					__debugbreak();
+					break;
+				}
+				case PointerType_Image: {
+					memory = ctx->modules[mp].constants + ptr.offset;
+					break;
+				}
+				case PointerType_Heap: {
+					__debugbreak();
+					break;
+				}
+			}
+
+			uint32_t *memory_u32 = (uint32_t*)memory;
+			*memory_u32 = value;
+				
 			// debug print
 			string_builder_append_sv(&sb, SV("[DEBUG] | ptr = "));
-			string_builder_append_u64(&sb, (uint64_t)(operands[1].u32));
+			string_builder_append_sv(&sb, sv_from_null_terminated(PointerType_str[ptr.type]));
+			string_builder_append_char(&sb, ' ');
+			string_builder_append_u64(&sb, (uint64_t)ptr.offset);
 			string_builder_append_sv(&sb, SV(", val.u32 = "));
 			string_builder_append_u64(&sb, (uint64_t)(operands[0].u32));
 			string_builder_append_char(&sb, '\n');

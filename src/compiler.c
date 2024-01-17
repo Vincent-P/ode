@@ -1,5 +1,5 @@
 #include "compiler.h"
-xo#include "lexer.h"
+#include "lexer.h"
 #include "parser.h"
 #include "vm.h"
 #include "opcodes.h"
@@ -53,7 +53,7 @@ static uint32_t *compiler_push_u32(Compiler *compiler, uint32_t value)
 static uint32_t compiler_push_str(Compiler *compiler, sv value)
 {
 	CompilerModule *current_module = &compiler->module;
-	uint32_t to_write = value.length;
+	uint32_t to_write = sizeof(value.length) + value.length;
 	if (current_module->constants_length + to_write >= ARRAY_LENGTH(current_module->constants)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
 		return 0;
@@ -61,7 +61,11 @@ static uint32_t compiler_push_str(Compiler *compiler, sv value)
 
 	uint32_t offset = current_module->constants_length;
 	uint8_t *constants_memory = current_module->constants + offset;
-	for (uint32_t i = 0; i < to_write; ++i) {
+
+	*(uint32_t*)constants_memory = value.length;
+	constants_memory += sizeof(value.length);
+	
+	for (uint32_t i = 0; i < value.length; ++i) {
 		constants_memory[i] = (uint8_t)value.chars[i];
 	}
 	current_module->constants_length += to_write;
@@ -275,16 +279,14 @@ static void compiler_push_loop_end_ip(Compiler *compiler, uint32_t loop_end_ip)
 	*new_loop_end_ip = loop_end_ip;
 }
 
-static uint32_t compiler_pop_loop_end_ip(Compiler *compiler)
+static void compiler_pop_loop_end_ip(Compiler *compiler)
 {
 	if (compiler->loop_end_ips_length == 0 || compiler->loop_end_ips_length >= ARRAY_LENGTH(compiler->loop_end_ips)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
-		return 0;
+		return;
 	}
 
-	uint32_t loop_end_ip = compiler->loop_end_ips[compiler->loop_end_ips_length];
 	compiler->loop_end_ips_length -= 1;
-	return loop_end_ip;
 }
 
 static uint32_t compiler_last_loop_end_ip(Compiler *compiler)
@@ -294,7 +296,7 @@ static uint32_t compiler_last_loop_end_ip(Compiler *compiler)
 		return 0;
 	}
 
-	return compiler->loop_end_ips[compiler->loop_end_ips_length];
+	return compiler->loop_end_ips[compiler->loop_end_ips_length-1];
 }
 
 static bool compiler_push_variable(Compiler *compiler, const Token *identifier_token, TypeID type, uint32_t *i_variable_out)
@@ -1135,7 +1137,20 @@ static TypeID compile_load(Compiler *compiler, const AstNode *node)
 	}
 
 	TypeID pointed_type_id = type_id_deref_pointer(addr_type_id);
-	compiler_push_opcode(compiler, OpCode_Load32);
+	uint32_t type_size = type_get_size(&compiler->module, pointed_type_id);
+	OpCode opcode = OpCode_Halt;
+	if (type_size == 1) {
+		opcode = OpCode_Load8;
+	} else if (type_size == 2) {
+		opcode = OpCode_Load16;
+	} else if (type_size == 4) {
+		opcode = OpCode_Load32;
+	} else {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		return UNIT_TYPE;
+	}
+	
+	compiler_push_opcode(compiler, opcode);
 	return pointed_type_id;
 }
 

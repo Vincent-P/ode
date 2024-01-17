@@ -4,15 +4,36 @@
 
 enum Executor_Constants
 {
+	CONSTANT_LENGTH = 128,
 	BYTECODE_LENGTH = (32 << 10),
 	IMPORT_LENGTH = 64,
 };
 
+typedef enum PointerType
+{
+	PointerType_Host,
+	PointerType_Image,
+	PointerType_Heap,
+} PointerType;
+enum PointerTypeCount {
+	PointerType_Count = PointerType_Heap + 1,
+};
+
+typedef struct Pointer
+{
+	uint32_t offset : 30;
+	PointerType type : 2;
+} Pointer;
+_Static_assert(sizeof(Pointer) == sizeof(uint32_t));
+
 typedef union Value
 {
-	int32_t  i32; // int
-	float    f32; // float
-	uint32_t u32; // uint or ptr or bool
+	int32_t  i32;
+	float    f32;
+	uint8_t u8;
+	uint16_t u16;
+	uint32_t u32;
+	Pointer ptr;
 } Value;
 
 typedef enum ValueKind
@@ -44,6 +65,8 @@ typedef struct Module
 	sv foreign_function_names[IMPORT_LENGTH];
 	ForeignFn foreign_function_callback[IMPORT_LENGTH];
 	uint32_t foreign_function_length;
+	// Constant memory
+	uint8_t constants[CONSTANT_LENGTH];
 	// Bytecode
 	uint8_t bytecode[BYTECODE_LENGTH];
 	uint32_t bytecode_len;

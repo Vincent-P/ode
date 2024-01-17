@@ -75,7 +75,7 @@ inline bool type_id_is_user_defined(TypeID id)
 	return id.builtin.is_user_defined == 1;
 }
 	
-TypeID type_id_new_builtin(BuiltinTypeKind kind)
+inline TypeID type_id_new_builtin(BuiltinTypeKind kind)
 {
 	TypeID id = {0};
 	id.builtin.is_user_defined = 0;
@@ -84,7 +84,7 @@ TypeID type_id_new_builtin(BuiltinTypeKind kind)
 	return id;
 }
 
-TypeID type_id_new_signed(NumberWidth width)
+inline TypeID type_id_new_signed(NumberWidth width)
 {
 	TypeID id = {0};
 	id.builtin.is_user_defined = 0;
@@ -94,7 +94,7 @@ TypeID type_id_new_signed(NumberWidth width)
 	return id;
 }
 
-TypeID type_id_new_unsigned(NumberWidth width)
+inline TypeID type_id_new_unsigned(NumberWidth width)
 {
 	TypeID id = {0};
 	id.builtin.is_user_defined = 0;
@@ -204,6 +204,17 @@ inline bool type_similar(TypeID operand_id, TypeID expected_id)
 			       || operand_id.builtin.kind == BuiltinTypeKind_Signed
 			;
 		}
+	}
+	else if (type_id_is_builtin(operand_id) && operand_id.builtin.kind == BuiltinTypeKind_Str) {
+		// String literal conversions
+		
+		// to *u8
+		if (type_id_is_pointer(expected_id)
+		    && expected_id.pointer.indirection_count == 1
+		    && expected_id.pointer.pointee_builtin_kind == BuiltinTypeKind_Unsigned
+		    && expected_id.pointer.pointee_number_width == 0) {
+			    return true;
+		    }
 	}
 	return operand_id.raw == expected_id.raw;
 }

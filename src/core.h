@@ -175,7 +175,7 @@ inline void string_builder_append_f32(StringBuilder *builder, float f)
 }
 
 
-sv string_builder_get_string(StringBuilder *builder)
+inline sv string_builder_get_string(StringBuilder *builder)
 {
 	sv result = {0};
 	result.chars = builder->buffer;

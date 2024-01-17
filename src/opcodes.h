@@ -36,7 +36,11 @@ enum OpCode
 	// LoadLocal <i_local:i8>
 	OpCode_LoadLocal,
 	// -- Integers
-	// LoadU32 (ptr)
+	// Load8 (ptr)
+	OpCode_Load8,
+	// Load16 (ptr)
+	OpCode_Load16,
+	// Load32 (ptr)
 	OpCode_Load32,
 	// StoreU32 (ptr, value)
 	OpCode_Store32,
@@ -74,6 +78,8 @@ const char *OpCode_str[] = {
 	"LoadArg",
 	"StoreLocal",
 	"LoadLocal",
+	"Load8",
+	"Load16",
 	"Load32",
 	"Store32",
 	"AddI32",

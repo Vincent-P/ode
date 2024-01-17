@@ -61,12 +61,12 @@ static bool get_module_path(char *out_path, uint32_t *out_path_length, sv src_di
         return true;
 }
 
-void dummy_foreign_func(Value *stack, uint32_t arg_count)
+static void dummy_foreign_func(Value *stack, uint32_t arg_count)
 {
         cross_log(cross_stdout, SV("Dummy foreign func.\n"));
 }
 
-void log_foreign_func(Value *stack, uint32_t arg_count)
+static void log_foreign_func(Value *stack, uint32_t arg_count)
 {
         // StackValue arg0 = execution_get_local(ctx, 0);
         // sv arg0_sv = execution_get_str(ctx, arg0.str);
@@ -79,7 +79,7 @@ void log_foreign_func(Value *stack, uint32_t arg_count)
 	}
 }
 
-void logi_foreign_func(Value *stack, uint32_t arg_count)
+static void logi_foreign_func(Value *stack, uint32_t arg_count)
 {
         // StackValue n = execution_get_local(ctx, 0);
         // printf("\n=== HOST: log(%d) ===\n", n.i32);
@@ -99,7 +99,7 @@ void logi_foreign_func(Value *stack, uint32_t arg_count)
 
 }
 
-ForeignFn on_foreign(sv module_name, sv function_name)
+static ForeignFn on_foreign(sv module_name, sv function_name)
 {
 	char logbuf[64] = {0};
 	StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
@@ -119,7 +119,7 @@ ForeignFn on_foreign(sv module_name, sv function_name)
         return dummy_foreign_func;
 }
 
-bool on_load_module(sv module_name, sv *out_code)
+static bool on_load_module(sv module_name, sv *out_code)
 {
 	char logbuf[64]  = {0};
 	StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
@@ -172,7 +172,7 @@ bool on_load_module(sv module_name, sv *out_code)
         return true;
 }
 
-void on_error(VM *vm, Error err)
+static void on_error(VM *vm, Error err)
 {
 	char buf[96] = {0};
 	StringBuilder sb = string_builder_from_buffer(buf, sizeof(buf));
@@ -328,6 +328,7 @@ void *memmove(void *dest, const void *src, size_t count)
 }
 
 int _fltused;
+int mainCRTStartup(void);
 
 int mainCRTStartup(void)
 {

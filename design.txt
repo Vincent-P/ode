@@ -31,8 +31,10 @@
 
 ==
 Current progress:
-Code compiles, with some stubs.
-Passing strings as (* u8) needs to be implemented. There is probably no need for a Str type in the compiler.
-- The string buffer should be copied from CompilerModule to Module.
-- Pointers need to have at least 3 differents types: Host (external memory from C), Image (readonly memory compiled in the module), Native/Local/Heap (offset into the memory owned by the VM).
+- Load/Store need to be sized, and respect pointee type size. Loading a single character through a (*u8) currently loads 4 entire bytes and the resulting value is false?
+
+
+After implementing pointers, I think that strings (or pointers in general?) should embed length.
+- So either all pointers have an associated length (in elements or bytes)
+- Or there is a separate slice type
 
