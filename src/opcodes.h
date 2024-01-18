@@ -36,23 +36,23 @@ enum OpCode
 	// LoadLocal <i_local:i8>
 	OpCode_LoadLocal,
 	// -- Pointers
-	// Load8 (ptr)
+	// Load (ptr)
 	OpCode_Load8,
-	// Load16 (ptr)
 	OpCode_Load16,
-	// Load32 (ptr)
 	OpCode_Load32,
-	// Store8 (ptr, value)
+	// Store (ptr, value)
 	OpCode_Store8,
-	// Store16 (ptr, value)
 	OpCode_Store16,
-	// Store32 (ptr, value)
 	OpCode_Store32,
-	// -- Integers
-	// AddI32 (arg0, arg1)
-	OpCode_AddI32,
-	// SubI32 (arg0, arg1)
-	OpCode_SubI32,
+	// -- Integers arithmetic
+	// Add (arg0, arg1)
+	OpCode_AddU8,
+	OpCode_AddU16,
+	OpCode_AddU32,
+	// Sub (arg0, arg1)
+	OpCode_SubU8,
+	OpCode_SubU16,
+	OpCode_SubU32,
 	// LteI32 (arg0, arg1)
 	OpCode_LteI32,
 	// GteI32 (arg0, arg1)
@@ -89,8 +89,12 @@ const char *OpCode_str[] = {
 	"Store8",
 	"Store16",
 	"Store32",
-	"AddI32",
-	"SubI32",
+	"AddU8",
+	"AddU16",
+	"AddU32",
+	"SubU8",
+	"SubU16",
+	"SubU32",
 	"LteI32",
 	"GteI32",
 	"EqI32",

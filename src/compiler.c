@@ -903,97 +903,126 @@ static TypeID compile_begin(Compiler *compiler, const AstNode *node)
 }
 
 
-typedef struct CompileBinaryOpCodeResult
+typedef struct CompileNumBinaryOpResult
 {
-	TypeID lhs;
-	TypeID rhs;
+	TypeID inferred_type;
 	bool success;
-} CompileBinaryOpCodeResult;
+} CompileNumBinaryOpResult;
 
-// Parse 2 arguments, typecheck them, and push opcode, if expected_type is UNIT, expected_type becomes lhs
+// Parse 2 expressions, typecheck them according to their numeric type, and let the caller push the correct opcode
 // (<op> <lhs> <rhs>)
-static CompileBinaryOpCodeResult compile_binary_opcode(Compiler *compiler, const AstNode *node, TypeID expected_type)
+static CompileNumBinaryOpResult compile_num_binary_op(Compiler *compiler, const AstNode *node)
 {
 	// -- Parsing
 	BinaryOpNode nodes = {0};
 	parse_binary_op(compiler->compunit, node, &nodes);
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
-		return (CompileBinaryOpCodeResult){0};
+		return (CompileNumBinaryOpResult){0};
 	}
 
 	// -- Type checking
 	TypeID lhs = compile_expr(compiler, nodes.lhs_node);
 	TypeID rhs = compile_expr(compiler, nodes.rhs_node);
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
-		return (CompileBinaryOpCodeResult){0};
+		return (CompileNumBinaryOpResult){0};
 	}
 
-	if (type_similar(expected_type, UNIT_TYPE)) {
-		expected_type = lhs;
+	// Both types need to be numeric
+	bool lhs_numeric = type_id_is_builtin(lhs) && (lhs.builtin.kind == BuiltinTypeKind_Signed || lhs.builtin.kind == BuiltinTypeKind_Unsigned);
+	if (!lhs_numeric) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedNumericType);
+		compiler->compunit->error.expected_type = UNIT_TYPE;
+		compiler->compunit->error.got_type = lhs;
+		compiler->compunit->error.span = nodes.lhs_node->span;
+		return (CompileNumBinaryOpResult){0};
 	}
-	
+	bool rhs_numeric = type_id_is_builtin(rhs) && (rhs.builtin.kind == BuiltinTypeKind_Signed || rhs.builtin.kind == BuiltinTypeKind_Unsigned);
+	if (!rhs_numeric) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedNumericType);
+		compiler->compunit->error.expected_type = UNIT_TYPE;
+		compiler->compunit->error.got_type = rhs;
+		compiler->compunit->error.span = nodes.rhs_node->span;
+		return (CompileNumBinaryOpResult){0};
+	}
+
+	// We assume that the type of the operation:
+	// - is the wider type
+	// - is signed if one of the two operands is signed
+	TypeID expected_type = type_id_new_unsigned(lhs.builtin.number_width);
+	if (lhs.builtin.kind == BuiltinTypeKind_Signed || rhs.builtin.kind == BuiltinTypeKind_Signed) {
+		expected_type.builtin.kind = BuiltinTypeKind_Signed;
+	}
+	if (rhs.builtin.number_width > lhs.builtin.number_width) {
+		expected_type.builtin.number_width = rhs.builtin.number_width;
+	}
+
+	// Check that the two operands are similar to the expected type
 	bool lhs_valid = type_similar(lhs, expected_type);
-	bool rhs_valid = type_similar(rhs, expected_type);
-
 	if (!lhs_valid) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
 		compiler->compunit->error.expected_type = expected_type;
 		compiler->compunit->error.got_type = lhs;
 		compiler->compunit->error.span = nodes.lhs_node->span;
-		return (CompileBinaryOpCodeResult){0};
-	}
-
+		return (CompileNumBinaryOpResult){0};
+	}	
+	bool rhs_valid = type_similar(rhs, expected_type);
 	if (!rhs_valid) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
 		compiler->compunit->error.expected_type = expected_type;
 		compiler->compunit->error.got_type = rhs;
 		compiler->compunit->error.span = nodes.rhs_node->span;
-		return (CompileBinaryOpCodeResult){0};
+		return (CompileNumBinaryOpResult){0};
 	}
 	
-	CompileBinaryOpCodeResult result = {0};
-	result.lhs = lhs;
-	result.rhs = rhs;
+	CompileNumBinaryOpResult result = {0};
+	result.inferred_type = expected_type;
 	result.success = true;
 	return result;
 }
 
-// Add two integers
 static TypeID compile_iadd(Compiler *compiler, const AstNode *node)
 {
-	TypeID int_type_id = type_id_new_signed(NumberWidth_32);
-	CompileBinaryOpCodeResult res = compile_binary_opcode(compiler, node, int_type_id);
+	CompileNumBinaryOpResult res = compile_num_binary_op(compiler, node);
 	if (!res.success) {
 		return UNIT_TYPE;
 	}
 
-	compiler_push_opcode(compiler, OpCode_AddI32);
-	return res.lhs;
+	if (res.inferred_type.builtin.number_width <= NumberWidth_32) {
+		_Static_assert(OpCode_AddU8 + NumberWidth_32 == OpCode_AddU32);
+		compiler_push_opcode(compiler, OpCode_AddU8 + res.inferred_type.builtin.number_width);
+	} else {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		return UNIT_TYPE;
+
+	}
+	return res.inferred_type;
 }
 
-// Substract two integers
 static TypeID compile_isub(Compiler *compiler, const AstNode *node)
 {
-	TypeID int_type_id = type_id_new_signed(NumberWidth_32);
-	CompileBinaryOpCodeResult res = compile_binary_opcode(compiler, node, int_type_id);
+	CompileNumBinaryOpResult res = compile_num_binary_op(compiler, node);
 	if (!res.success) {
 		return UNIT_TYPE;
 	}
 
-	compiler_push_opcode(compiler, OpCode_SubI32);
-	return res.lhs;
+	if (res.inferred_type.builtin.number_width <= NumberWidth_32) {
+		_Static_assert(OpCode_SubU8 + NumberWidth_32 == OpCode_SubU32);
+		compiler_push_opcode(compiler, OpCode_SubU8 + res.inferred_type.builtin.number_width);
+	} else {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		return UNIT_TYPE;
+	}
+	return res.inferred_type;
 }
 
 // Compare two integers
 // (<= <lhs> <rhs>)
 static TypeID compile_ltethan(Compiler *compiler, const AstNode *node)
 {
-	TypeID int_type_id = type_id_new_signed(NumberWidth_32);
-	CompileBinaryOpCodeResult res = compile_binary_opcode(compiler, node, int_type_id);
+	CompileNumBinaryOpResult res = compile_num_binary_op(compiler, node);
 	if (!res.success) {
 		return UNIT_TYPE;
 	}
-
 	compiler_push_opcode(compiler, OpCode_LteI32);
 	return type_id_new_builtin(BuiltinTypeKind_Bool);
 }
@@ -1002,50 +1031,11 @@ static TypeID compile_ltethan(Compiler *compiler, const AstNode *node)
 // (>= <lhs> <rhs>)
 static TypeID compile_gtethan(Compiler *compiler, const AstNode *node)
 {
-	// -- Parsing
-	BinaryOpNode nodes = {0};
-	parse_binary_op(compiler->compunit, node, &nodes);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	CompileNumBinaryOpResult res = compile_num_binary_op(compiler, node);
+	if (!res.success) {
 		return UNIT_TYPE;
 	}
-	// -- Type checking
-	const TypeID lhs = compile_expr(compiler, nodes.lhs_node);
-	const TypeID rhs = compile_expr(compiler, nodes.rhs_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
-		return UNIT_TYPE;
-	}
-	TypeID expected_type = type_id_new_signed(NumberWidth_32);
-	if (type_id_is_builtin(lhs)) {
-		if (lhs.builtin.kind == BuiltinTypeKind_Unsigned) {
-			expected_type = type_id_new_unsigned(NumberWidth_32);
-		}
-	}
-	const bool lhs_valid = type_similar(lhs, expected_type);
-	const bool rhs_valid = type_similar(rhs, expected_type);
-	if (!lhs_valid) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.expected_type = expected_type;
-		compiler->compunit->error.got_type = lhs;
-		compiler->compunit->error.span = nodes.lhs_node->span;
-		return UNIT_TYPE;
-	}
-
-	if (!rhs_valid) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.expected_type = expected_type;
-		compiler->compunit->error.got_type = rhs;
-		compiler->compunit->error.span = nodes.rhs_node->span;
-		return UNIT_TYPE;
-	}
-
-	// -- Codegen
-	if (type_similar(lhs, type_id_new_signed(NumberWidth_32))) {
-		compiler_push_opcode(compiler, OpCode_GteI32);
-	}
-	else {
-		compiler_push_opcode(compiler, OpCode_GteI32);
-	}
-
+	compiler_push_opcode(compiler, OpCode_GteI32);
 	return type_id_new_builtin(BuiltinTypeKind_Bool);
 }
 
@@ -1053,50 +1043,11 @@ static TypeID compile_gtethan(Compiler *compiler, const AstNode *node)
 // (= <lhs> <rhs>)
 static TypeID compile_eq(Compiler *compiler, const AstNode *node)
 {
-	// -- Parsing
-	BinaryOpNode nodes = {0};
-	parse_binary_op(compiler->compunit, node, &nodes);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	CompileNumBinaryOpResult res = compile_num_binary_op(compiler, node);
+	if (!res.success) {
 		return UNIT_TYPE;
 	}
-	// -- Type checking
-	const TypeID lhs = compile_expr(compiler, nodes.lhs_node);
-	const TypeID rhs = compile_expr(compiler, nodes.rhs_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
-		return UNIT_TYPE;
-	}
-	TypeID expected_type = type_id_new_signed(NumberWidth_32);
-	if (type_id_is_builtin(lhs)) {
-		if (lhs.builtin.kind == BuiltinTypeKind_Unsigned) {
-			expected_type = type_id_new_unsigned(NumberWidth_32);
-		}
-	}
-	const bool lhs_valid = type_similar(lhs, expected_type);
-	const bool rhs_valid = type_similar(rhs, expected_type);
-	if (!lhs_valid) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.expected_type = expected_type;
-		compiler->compunit->error.got_type = lhs;
-		compiler->compunit->error.span = nodes.lhs_node->span;
-		return UNIT_TYPE;
-	}
-
-	if (!rhs_valid) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.expected_type = expected_type;
-		compiler->compunit->error.got_type = rhs;
-		compiler->compunit->error.span = nodes.rhs_node->span;
-		return UNIT_TYPE;
-	}
-
-	// -- Codegen
-	if (type_similar(lhs, type_id_new_signed(NumberWidth_32))) {
-		compiler_push_opcode(compiler, OpCode_EqI32);
-	}
-	else {
-		compiler_push_opcode(compiler, OpCode_EqI32);
-	}
-
+	compiler_push_opcode(compiler, OpCode_EqI32);
 	return type_id_new_builtin(BuiltinTypeKind_Bool);
 }
 
@@ -1104,13 +1055,37 @@ static TypeID compile_eq(Compiler *compiler, const AstNode *node)
 // (and <lhs> <rhs>)
 static TypeID compile_and(Compiler *compiler, const AstNode *node)
 {
-	CompileBinaryOpCodeResult res = compile_binary_opcode(compiler, node, UNIT_TYPE);
-	if (!res.success) {
+	BinaryOpNode nodes = {0};
+	parse_binary_op(compiler->compunit, node, &nodes);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+
+	TypeID lhs = compile_expr(compiler, nodes.lhs_node);
+	TypeID rhs = compile_expr(compiler, nodes.rhs_node);
+	TypeID expected_type = type_id_new_builtin(BuiltinTypeKind_Bool);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+
+	if (!type_similar(lhs, expected_type)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
+		__debugbreak();
+		compiler->compunit->error.expected_type = expected_type;
+		compiler->compunit->error.got_type = lhs;
+		compiler->compunit->error.span = nodes.lhs_node->span;
+		return UNIT_TYPE;
+	}
+	if (!type_similar(rhs, expected_type)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
+		compiler->compunit->error.expected_type = expected_type;
+		compiler->compunit->error.got_type = rhs;
+		compiler->compunit->error.span = nodes.rhs_node->span;
 		return UNIT_TYPE;
 	}
 
 	compiler_push_opcode(compiler, OpCode_And);
-	return type_id_new_builtin(BuiltinTypeKind_Bool);
+	return expected_type;
 }
 
 // Load a value at the given memory address
@@ -1318,7 +1293,7 @@ static TypeID compile_ptr_offset(Compiler *compiler, const AstNode *node)
 		return UNIT_TYPE;
 	}
 
-	compiler_push_opcode(compiler, OpCode_AddI32);
+	compiler_push_opcode(compiler, OpCode_AddU32);
 	return return_type;
 }
 

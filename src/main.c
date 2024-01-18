@@ -200,10 +200,11 @@ static void on_error(VM *vm, Error err)
 
 int main(int argc, const char *argv[])
 {
-	argc = 3;
+	argc = 4;
 	argv[0] = "";
 	argv[1] = "src";
 	argv[2] = "test";
+	argv[3] = "-w";
         if (argc < 3) {
                 cross_log(cross_stderr, sv_from_null_terminated("Usage: ode.exe <src dir> <main_module> (-w)\n"));
                 return 1;

@@ -106,15 +106,14 @@ void call_function(
 		if (mp >= ctx->modules_len || ip >= ctx->modules[mp].bytecode_len) {
 			break;
 		}
-
 		OpCode op = (OpCode)bytecode_read_u8(ctx, mp, &ip);
-		
 		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
+#if 0
 		string_builder_append_sv(&sb, SV("[TRACE] "));
 		string_builder_append_sv(&sb, SV(OpCode_str[(uint8_t)(op)]));
 		string_builder_append_char(&sb, '\n');
 		cross_log(cross_stderr, string_builder_get_string(&sb));
-		
+#endif		
 		switch (op) {
 		case OpCode_Halt: {
 			cross_log(cross_stderr, SV("HALT\n"));
@@ -130,38 +129,37 @@ void call_function(
 			Value val;
 			val.u32 = bytecode_read_u32(ctx, mp, &ip);
 			push(ctx, &sp, val);
-			
+#if 0			
 			string_builder_append_sv(&sb, SV("[DEBUG] | val.u32 = "));
 			string_builder_append_u64(&sb, (uint64_t)(val.u32));
 			string_builder_append_char(&sb, '\n');
 			cross_log(cross_stderr, string_builder_get_string(&sb));
-
+#endif
 			break;
 		}
 		case OpCode_PushStr: {
 			const uint32_t string_offset = bytecode_read_u32(ctx, mp, &ip);
-
 			const uint8_t *memory = ctx->modules[mp].constants + string_offset;
 			const uint32_t *memory_u32 = (uint32_t*)memory;
-			const uint32_t string_length = *memory_u32;
-			
+			const uint32_t string_length = *memory_u32;			
 			Value val;
 			val.ptr.type = PointerType_Image;
 			val.ptr.offset = string_offset + sizeof(string_length);
 			push(ctx, &sp, val);
-			
+#if 0			
 			string_builder_append_sv(&sb, SV("[DEBUG] | str = "));
 			string_builder_append_sv(&sb, sv_from_null_terminated(PointerType_str[val.ptr.type]));
 			string_builder_append_char(&sb, ' ');
 			string_builder_append_u64(&sb, (uint64_t)val.ptr.offset);
 			string_builder_append_char(&sb, '\n');
 			cross_log(cross_stderr, string_builder_get_string(&sb));
-
+#endif
 			break;
 		}
 		case OpCode_Call: {
+#if 0
 			debug_print_stack(ctx, sp, bp);
-			
+#endif			
 			uint32_t function_address = bytecode_read_u32(ctx, mp, &ip);
 			uint8_t argc = bytecode_read_u8(ctx, mp, &ip);
 			// Push callstack
@@ -173,22 +171,23 @@ void call_function(
 			// Jump to function
 			ip = function_address;
 			bp = sp;
-
+#if 0
 			string_builder_append_sv(&sb, SV("[DEBUG] | function_address = "));
 			string_builder_append_u64(&sb, (uint64_t)(function_address));
 			string_builder_append_char(&sb, '\n');
 			cross_log(cross_stderr, string_builder_get_string(&sb));
+#endif
 			break;
 		}
 		case OpCode_CallInModule: {
+#if 0
 			debug_print_stack(ctx, sp, bp);
-			
+#endif			
 			uint8_t i_imported_function = bytecode_read_u8(ctx, mp, &ip);
 			uint32_t external_module_address = ctx->modules[mp].import_module[i_imported_function];
-			uint32_t external_function_address = (uint32_t)(ctx->modules[mp].import_addresses[i_imported_function]);
-			
+			uint32_t external_function_address = (uint32_t)(ctx->modules[mp].import_addresses[i_imported_function]);			
 			uint8_t argc = bytecode_read_u8(ctx, mp, &ip);
-
+#if 0
 			// debug print
 			string_builder_append_sv(&sb, SV("[DEBUG] | i_imported_function = "));
 			string_builder_append_u64(&sb, (uint64_t)(i_imported_function));
@@ -206,7 +205,7 @@ void call_function(
 			string_builder_append_u64(&sb, (uint64_t)(argc));
 			string_builder_append_char(&sb, '\n');
 			cross_log(cross_stderr, string_builder_get_string(&sb));
-
+#endif
 			// Push callstack
 			cp += 1;
 			ctx->callstack_ret_module[cp] = mp;
@@ -220,13 +219,13 @@ void call_function(
 			break;
 		}
 		case OpCode_CallForeign: {
+#if 0
 			debug_print_stack(ctx, sp, bp);
-			
+#endif			
 			uint8_t i_foreign_function = bytecode_read_u8(ctx, mp, &ip);
-			uint8_t argc = bytecode_read_u8(ctx, mp, &ip);
-			
+			uint8_t argc = bytecode_read_u8(ctx, mp, &ip);			
 			ForeignFn callback = ctx->modules[mp].foreign_function_callback[i_foreign_function];
-
+#if 0
 			// debug print
 			string_builder_append_sv(&sb, SV("[DEBUG] | i_foreign_function = "));
 			string_builder_append_u64(&sb, (uint64_t)(i_foreign_function));
@@ -240,9 +239,8 @@ void call_function(
 			string_builder_append_u64(&sb, (uint64_t)(argc));
 			string_builder_append_char(&sb, '\n');
 			cross_log(cross_stderr, string_builder_get_string(&sb));
-
-			callback(ctx->stack + sp - argc + 1, argc);
-			
+#endif
+			callback(ctx->stack + sp - argc + 1, argc);			
 			// Pop arguments
 			sp = sp - argc;
 			break;
@@ -258,14 +256,14 @@ void call_function(
 			cp -= 1;
 			// Push the return value
 			push(ctx, &sp, return_value);
-
+#if 0
 			// debug print
 			string_builder_append_sv(&sb, SV("[DEBUG] | return_value.u32 = "));
 			string_builder_append_u64(&sb, (uint64_t)(return_value.u32));
 			string_builder_append_char(&sb, '\n');
 			cross_log(cross_stderr, string_builder_get_string(&sb));
-
-			debug_print_stack(ctx, sp, bp);			
+			debug_print_stack(ctx, sp, bp);
+#endif
 			break;
 		}
 		case OpCode_ConditionalJump: {
@@ -283,13 +281,13 @@ void call_function(
 		}
 		case OpCode_StoreArg: {
 			uint8_t i_arg = bytecode_read_u8(ctx, mp, &ip);
-
+#if 0
 			// debug print
 			string_builder_append_sv(&sb, SV("[DEBUG] | i_arg = "));
 			string_builder_append_u64(&sb, (uint64_t)(i_arg));
 			string_builder_append_char(&sb, '\n');
 			cross_log(cross_stderr, string_builder_get_string(&sb));
-
+#endif
 			// Set the arg to the top of the stack
 			uint32_t local_address = bp - ctx->callstack_argc[cp] + i_arg + 1;
 			ctx->stack[local_address] = pop(ctx, &sp);
@@ -300,7 +298,7 @@ void call_function(
 			// Push the arg on top of the stack
 			uint32_t local_address = bp - ctx->callstack_argc[cp] + i_arg + 1;
 			push(ctx, &sp, ctx->stack[local_address]);
-			
+#if 0
 			// debug print
 			string_builder_append_sv(&sb, SV("[DEBUG] | i_arg = "));
 			string_builder_append_u64(&sb, (uint64_t)(i_arg));
@@ -308,6 +306,7 @@ void call_function(
 			string_builder_append_u64(&sb, (uint64_t)(ctx->stack[local_address].u32));
 			string_builder_append_char(&sb, '\n');
 			cross_log(cross_stderr, string_builder_get_string(&sb));
+#endif
 			break;
 		}
 		case OpCode_StoreLocal: {
@@ -315,7 +314,7 @@ void call_function(
 			// Set the local to the top of the stack
 			uint32_t local_address = bp + i_local + 1;
 			ctx->stack[local_address] = pop(ctx, &sp);
-
+#if 0
 			// debug print
 			string_builder_append_sv(&sb, SV("[DEBUG] | i_local = "));
 			string_builder_append_u64(&sb, (uint64_t)(i_local));
@@ -323,6 +322,7 @@ void call_function(
 			string_builder_append_u64(&sb, (uint64_t)(ctx->stack[local_address].u32));
 			string_builder_append_char(&sb, '\n');
 			cross_log(cross_stderr, string_builder_get_string(&sb));
+#endif
 			break;
 		}
 		case OpCode_LoadLocal: {
@@ -330,7 +330,7 @@ void call_function(
 			// Push the local on top of the stack
 			uint32_t local_address = bp + i_local + 1;
 			push(ctx, &sp, ctx->stack[local_address]);
-
+#if 0
 			// debug print
 			string_builder_append_sv(&sb, SV("[DEBUG] | i_local = "));
 			string_builder_append_u64(&sb, (uint64_t)(i_local));
@@ -338,11 +338,11 @@ void call_function(
 			string_builder_append_u64(&sb, (uint64_t)(ctx->stack[local_address].u32));
 			string_builder_append_char(&sb, '\n');
 			cross_log(cross_stderr, string_builder_get_string(&sb));
+#endif
 			break;
 		}
 		case OpCode_Load8: {
 			Pointer ptr = pop(ctx, &sp).ptr;
-
 			uint8_t *memory = NULL;
 			switch (ptr.type) {
 				case PointerType_Host: {
@@ -358,25 +358,13 @@ void call_function(
 					break;
 				}
 			}
-
 			Value result = {0};
 			result.u8 = *(uint8_t*)memory;
 			push(ctx, &sp, result);
-			
-			// debug print
-			string_builder_append_sv(&sb, SV("[DEBUG] | ptr = "));
-			string_builder_append_sv(&sb, sv_from_null_terminated(PointerType_str[ptr.type]));
-			string_builder_append_char(&sb, ' ');
-			string_builder_append_u64(&sb, (uint64_t)ptr.offset);
-			string_builder_append_sv(&sb, SV(" | deref.u8 = "));
-			string_builder_append_u64(&sb, (uint64_t)(result.u8));
-			string_builder_append_char(&sb, '\n');
-			cross_log(cross_stderr, string_builder_get_string(&sb));			
 			break;
 		}
 		case OpCode_Load16: {
 			Pointer ptr = pop(ctx, &sp).ptr;
-
 			uint8_t *memory = NULL;
 			switch (ptr.type) {
 				case PointerType_Host: {
@@ -392,25 +380,13 @@ void call_function(
 					break;
 				}
 			}
-
 			Value result = {0};
 			result.u16 = *(uint16_t*)memory;
 			push(ctx, &sp, result);
-			
-			// debug print
-			string_builder_append_sv(&sb, SV("[DEBUG] | ptr = "));
-			string_builder_append_sv(&sb, sv_from_null_terminated(PointerType_str[ptr.type]));
-			string_builder_append_char(&sb, ' ');
-			string_builder_append_u64(&sb, (uint64_t)ptr.offset);
-			string_builder_append_sv(&sb, SV(" | deref.u16 = "));
-			string_builder_append_u64(&sb, (uint64_t)(result.u16));
-			string_builder_append_char(&sb, '\n');
-			cross_log(cross_stderr, string_builder_get_string(&sb));			
 			break;
 		}
 		case OpCode_Load32: {
 			Pointer ptr = pop(ctx, &sp).ptr;
-
 			uint8_t *memory = NULL;
 			switch (ptr.type) {
 				case PointerType_Host: {
@@ -426,20 +402,9 @@ void call_function(
 					break;
 				}
 			}
-
 			Value result = {0};
 			result.u32 = *(uint32_t*)memory;
 			push(ctx, &sp, result);
-			
-			// debug print
-			string_builder_append_sv(&sb, SV("[DEBUG] | ptr = "));
-			string_builder_append_sv(&sb, sv_from_null_terminated(PointerType_str[ptr.type]));
-			string_builder_append_char(&sb, ' ');
-			string_builder_append_u64(&sb, (uint64_t)ptr.offset);
-			string_builder_append_sv(&sb, SV(" | deref.u32 = "));
-			string_builder_append_u64(&sb, (uint64_t)(result.u32));
-			string_builder_append_char(&sb, '\n');
-			cross_log(cross_stderr, string_builder_get_string(&sb));			
 			break;
 		}
 		case OpCode_Store8: {
@@ -447,12 +412,10 @@ void call_function(
 			pop_n(ctx, &sp, operands, 2);
 			uint8_t value = operands[0].u8;
 			Pointer ptr = operands[1].ptr;
-
 			// DEBUG
 			if (ptr.type >= PointerType_Count) {
 				__debugbreak();
 			}
-
 			uint8_t *memory = NULL;
 			switch (ptr.type) {
 				case PointerType_Host: {
@@ -468,19 +431,8 @@ void call_function(
 					break;
 				}
 			}
-
 			uint8_t *memory_u8 = (uint8_t*)memory;
 			*memory_u8 = value;
-				
-			// debug print
-			string_builder_append_sv(&sb, SV("[DEBUG] | ptr = "));
-			string_builder_append_sv(&sb, sv_from_null_terminated(PointerType_str[ptr.type]));
-			string_builder_append_char(&sb, ' ');
-			string_builder_append_u64(&sb, (uint64_t)ptr.offset);
-			string_builder_append_sv(&sb, SV(", val.u32 = "));
-			string_builder_append_u64(&sb, (uint64_t)value);
-			string_builder_append_char(&sb, '\n');
-			cross_log(cross_stderr, string_builder_get_string(&sb));
 			break;
 		}
 		case OpCode_Store16: {
@@ -488,12 +440,10 @@ void call_function(
 			pop_n(ctx, &sp, operands, 2);
 			uint16_t value = operands[0].u16;
 			Pointer ptr = operands[1].ptr;
-
 			// DEBUG
 			if (ptr.type >= PointerType_Count) {
 				__debugbreak();
 			}
-
 			uint8_t *memory = NULL;
 			switch (ptr.type) {
 				case PointerType_Host: {
@@ -509,19 +459,8 @@ void call_function(
 					break;
 				}
 			}
-
 			uint16_t *memory_u16 = (uint16_t*)memory;
 			*memory_u16 = value;
-				
-			// debug print
-			string_builder_append_sv(&sb, SV("[DEBUG] | ptr = "));
-			string_builder_append_sv(&sb, sv_from_null_terminated(PointerType_str[ptr.type]));
-			string_builder_append_char(&sb, ' ');
-			string_builder_append_u64(&sb, (uint64_t)ptr.offset);
-			string_builder_append_sv(&sb, SV(", val.u32 = "));
-			string_builder_append_u64(&sb, (uint64_t)(value));
-			string_builder_append_char(&sb, '\n');
-			cross_log(cross_stderr, string_builder_get_string(&sb));
 			break;
 		}
 		case OpCode_Store32: {
@@ -529,12 +468,10 @@ void call_function(
 			pop_n(ctx, &sp, operands, 2);
 			uint32_t value = operands[0].u32;
 			Pointer ptr = operands[1].ptr;
-
 			// DEBUG
 			if (ptr.type >= PointerType_Count) {
 				__debugbreak();
 			}
-
 			uint8_t *memory = NULL;
 			switch (ptr.type) {
 				case PointerType_Host: {
@@ -550,55 +487,56 @@ void call_function(
 					break;
 				}
 			}
-
 			uint32_t *memory_u32 = (uint32_t*)memory;
 			*memory_u32 = value;
-				
-			// debug print
-			string_builder_append_sv(&sb, SV("[DEBUG] | ptr = "));
-			string_builder_append_sv(&sb, sv_from_null_terminated(PointerType_str[ptr.type]));
-			string_builder_append_char(&sb, ' ');
-			string_builder_append_u64(&sb, (uint64_t)ptr.offset);
-			string_builder_append_sv(&sb, SV(", val.u32 = "));
-			string_builder_append_u64(&sb, (uint64_t)value);
-			string_builder_append_char(&sb, '\n');
-			cross_log(cross_stderr, string_builder_get_string(&sb));
 			break;
 		}
-		case OpCode_AddI32: {
+		case OpCode_AddU8: {
 			Value operands[2] = {0};
 			pop_n(ctx, &sp, operands, 2);
 			Value result = {0};
-			result.i32 = operands[1].i32 + operands[0].i32;
+			result.u32 = operands[1].u8 + operands[0].u8;
 			push(ctx, &sp, result);
-
-			// debug print
-			string_builder_append_sv(&sb, SV("[DEBUG] | arg0 = "));
-			string_builder_append_u64(&sb, (uint64_t)(operands[1].u32));
-			string_builder_append_sv(&sb, SV(" + arg1 = "));
-			string_builder_append_u64(&sb, (uint64_t)(operands[0].u32));
-			string_builder_append_sv(&sb, SV(" => "));
-			string_builder_append_u64(&sb, (uint64_t)(result.u32));
-			string_builder_append_char(&sb, '\n');
-			cross_log(cross_stderr, string_builder_get_string(&sb));
 			break;
 		}
-		case OpCode_SubI32: {
+		case OpCode_AddU16: {
 			Value operands[2] = {0};
 			pop_n(ctx, &sp, operands, 2);
 			Value result = {0};
-			result.i32 = operands[1].i32 - operands[0].i32;
+			result.u32 = operands[1].u16 + operands[0].u16;
 			push(ctx, &sp, result);
-
-			// debug print
-			string_builder_append_sv(&sb, SV("[DEBUG] | arg0 = "));
-			string_builder_append_u64(&sb, (uint64_t)(operands[1].u32));
-			string_builder_append_sv(&sb, SV(" + arg1 = "));
-			string_builder_append_u64(&sb, (uint64_t)(operands[0].u32));
-			string_builder_append_sv(&sb, SV(" => "));
-			string_builder_append_u64(&sb, (uint64_t)(result.u32));
-			string_builder_append_char(&sb, '\n');
-			cross_log(cross_stderr, string_builder_get_string(&sb));
+			break;
+		}
+		case OpCode_AddU32: {
+			Value operands[2] = {0};
+			pop_n(ctx, &sp, operands, 2);
+			Value result = {0};
+			result.u32 = operands[1].u32 + operands[0].u32;
+			push(ctx, &sp, result);
+			break;
+		}
+		case OpCode_SubU8: {
+			Value operands[2] = {0};
+			pop_n(ctx, &sp, operands, 2);
+			Value result = {0};
+			result.u32 = operands[1].u8 - operands[0].u8;
+			push(ctx, &sp, result);
+			break;
+		}
+		case OpCode_SubU16: {
+			Value operands[2] = {0};
+			pop_n(ctx, &sp, operands, 2);
+			Value result = {0};
+			result.u32 = operands[1].u16 - operands[0].u16;
+			push(ctx, &sp, result);
+			break;
+		}
+		case OpCode_SubU32: {
+			Value operands[2] = {0};
+			pop_n(ctx, &sp, operands, 2);
+			Value result = {0};
+			result.u32 = operands[1].u32 - operands[0].u32;
+			push(ctx, &sp, result);
 			break;
 		}
 		case OpCode_LteI32: {
@@ -607,17 +545,6 @@ void call_function(
 			Value result = {0};
 			result.i32 = operands[1].i32 <= operands[0].i32;
 			push(ctx, &sp, result);
-			
-
-			// debug print
-			string_builder_append_sv(&sb, SV("[DEBUG] | "));
-			string_builder_append_u64(&sb, (uint64_t)operands[1].u32);
-			string_builder_append_sv(&sb, SV(" <= "));
-			string_builder_append_u64(&sb, (uint64_t)operands[0].u32);
-			string_builder_append_sv(&sb, SV(" = "));
-			string_builder_append_u64(&sb, (uint64_t)result.u32);
-			string_builder_append_char(&sb, '\n');
-			cross_log(cross_stderr, string_builder_get_string(&sb));
 			break;
 		}
 		case OpCode_GteI32: {
@@ -649,8 +576,7 @@ void call_function(
 			uint32_t string_length = bytecode_read_u32(ctx, mp, &ip);
 			for (uint32_t i = 0; i < string_length && i < 64; ++i) {
 				debug_buffer[i] = (char)bytecode_read_u8(ctx, mp, &ip);
-			}
-			
+			}			
 			// debug print
 			string_builder_append_sv(&sb, SV("[DEBUG] "));
 			string_builder_append_sv(&sb, (sv){debug_buffer, string_length});
