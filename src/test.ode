@@ -27,21 +27,30 @@
 	(let false 0)
 	(let true 1)
 	(let has-first false)
+	(let has-last false)
 	(let i-last 0)
 	(let i 0)
 	(loop
 		(if (>= i input-length) (break) ())
 		(let c (_load (_ptr_offset (* u8) input i)))
-		(logi c)
 		(if (is_digit c)
 			(if has-first
-				(set i-last i)
-				(begin
-					(set i-first i)
-					(set has-first true)))
+			    (begin (set i-last i) (set has-last true))
+			    (begin
+				(set i-first i)
+				(set has-first true)))
 			(if (= c 10)
-				(set i-line (+ i-line 1))
-				(set has-first false)))
+				(begin
+					(let first 48)
+					(let last 48)
+					(if has-first (set first (_load (_ptr_offset (* u8) input i-first))) ())
+					(if has-last (set last (_load (_ptr_offset (* u8) input i-last))) ())
+					(logi (- first 48))
+					(logi (- last 48))
+					(set i-line (+ i-line 1))
+					(set has-first false)
+					(set has-last false))
+				()))
 		(set i (+ i 1))))
 
 (define (main i32) ()
@@ -52,11 +61,8 @@ a1b2c3d4e5f
 treb7uchet
 ")
 	(log day1_input 2)
-	(day1 day1_input 6)
-	(let n (fib_rec 8))
-	(logi 8)
-	(logi n)
-	n)
+	(day1 day1_input 41)
+	0)
 
 (define (main2 i32) ()
 	(if (<= 1 2)
