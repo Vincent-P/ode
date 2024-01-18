@@ -466,41 +466,6 @@ void parse_let(CompilationUnit *compunit, const AstNode *node, LetNode *output)
 	output->value_node = ast_get_right_sibling(compunit, name_node);
 }
 
-void parse_binary_op(CompilationUnit *compunit, const AstNode *node, BinaryOpNode *output)
-{
-	if (node->child_count != 3) {
-		if (node->child_count > 3) {
-			INIT_ERROR(&compunit->error, ErrorCode_UnexpectedExpression);
-		} else {
-			INIT_ERROR(&compunit->error, ErrorCode_ExpectedExpr);
-		}
-		compunit->error.span = node->span;
-		return;
-	}
-	const AstNode *op_node = ast_get_left_child(compunit, node);
-	const AstNode *lhs_node = ast_get_right_sibling(compunit, op_node);
-	const AstNode *rhs_node = ast_get_right_sibling(compunit, lhs_node);
-	output->lhs_node = lhs_node;
-	output->rhs_node = rhs_node;
-}
-
-void parse_unary_op(CompilationUnit *compunit, const AstNode *node, UnaryOpNode *output)
-{
-	if (node->child_count != 2) {
-		if (node->child_count > 2) {
-			INIT_ERROR(&compunit->error, ErrorCode_UnexpectedExpression);
-		} else {
-			INIT_ERROR(&compunit->error, ErrorCode_ExpectedExpr);
-		}
-		compunit->error.span = node->span;
-		return;
-	}
-
-	const AstNode *op_node = ast_get_left_child(compunit, node);
-	const AstNode *value_node = ast_get_right_sibling(compunit, op_node);
-	output->value_node = value_node;
-}
-
 // (field <expr> <member identifier>)
 void parse_field(CompilationUnit *compunit, const AstNode *node, FieldNode *output)
 {
@@ -550,4 +515,25 @@ void parse_ptr_offset(CompilationUnit *compunit, const AstNode *node, PtrOffsetN
 	output->return_type_node = return_type_node;
 	output->base_pointer_node = base_pointer_node;
 	output->offset_node = offset_node;
+}
+
+ // (identifier arg0 arg1 .. argn)
+void parse_nary_op(CompilationUnit *compunit, const AstNode *node, uint32_t n, const AstNode **out_nodes)
+{
+	uint32_t expected_child_count = n + 1;
+	if (node->child_count != expected_child_count) {
+		if (node->child_count > expected_child_count) {
+			INIT_ERROR(&compunit->error, ErrorCode_UnexpectedExpression);
+		} else {
+			INIT_ERROR(&compunit->error, ErrorCode_ExpectedExpr);
+		}
+		compunit->error.span = node->span;
+		return;
+	}
+	
+	const AstNode *current_node = ast_get_left_child(compunit, node);
+	for (uint32_t i = 0; i < n; ++i) {
+		current_node = ast_get_right_sibling(compunit, current_node);
+		out_nodes[i] = current_node;
+	}
 }

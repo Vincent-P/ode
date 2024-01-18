@@ -914,15 +914,15 @@ typedef struct CompileNumBinaryOpResult
 static CompileNumBinaryOpResult compile_num_binary_op(Compiler *compiler, const AstNode *node)
 {
 	// -- Parsing
-	BinaryOpNode nodes = {0};
-	parse_binary_op(compiler->compunit, node, &nodes);
+	const AstNode *nodes[2] = {0};
+	parse_nary_op(compiler->compunit, node, ARRAY_LENGTH(nodes), nodes);
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
 		return (CompileNumBinaryOpResult){0};
 	}
 
 	// -- Type checking
-	TypeID lhs = compile_expr(compiler, nodes.lhs_node);
-	TypeID rhs = compile_expr(compiler, nodes.rhs_node);
+	TypeID lhs = compile_expr(compiler, nodes[0]);
+	TypeID rhs = compile_expr(compiler, nodes[1]);
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
 		return (CompileNumBinaryOpResult){0};
 	}
@@ -933,7 +933,7 @@ static CompileNumBinaryOpResult compile_num_binary_op(Compiler *compiler, const 
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedNumericType);
 		compiler->compunit->error.expected_type = UNIT_TYPE;
 		compiler->compunit->error.got_type = lhs;
-		compiler->compunit->error.span = nodes.lhs_node->span;
+		compiler->compunit->error.span = nodes[0]->span;
 		return (CompileNumBinaryOpResult){0};
 	}
 	bool rhs_numeric = type_id_is_builtin(rhs) && (rhs.builtin.kind == BuiltinTypeKind_Signed || rhs.builtin.kind == BuiltinTypeKind_Unsigned);
@@ -941,7 +941,7 @@ static CompileNumBinaryOpResult compile_num_binary_op(Compiler *compiler, const 
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedNumericType);
 		compiler->compunit->error.expected_type = UNIT_TYPE;
 		compiler->compunit->error.got_type = rhs;
-		compiler->compunit->error.span = nodes.rhs_node->span;
+		compiler->compunit->error.span = nodes[1]->span;
 		return (CompileNumBinaryOpResult){0};
 	}
 
@@ -962,7 +962,7 @@ static CompileNumBinaryOpResult compile_num_binary_op(Compiler *compiler, const 
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
 		compiler->compunit->error.expected_type = expected_type;
 		compiler->compunit->error.got_type = lhs;
-		compiler->compunit->error.span = nodes.lhs_node->span;
+		compiler->compunit->error.span = nodes[0]->span;
 		return (CompileNumBinaryOpResult){0};
 	}	
 	bool rhs_valid = type_similar(rhs, expected_type);
@@ -970,7 +970,7 @@ static CompileNumBinaryOpResult compile_num_binary_op(Compiler *compiler, const 
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
 		compiler->compunit->error.expected_type = expected_type;
 		compiler->compunit->error.got_type = rhs;
-		compiler->compunit->error.span = nodes.rhs_node->span;
+		compiler->compunit->error.span = nodes[1]->span;
 		return (CompileNumBinaryOpResult){0};
 	}
 	
@@ -1055,14 +1055,14 @@ static TypeID compile_eq(Compiler *compiler, const AstNode *node)
 // (and <lhs> <rhs>)
 static TypeID compile_and(Compiler *compiler, const AstNode *node)
 {
-	BinaryOpNode nodes = {0};
-	parse_binary_op(compiler->compunit, node, &nodes);
+	const AstNode *nodes[2] = {0};
+	parse_nary_op(compiler->compunit, node, ARRAY_LENGTH(nodes), nodes);
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
-	TypeID lhs = compile_expr(compiler, nodes.lhs_node);
-	TypeID rhs = compile_expr(compiler, nodes.rhs_node);
+	TypeID lhs = compile_expr(compiler, nodes[0]);
+	TypeID rhs = compile_expr(compiler, nodes[1]);
 	TypeID expected_type = type_id_new_builtin(BuiltinTypeKind_Bool);
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
@@ -1073,14 +1073,14 @@ static TypeID compile_and(Compiler *compiler, const AstNode *node)
 		__debugbreak();
 		compiler->compunit->error.expected_type = expected_type;
 		compiler->compunit->error.got_type = lhs;
-		compiler->compunit->error.span = nodes.lhs_node->span;
+		compiler->compunit->error.span = nodes[0]->span;
 		return UNIT_TYPE;
 	}
 	if (!type_similar(rhs, expected_type)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
 		compiler->compunit->error.expected_type = expected_type;
 		compiler->compunit->error.got_type = rhs;
-		compiler->compunit->error.span = nodes.rhs_node->span;
+		compiler->compunit->error.span = nodes[1]->span;
 		return UNIT_TYPE;
 	}
 
@@ -1092,13 +1092,13 @@ static TypeID compile_and(Compiler *compiler, const AstNode *node)
 // (load <addr>)
 static TypeID compile_load(Compiler *compiler, const AstNode *node)
 {
-	UnaryOpNode nodes = {0};
-	parse_unary_op(compiler->compunit, node, &nodes);
+	const AstNode *value_node = NULL;
+	parse_nary_op(compiler->compunit, node, 1, &value_node);
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
-	TypeID addr_type_id = compile_expr(compiler, nodes.value_node);
+	TypeID addr_type_id = compile_expr(compiler, value_node);
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
@@ -1106,7 +1106,7 @@ static TypeID compile_load(Compiler *compiler, const AstNode *node)
 	// Typecheck
 	if (!type_id_is_pointer(addr_type_id)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.span = nodes.value_node->span;
+		compiler->compunit->error.span = value_node->span;
 		compiler->compunit->error.expected_type = (TypeID){0};
 		compiler->compunit->error.got_type = addr_type_id;
 		return UNIT_TYPE;
@@ -1134,14 +1134,14 @@ static TypeID compile_load(Compiler *compiler, const AstNode *node)
 // (store <addr> <value>)
 static TypeID compile_store(Compiler *compiler, const AstNode *node)
 {
-	BinaryOpNode nodes = {0};
-	parse_binary_op(compiler->compunit, node, &nodes);
+	const AstNode *nodes[2] = {0};
+	parse_nary_op(compiler->compunit, node, ARRAY_LENGTH(nodes), nodes);
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
-	TypeID addr_type_id = compile_expr(compiler, nodes.lhs_node);
-	TypeID expr_type_id = compile_expr(compiler, nodes.rhs_node);
+	TypeID addr_type_id = compile_expr(compiler, nodes[0]);
+	TypeID expr_type_id = compile_expr(compiler, nodes[1]);
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
@@ -1150,7 +1150,7 @@ static TypeID compile_store(Compiler *compiler, const AstNode *node)
 	TypeID expected_pointer_type = type_id_pointer_from(expr_type_id);
 	if (!type_similar(addr_type_id, expected_pointer_type)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.span = nodes.lhs_node->span;
+		compiler->compunit->error.span = nodes[0]->span;
 		compiler->compunit->error.expected_type = expected_pointer_type;
 		compiler->compunit->error.got_type = addr_type_id;
 		return UNIT_TYPE;
@@ -1178,13 +1178,13 @@ static TypeID compile_store(Compiler *compiler, const AstNode *node)
 static TypeID compile_sizeof(Compiler *compiler, const AstNode *node)
 {
 	// -- Parsing
-	UnaryOpNode nodes = {0};
-	parse_unary_op(compiler->compunit, node, &nodes);
+	const AstNode *value_node = NULL;
+	parse_nary_op(compiler->compunit, node, 1, &value_node);
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
-	TypeID expr_type = parse_type(compiler->compunit, &compiler->module, nodes.value_node);
+	TypeID expr_type = parse_type(compiler->compunit, &compiler->module, value_node);
 	uint32_t type_size = type_get_size(&compiler->module, expr_type);
 	compiler_bytecode_push_u32(compiler, type_size);
 	return type_id_new_unsigned(NumberWidth_32);
@@ -1193,27 +1193,27 @@ static TypeID compile_sizeof(Compiler *compiler, const AstNode *node)
 static TypeID compile_field_offset(Compiler *compiler, const AstNode *node)
 {
 	// -- Parsing
-	BinaryOpNode nodes = {0};
-	parse_binary_op(compiler->compunit, node, &nodes);
+	const AstNode *nodes[2] = {0};
+	parse_nary_op(compiler->compunit, node, ARRAY_LENGTH(nodes), nodes);
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	// -- Typecheck
-	TypeID expr_type = parse_type(compiler->compunit, &compiler->module, nodes.lhs_node);
+	TypeID expr_type = parse_type(compiler->compunit, &compiler->module, nodes[0]);
 	if (!type_id_is_user_defined(expr_type)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.span = nodes.lhs_node->span;
+		compiler->compunit->error.span = nodes[0]->span;
 		compiler->compunit->error.got_type = expr_type;
 		return UNIT_TYPE;
 	}
 
-	bool is_an_identifier = ast_is_atom(nodes.rhs_node);
-	const Token *field_token = compiler->compunit->tokens + nodes.rhs_node->atom_token_index;
+	bool is_an_identifier = ast_is_atom(nodes[1]);
+	const Token *field_token = compiler->compunit->tokens + nodes[1]->atom_token_index;
 	is_an_identifier = is_an_identifier && field_token->kind == TokenKind_Identifier;
 	if (!is_an_identifier) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedIdentifier);
-		compiler->compunit->error.span = nodes.rhs_node->span;
+		compiler->compunit->error.span = nodes[1]->span;
 		return UNIT_TYPE;
 	}
 	sv field_identifier_str = sv_substr(compiler->compunit->input, field_token->span);
@@ -1242,15 +1242,15 @@ static TypeID compile_field_offset(Compiler *compiler, const AstNode *node)
 static TypeID compile_stack_alloc(Compiler *compiler, const AstNode *node)
 {
 	// -- Parsing
-	BinaryOpNode nodes = {0};
-	parse_binary_op(compiler->compunit, node, &nodes);
+	const AstNode *nodes[2] = {0};
+	parse_nary_op(compiler->compunit, node, ARRAY_LENGTH(nodes), nodes);
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
-	TypeID type_of_pointed_memory = parse_type(compiler->compunit, &compiler->module, nodes.lhs_node);
+	TypeID type_of_pointed_memory = parse_type(compiler->compunit, &compiler->module, nodes[0]);
 
-	/*TypeID size_type =*/compile_expr(compiler, nodes.rhs_node);
+	/*TypeID size_type =*/compile_expr(compiler, nodes[1]);
 
 	// TODO: We need to bound check the alloc, <size> > sizeof(<type>
 	// TODO: Implement

@@ -125,7 +125,6 @@ void parse_define_body(CompilationUnit*, const AstNode *node, DefineNode *output
 void parse_struct(CompilationUnit*, const AstNode *node, StructNode *output);
 void parse_if(CompilationUnit*, const AstNode *node, IfNode *output);
 void parse_let(CompilationUnit*, const AstNode *node, LetNode *output);
-void parse_binary_op(CompilationUnit*, const AstNode *node, BinaryOpNode *output);
-void parse_unary_op(CompilationUnit*, const AstNode *node, UnaryOpNode *output);
 void parse_field(CompilationUnit*, const AstNode *node, FieldNode *output);
 void parse_ptr_offset(CompilationUnit*, const AstNode *node, PtrOffsetNodes *output);
+void parse_nary_op(CompilationUnit*, const AstNode*, uint32_t n, const AstNode **out_nodes);
