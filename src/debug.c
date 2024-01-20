@@ -50,6 +50,10 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 			
 			break;
 		}
+		case OpCode_Pop:
+		case OpCode_Swap: {
+			break;
+		}
 		case OpCode_Call:
 			PRINT_U32;
 		string_builder_append_char(&sb, ' ');
@@ -85,6 +89,8 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 		case OpCode_Store8:
 		case OpCode_Store16:
 		case OpCode_Store32:
+		case OpCode_SliceData:
+		case OpCode_SliceLength:
 		case OpCode_AddU8:
 		case OpCode_AddU16:
 		case OpCode_AddU32:

@@ -141,19 +141,38 @@ void call_function(
 			const uint32_t string_offset = bytecode_read_u32(ctx, mp, &ip);
 			const uint8_t *memory = ctx->modules[mp].constants + string_offset;
 			const uint32_t *memory_u32 = (uint32_t*)memory;
-			const uint32_t string_length = *memory_u32;			
-			Value val;
-			val.ptr.type = PointerType_Image;
-			val.ptr.offset = string_offset + sizeof(string_length);
+			const uint32_t string_length = *memory_u32;
+			Value val = {0};
+			val.slice.length = string_length;
+			val.slice.ptr.type = PointerType_Image;
+			val.slice.ptr.offset = string_offset + sizeof(string_length);
 			push(ctx, &sp, val);
 #if 0			
 			string_builder_append_sv(&sb, SV("[DEBUG] | str = "));
-			string_builder_append_sv(&sb, sv_from_null_terminated(PointerType_str[val.ptr.type]));
+			string_builder_append_sv(&sb, sv_from_null_terminated(PointerType_str[slice[1].ptr.type]));
 			string_builder_append_char(&sb, ' ');
 			string_builder_append_u64(&sb, (uint64_t)val.ptr.offset);
 			string_builder_append_char(&sb, '\n');
 			cross_log(cross_stderr, string_builder_get_string(&sb));
 #endif
+			break;
+		}
+		case OpCode_Pop: {
+			Value popped_value = pop(ctx, &sp);
+#if 0
+			// debug print
+			string_builder_append_sv(&sb, SV("[DEBUG] | popped.u32 = "));
+			string_builder_append_u64(&sb, (uint64_t)(popped_value.u32));
+			string_builder_append_char(&sb, '\n');
+			cross_log(cross_stderr, string_builder_get_string(&sb));
+			debug_print_stack(ctx, sp, bp);
+#endif
+			break;
+		}
+		case OpCode_Swap: {
+			Value values[2] = {0};
+			pop_n(ctx, &sp, values, 2);
+			push_n(ctx, &sp, values, 2);
 			break;
 		}
 		case OpCode_Call: {
@@ -489,6 +508,20 @@ void call_function(
 			}
 			uint32_t *memory_u32 = (uint32_t*)memory;
 			*memory_u32 = value;
+			break;
+		}
+		case OpCode_SliceData: {
+			Value val = pop(ctx, &sp);
+			Value data = {0};
+			data.ptr = val.slice.ptr;
+			push(ctx, &sp, data);
+			break;
+		}
+		case OpCode_SliceLength: {
+			Value val = pop(ctx, &sp);
+			Value length = {0};
+			length.u32 = val.slice.length;
+			push(ctx, &sp, length);
 			break;
 		}
 		case OpCode_AddU8: {

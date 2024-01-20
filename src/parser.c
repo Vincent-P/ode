@@ -225,7 +225,6 @@ TypeID parse_type(CompilationUnit *compunit, CompilerModule *module, const AstNo
 			type_id_new_unsigned(NumberWidth_64),
 			type_id_new_builtin(BuiltinTypeKind_Bool),
 			type_id_new_builtin(BuiltinTypeKind_Float),
-			type_id_new_builtin(BuiltinTypeKind_Str),
 		};
 		char builtin_type_name_buf[32] = {0};
 		StringBuilder sb;
@@ -281,12 +280,16 @@ TypeID parse_type(CompilationUnit *compunit, CompilerModule *module, const AstNo
 
 		const Token *token = ast_get_token(compunit, child0);
 		const sv token_str = sv_substr(compunit->input, token->span);
-
-		// We only support type S-expr of the forms:
 		// (* <type>)
 		if (sv_equals(token_str, sv_from_null_terminated("*"))) {
 			TypeID inner_type = parse_type(compunit, module, child1);
 			return type_id_pointer_from(inner_type);
+		}
+		else if (sv_equals(token_str, sv_from_null_terminated("[]"))) {
+			TypeID inner_type = parse_type(compunit, module, child1);
+			TypeID slice_type = type_id_pointer_from(inner_type);
+			slice_type.slice.builtin_kind = BuiltinTypeKind_Slice;
+			return slice_type;
 		}
 
 		// We haven't found any builtin

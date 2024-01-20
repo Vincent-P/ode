@@ -9,7 +9,7 @@ static void builtin_type_build_string(StringBuilder *sb, BuiltinTypeKind kind, u
 		"bool",
 		"f32",
 		"ptr",
-		"str",
+		"[]",
 	};
 	_Static_assert((uint8_t)(BuiltinTypeKind_Count) < 16u, "Should fit on 4 bits.");
 	_Static_assert(ARRAY_LENGTH(BuiltinTypeKind_str) == (uint32_t)(BuiltinTypeKind_Count));
@@ -44,6 +44,20 @@ void type_build_string(StringBuilder *sb, TypeID id)
 		}
 		else {
 			user_defined_type_build_string(sb, id.pointer.user_defined_index);
+		}
+	}
+	else if (id.builtin.kind == BuiltinTypeKind_Slice)
+	{
+		string_builder_append_char(sb, '[');
+		string_builder_append_char(sb, ']');
+		for (uint32_t i = 1; i < id.slice.indirection_count; ++i) {
+			string_builder_append_char(sb, '*');
+		}
+		if (id.slice.builtin_kind != BuiltinTypeKind_Unit) {
+			builtin_type_build_string(sb, id.slice.pointee_builtin_kind, id.slice.pointee_number_width);
+		}
+		else {
+			user_defined_type_build_string(sb, id.slice.user_defined_index);
 		}
 	}
 	else

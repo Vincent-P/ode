@@ -11,7 +11,7 @@ enum BuiltinTypeKind
 	BuiltinTypeKind_Bool,
 	BuiltinTypeKind_Float,
 	BuiltinTypeKind_Pointer,
-	BuiltinTypeKind_Str,
+	BuiltinTypeKind_Slice,
 	BuiltinTypeKind_Count,
 };
 typedef enum BuiltinTypeKind BuiltinTypeKind;
@@ -24,7 +24,7 @@ typedef struct PointerTypeID
 	BuiltinTypeKind pointee_builtin_kind : 4;
 	uint32_t pointee_number_width : 2;
 	uint32_t indirection_count : 4;
-	uint32_t user_defined_index : 15;
+	uint32_t user_defined_index : 17;
 } PointerTypeID;
 // Primitive type
 typedef enum NumberWidth {
@@ -43,7 +43,7 @@ typedef struct BuiltinTypeID
 // User-defined type
 typedef struct UserDefinedTypeID
 {
-	uint32_t is_user_defiend : 1;
+	uint32_t is_user_defined : 1;
 	uint32_t index : 31;
 } UserDefinedTypeID;
 
@@ -51,6 +51,7 @@ typedef struct UserDefinedTypeID
 typedef union TypeID
 {
 	PointerTypeID pointer;
+	PointerTypeID slice;
 	BuiltinTypeID builtin;
 	UserDefinedTypeID user_defined;
 	uint32_t raw;
@@ -64,10 +65,15 @@ inline bool type_id_is_pointer(TypeID id)
 {
 	return id.builtin.is_user_defined == 0 && id.builtin.kind == BuiltinTypeKind_Pointer;
 }
+
+inline bool type_id_is_slice(TypeID id)
+{
+	return id.builtin.is_user_defined == 0 && id.builtin.kind == BuiltinTypeKind_Slice;
+}
 	
 inline bool type_id_is_builtin(TypeID id)
 {
-	return id.builtin.is_user_defined == 0 && id.builtin.kind != BuiltinTypeKind_Pointer;
+	return id.builtin.is_user_defined == 0 && id.builtin.kind != BuiltinTypeKind_Pointer && id.builtin.kind != BuiltinTypeKind_Slice;
 }
 	
 inline bool type_id_is_user_defined(TypeID id)
@@ -109,7 +115,7 @@ const TypeID UNIT_TYPE = {.builtin.kind = BuiltinTypeKind_Unit};
 inline TypeID type_id_new_user_defined(uint32_t index)
 {
 	TypeID id = {0};
-	id.user_defined.is_user_defiend = 1;
+	id.user_defined.is_user_defined = 1;
 	id.user_defined.index = index;
 	return id;
 }
@@ -204,17 +210,6 @@ inline bool type_similar(TypeID operand_id, TypeID expected_id)
 			       || operand_id.builtin.kind == BuiltinTypeKind_Signed
 			;
 		}
-	}
-	else if (type_id_is_builtin(operand_id) && operand_id.builtin.kind == BuiltinTypeKind_Str) {
-		// String literal conversions
-		
-		// to *u8
-		if (type_id_is_pointer(expected_id)
-		    && expected_id.pointer.indirection_count == 1
-		    && expected_id.pointer.pointee_builtin_kind == BuiltinTypeKind_Unsigned
-		    && expected_id.pointer.pointee_number_width == 0) {
-			    return true;
-		    }
 	}
 	return operand_id.raw == expected_id.raw;
 }

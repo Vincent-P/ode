@@ -29,12 +29,25 @@
 		(set i (+ i 1))))
 
 
-==
-Current progress:
-- Load/Store need to be sized, and respect pointee type size. Loading a single character through a (*u8) currently loads 4 entire bytes and the resulting value is false?
+== Current progress:
+- Implementing slices as two-elements (ptr, u32), could be implemented as a single stack element when u64 get implemented
+- Builtins? or Opcodes for everything?
 
 
+== Pointers
 After implementing pointers, I think that strings (or pointers in general?) should embed length.
 - So either all pointers have an associated length (in elements or bytes)
 - Or there is a separate slice type
+
+== Structs
+How to implement structs?
+The current idea is to remove "value" structs. No passing by value anywhere. No structs in local variables, no structs in function arguments.
+This makes it easy to implement local variables and function arguments, as they are guaranteed to be "primitive" types.
+It also mimics how assembly works.
+No passing by value vs passing by reference problem.
+
+But:
+It doesn't align with what I have in mind for ode. I would like to have modules that only export table of data (struct type + array of objects).
+How to implement that? Local module memory? In a sense it should work the same way as "constants" memory... So should it be possible to include constants?
+"Global" variables where struct are allowed by value?
 

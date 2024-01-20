@@ -200,7 +200,7 @@ static void on_error(VM *vm, Error err)
 
 int main(int argc, const char *argv[])
 {
-	argc = 4;
+	argc = 3;
 	argv[0] = "";
 	argv[1] = "src";
 	argv[2] = "test";

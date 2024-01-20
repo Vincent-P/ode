@@ -459,7 +459,8 @@ static TypeID compile_atom(Compiler *compiler, const Token *token)
 			.length = string_length,
 		};
 		compiler_bytecode_push_str(compiler, literal);
-		TypeID new_type_id = type_id_new_builtin(BuiltinTypeKind_Str);
+		TypeID new_type_id = type_id_pointer_from(type_id_new_unsigned(NumberWidth_8));
+		new_type_id.slice.builtin_kind = BuiltinTypeKind_Slice;
 		return new_type_id;
 	} else {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
@@ -1190,6 +1191,52 @@ static TypeID compile_sizeof(Compiler *compiler, const AstNode *node)
 	return type_id_new_unsigned(NumberWidth_32);
 }
 
+static TypeID compile_data(Compiler *compiler, const AstNode *node)
+{
+	const AstNode *value_node = NULL;
+	parse_nary_op(compiler->compunit, node, 1, &value_node);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+
+	const TypeID expr_type = compile_expr(compiler, value_node);
+	if (!type_id_is_slice(expr_type)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
+		compiler->compunit->error.span = value_node->span;
+		compiler->compunit->error.got_type = expr_type;
+		compiler->compunit->error.expected_type = type_id_new_builtin(BuiltinTypeKind_Slice);
+		return UNIT_TYPE;
+	}
+
+	compiler_push_opcode(compiler, OpCode_SliceData);
+	
+	TypeID slice_as_pointer = expr_type;
+	slice_as_pointer.builtin.kind = BuiltinTypeKind_Pointer;
+	return slice_as_pointer;
+}
+
+static TypeID compile_len(Compiler *compiler, const AstNode *node)
+{
+	const AstNode *value_node = NULL;
+	parse_nary_op(compiler->compunit, node, 1, &value_node);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+
+	const TypeID expr_type = compile_expr(compiler, value_node);
+	if (!type_id_is_slice(expr_type)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
+		compiler->compunit->error.span = value_node->span;
+		compiler->compunit->error.got_type = expr_type;
+		compiler->compunit->error.expected_type = type_id_new_builtin(BuiltinTypeKind_Slice);
+		return UNIT_TYPE;
+	}
+
+	compiler_push_opcode(compiler, OpCode_SliceLength);
+	
+	return type_id_new_unsigned(NumberWidth_32);
+}
+ 
 static TypeID compile_field_offset(Compiler *compiler, const AstNode *node)
 {
 	// -- Parsing
@@ -1332,6 +1379,8 @@ const CompilerBuiltin compiler_expr_builtins[] = {
 	compile_store,
 	compile_load,
 	compile_sizeof,
+	compile_data,
+	compile_len,
 	compile_field_offset,
 	compile_stack_alloc,
 	compile_ptr_offset,
@@ -1352,6 +1401,8 @@ const sv compiler_expr_builtins_str[] = {
 	SV_LIT("_store"),
 	SV_LIT("_load"),
 	SV_LIT("_sizeof"),
+	SV_LIT("_data"),
+	SV_LIT("_len"),
 	SV_LIT("_field_offset"),
 	SV_LIT("_stack_alloc"),
 	SV_LIT("_ptr_offset"),
@@ -1412,6 +1463,7 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 		// typecheck
 		if (!type_similar(arg_type, found_function->arg_types[i_sig_arg_type])) {
 			INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
+			__debugbreak();
 			compiler->compunit->error.span = arg_node->span;
 			compiler->compunit->error.expected_type = found_function->arg_types[i_sig_arg_type];
 			compiler->compunit->error.got_type = arg_type;

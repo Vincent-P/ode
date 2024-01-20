@@ -26,24 +26,28 @@ typedef struct Pointer
 } Pointer;
 _Static_assert(sizeof(Pointer) == sizeof(uint32_t));
 
+typedef struct Slice
+{
+	Pointer ptr;
+	uint32_t length;
+} Slice;
+_Static_assert(sizeof(Slice) == sizeof(uint64_t));
+
 typedef union Value
 {
-	int32_t  i32;
-	float    f32;
 	uint8_t u8;
 	uint16_t u16;
 	uint32_t u32;
+	uint32_t u64;
+	int8_t i8;
+	int16_t i16;
+	int32_t  i32;
+	int64_t i64;
+	float    f32;
 	Pointer ptr;
+	Slice slice;
 } Value;
-
-typedef enum ValueKind
-{
-	ValueKind_I32,
-	ValueKind_F32,
-	ValueKind_U32,
-	ValueKind_PTR,
-	ValueKind_BOOL,
-} ValueKind;
+_Static_assert(sizeof(Value) == sizeof(uint64_t));
 
 typedef void(*ForeignFn)(Value*, uint32_t);
 

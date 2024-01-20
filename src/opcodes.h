@@ -7,10 +7,14 @@ enum OpCode
 	OpCode_Halt = 0,
 	// Do nothing.
 	OpCode_Nop,
+	// -- Stack manipulation
 	// PushU32 <constant:i32>
 	OpCode_PushU32,
 	// PushStr <constant_offset:u32>
 	OpCode_PushStr,
+	OpCode_Pop,
+	OpCode_Swap,
+	// -- Control flow
 	// Call <address:u32> <num_args:u8> (arg0, arg1, ..., argN)
 	OpCode_Call,
 	// Call <i_imported_function:i8> <num_args:u8> (arg0, arg1, ..., argN)
@@ -23,6 +27,7 @@ enum OpCode
 	OpCode_ConditionalJump,
 	// Jump <offset:i32>
 	OpCode_Jump,
+	// -- Args/Locals management
 	// Set a value of an argument (before the function stack)
 	// StoreArg <i_arg:i8> (value)
 	OpCode_StoreArg,
@@ -44,6 +49,9 @@ enum OpCode
 	OpCode_Store8,
 	OpCode_Store16,
 	OpCode_Store32,
+	// -- Slice
+	OpCode_SliceData,
+	OpCode_SliceLength,
 	// -- Integers arithmetic
 	// Add (arg0, arg1)
 	OpCode_AddU8,
@@ -73,6 +81,8 @@ const char *OpCode_str[] = {
 	"Nop",
 	"PushU32",
 	"PushStr",
+	"Pop",
+	"Swap",
 	"Call",
 	"CallInModule",
 	"CallForeign",
@@ -89,6 +99,8 @@ const char *OpCode_str[] = {
 	"Store8",
 	"Store16",
 	"Store32",
+	"SliceData",
+	"SliceLength",
 	"AddU8",
 	"AddU16",
 	"AddU32",
