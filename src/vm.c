@@ -431,7 +431,11 @@ void vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 		}
 	}
 	if (i_entrypoint >= functions_len) {
-		cross_log(cross_stderr, SV("main not found\n"));
+		StringBuilder sb = string_builder_from_buffer(log_buffer, 64);
+		string_builder_append_sv(&sb, SV("Function '"));
+		string_builder_append_sv(&sb, function_name);
+		string_builder_append_sv(&sb, SV("' not found\n"));
+		cross_log(cross_stderr, string_builder_get_string(&sb));
 		return;
 	}
 

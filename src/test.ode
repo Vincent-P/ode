@@ -64,9 +64,8 @@ treb7uchet
 	(day1 (_data day1_input) 1)
 	0)
 
-(define (main2 i32) ()
-	(if (<= 1 2)
-		(logi 1)
-		(logi 0))
-	0)
-
+(define (update ()) ()
+	(let n 0)
+	(let update-msg "update ahahah!")
+	(log (_data update-msg) (_len update-msg))
+	)

@@ -2,6 +2,8 @@
 #include <stdint.h>
 #include "core.h"
 
+typedef struct ExecutionContext ExecutionContext;
+
 enum Executor_Constants
 {
 	CONSTANT_LENGTH = 128,
@@ -21,7 +23,8 @@ enum PointerTypeCount {
 
 typedef struct Pointer
 {
-	uint32_t offset : 30;
+	uint32_t offset : 23;
+	uint32_t module : 7;
 	PointerType type : 2;
 } Pointer;
 _Static_assert(sizeof(Pointer) == sizeof(uint32_t));
@@ -49,7 +52,7 @@ typedef union Value
 } Value;
 _Static_assert(sizeof(Value) == sizeof(uint64_t));
 
-typedef void(*ForeignFn)(Value*, uint32_t);
+typedef void(*ForeignFn)(ExecutionContext*,Value*, uint32_t);
 
 typedef struct Module
 {
@@ -76,11 +79,11 @@ typedef struct Module
 	uint32_t bytecode_len;
 } Module;
 
-// We will need to move modules out of the context to support multiple threads of execution
+// Ideally it should be completely opaque and hidden in executor.c
 typedef struct ExecutionContext
 {
 	// code
-	Module *modules;
+	const Module *modules;
 	uint32_t modules_len;
 	// operand stack
 	Value stack[64];
@@ -92,3 +95,5 @@ typedef struct ExecutionContext
 } ExecutionContext;
 
 void call_function(ExecutionContext *ctx, uint32_t callee_module, uint32_t callee_ip, Value *args, uint32_t args_len);
+const uint8_t *deref_pointer(ExecutionContext *ctx, Pointer ptr);
+uint8_t *deref_pointer_mut(ExecutionContext *ctx, Pointer ptr);

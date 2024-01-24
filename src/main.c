@@ -61,32 +61,31 @@ static bool get_module_path(char *out_path, uint32_t *out_path_length, sv src_di
         return true;
 }
 
-static void dummy_foreign_func(Value *stack, uint32_t arg_count)
+static void dummy_foreign_func(ExecutionContext *ctx, Value *stack, uint32_t arg_count)
 {
         cross_log(cross_stdout, SV("Dummy foreign func.\n"));
 }
 
-static void log_foreign_func(Value *stack, uint32_t arg_count)
+static void log_foreign_func(ExecutionContext *ctx, Value *stack, uint32_t arg_count)
 {
 	if (arg_count != 2) {
 		cross_log(cross_stderr, SV("===HOST: log_foreign_func: expected 2 arguments\n"));
 	}
 	else {
-		Pointer chars = stack[0].ptr;
-		uint32_t len = stack[1].u32;
+		sv message = {0};
+		message.chars = (const char*)deref_pointer(ctx, stack[0].ptr);
+		message.length = stack[1].u32;
 		
-		char logbuf[64] = {0};
+		char logbuf[128] = {0};
 		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
-		string_builder_append_sv(&sb, SV("=== HOST: log_foreign_func: ptr{"));
-		string_builder_append_u64(&sb, (uint64_t)chars.offset);
-		string_builder_append_sv(&sb, SV("}, len{"));
-		string_builder_append_u64(&sb, (uint64_t)len);
-		string_builder_append_sv(&sb, SV("} ===\n"));
+		string_builder_append_sv(&sb, SV("=== HOST: log_foreign_func: \""));
+		string_builder_append_sv(&sb, message);
+		string_builder_append_sv(&sb, SV("\" ===\n"));
 		cross_log(cross_stdout, string_builder_get_string(&sb));
 	}
 }
 
-static void logi_foreign_func(Value *stack, uint32_t arg_count)
+static void logi_foreign_func(ExecutionContext *ctx, Value *stack, uint32_t arg_count)
 {
         cross_log(cross_stderr, SV("logi foreign func.\n"));
 
@@ -200,7 +199,7 @@ static void on_error(VM *vm, Error err)
 
 int main(int argc, const char *argv[])
 {
-	argc = 3;
+	argc = 4;
 	argv[0] = "";
 	argv[1] = "src";
 	argv[2] = "test";
@@ -292,8 +291,10 @@ int main(int argc, const char *argv[])
 			string_builder_append_char(&sb, '\n');			
 			cross_log(cross_stdout, string_builder_get_string(&sb));
                 }
+
+		vm_call(vm, modules_name_sv[0], sv_from_null_terminated("update"), persistent_arena);
   
-                cross_sleep_ms(33);
+                cross_sleep_ms(500);
         } while (!stop);
         return 0;
 }

@@ -11,16 +11,16 @@ _Static_assert(ARRAY_LENGTH(PointerType_str) == PointerType_Count);
 
 static uint8_t bytecode_read_u8(ExecutionContext *ctx, uint32_t mp, uint32_t *ip)
 {
-	uint8_t *bytecode = ctx->modules[mp].bytecode;
-	uint8_t *result = bytecode + *ip;
+	const uint8_t *bytecode = ctx->modules[mp].bytecode;
+	const uint8_t *result = bytecode + *ip;
 	*ip = *ip + sizeof(uint8_t);
 	return *result;
 }
 
 static uint32_t bytecode_read_u32(ExecutionContext *ctx, uint32_t mp, uint32_t *ip)
 {
-	uint8_t *bytecode = ctx->modules[mp].bytecode;
-	uint32_t *result = (uint32_t*)(bytecode + *ip);
+	const uint8_t *bytecode = ctx->modules[mp].bytecode;
+	const uint32_t *result = (const uint32_t*)(bytecode + *ip);
 	*ip = *ip + sizeof(uint32_t);
 	return *result;
 }
@@ -144,8 +144,9 @@ void call_function(
 			const uint32_t string_length = *memory_u32;
 			Value val = {0};
 			val.slice.length = string_length;
-			val.slice.ptr.type = PointerType_Image;
 			val.slice.ptr.offset = string_offset + sizeof(string_length);
+			val.slice.ptr.module = mp;
+			val.slice.ptr.type = PointerType_Image;
 			push(ctx, &sp, val);
 #if 0			
 			string_builder_append_sv(&sb, SV("[DEBUG] | str = "));
@@ -259,7 +260,7 @@ void call_function(
 			string_builder_append_char(&sb, '\n');
 			cross_log(cross_stderr, string_builder_get_string(&sb));
 #endif
-			callback(ctx->stack + sp - argc + 1, argc);			
+			callback(ctx, ctx->stack + sp - argc + 1, argc);			
 			// Pop arguments
 			sp = sp - argc;
 			break;
@@ -362,21 +363,7 @@ void call_function(
 		}
 		case OpCode_Load8: {
 			Pointer ptr = pop(ctx, &sp).ptr;
-			uint8_t *memory = NULL;
-			switch (ptr.type) {
-				case PointerType_Host: {
-					__debugbreak();
-					break;
-				}
-				case PointerType_Image: {
-					memory = ctx->modules[mp].constants + ptr.offset;
-					break;
-				}
-				case PointerType_Heap: {
-					__debugbreak();
-					break;
-				}
-			}
+			const uint8_t *memory = deref_pointer(ctx, ptr);
 			Value result = {0};
 			result.u8 = *(uint8_t*)memory;
 			push(ctx, &sp, result);
@@ -384,43 +371,15 @@ void call_function(
 		}
 		case OpCode_Load16: {
 			Pointer ptr = pop(ctx, &sp).ptr;
-			uint8_t *memory = NULL;
-			switch (ptr.type) {
-				case PointerType_Host: {
-					__debugbreak();
-					break;
-				}
-				case PointerType_Image: {
-					memory = ctx->modules[mp].constants + ptr.offset;
-					break;
-				}
-				case PointerType_Heap: {
-					__debugbreak();
-					break;
-				}
-			}
+			const uint8_t *memory = deref_pointer(ctx, ptr);
 			Value result = {0};
 			result.u16 = *(uint16_t*)memory;
 			push(ctx, &sp, result);
 			break;
 		}
 		case OpCode_Load32: {
-			Pointer ptr = pop(ctx, &sp).ptr;
-			uint8_t *memory = NULL;
-			switch (ptr.type) {
-				case PointerType_Host: {
-					__debugbreak();
-					break;
-				}
-				case PointerType_Image: {
-					memory = ctx->modules[mp].constants + ptr.offset;
-					break;
-				}
-				case PointerType_Heap: {
-					__debugbreak();
-					break;
-				}
-			}
+			Pointer ptr = pop(ctx, &sp).ptr;	
+			const uint8_t *memory = deref_pointer(ctx, ptr);
 			Value result = {0};
 			result.u32 = *(uint32_t*)memory;
 			push(ctx, &sp, result);
@@ -431,25 +390,7 @@ void call_function(
 			pop_n(ctx, &sp, operands, 2);
 			uint8_t value = operands[0].u8;
 			Pointer ptr = operands[1].ptr;
-			// DEBUG
-			if (ptr.type >= PointerType_Count) {
-				__debugbreak();
-			}
-			uint8_t *memory = NULL;
-			switch (ptr.type) {
-				case PointerType_Host: {
-					__debugbreak();
-					break;
-				}
-				case PointerType_Image: {
-					memory = ctx->modules[mp].constants + ptr.offset;
-					break;
-				}
-				case PointerType_Heap: {
-					__debugbreak();
-					break;
-				}
-			}
+			uint8_t *memory = deref_pointer_mut(ctx, ptr);
 			uint8_t *memory_u8 = (uint8_t*)memory;
 			*memory_u8 = value;
 			break;
@@ -459,25 +400,7 @@ void call_function(
 			pop_n(ctx, &sp, operands, 2);
 			uint16_t value = operands[0].u16;
 			Pointer ptr = operands[1].ptr;
-			// DEBUG
-			if (ptr.type >= PointerType_Count) {
-				__debugbreak();
-			}
-			uint8_t *memory = NULL;
-			switch (ptr.type) {
-				case PointerType_Host: {
-					__debugbreak();
-					break;
-				}
-				case PointerType_Image: {
-					memory = ctx->modules[mp].constants + ptr.offset;
-					break;
-				}
-				case PointerType_Heap: {
-					__debugbreak();
-					break;
-				}
-			}
+			uint8_t *memory = deref_pointer_mut(ctx, ptr);
 			uint16_t *memory_u16 = (uint16_t*)memory;
 			*memory_u16 = value;
 			break;
@@ -487,25 +410,7 @@ void call_function(
 			pop_n(ctx, &sp, operands, 2);
 			uint32_t value = operands[0].u32;
 			Pointer ptr = operands[1].ptr;
-			// DEBUG
-			if (ptr.type >= PointerType_Count) {
-				__debugbreak();
-			}
-			uint8_t *memory = NULL;
-			switch (ptr.type) {
-				case PointerType_Host: {
-					__debugbreak();
-					break;
-				}
-				case PointerType_Image: {
-					memory = ctx->modules[mp].constants + ptr.offset;
-					break;
-				}
-				case PointerType_Heap: {
-					__debugbreak();
-					break;
-				}
-			}
+			uint8_t *memory = deref_pointer_mut(ctx, ptr);
 			uint32_t *memory_u32 = (uint32_t*)memory;
 			*memory_u32 = value;
 			break;
@@ -622,4 +527,50 @@ void call_function(
 		}
 		}
 	}
+}
+
+const uint8_t *deref_pointer(ExecutionContext *ctx, Pointer ptr)
+{
+	const uint8_t *memory = NULL;
+	switch (ptr.type) {
+	case PointerType_Host: {
+		__debugbreak();
+		break;
+	}
+	case PointerType_Image: {
+		memory = ctx->modules[ptr.module].constants + ptr.offset;
+		break;
+	}
+	case PointerType_Heap: {
+		__debugbreak();
+		break;
+	}
+	default: {
+		__debugbreak();
+	}
+	}
+	return memory;
+}
+
+uint8_t *deref_pointer_mut(ExecutionContext *ctx, Pointer ptr)
+{
+	uint8_t *memory = NULL;
+	switch (ptr.type) {
+	case PointerType_Host: {
+		__debugbreak();
+		break;
+	}
+	case PointerType_Image: {
+		__debugbreak();
+		break;
+	}
+	case PointerType_Heap: {
+		__debugbreak();
+		break;
+	}
+	default: {
+		__debugbreak();
+	}
+	}
+	return memory;
 }
