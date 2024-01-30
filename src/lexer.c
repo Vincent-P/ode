@@ -35,7 +35,9 @@ void lexer_scan(CompilationUnit *compunit)
 	Error *error = &compunit->error;
 	sv input = compunit->input;
 
-	uint32_t token_number_size = 0;
+	uint32_t token_signed_number_size = 0;
+	uint32_t token_unsigned_number_size = 0;
+	uint32_t token_float_number_size = 0;
 	uint32_t token_string_size = 0; // Number of string token
 	uint32_t string_buffer_offset = 0; // Current offset into the string buffer
 	
@@ -81,13 +83,14 @@ void lexer_scan(CompilationUnit *compunit)
 			}
 			token.kind = TokenKind_SignedNumber;
 			// Add the number literal to the compilation unit data
-			if (token_number_size >= ARRAY_LENGTH(compunit->token_signed_numbers)) {
+			if (token_signed_number_size >= ARRAY_LENGTH(compunit->token_signed_numbers)) {
 				__debugbreak();
 			}
-			token.data = token_number_size;
+			token.data = token_signed_number_size;
 			compunit->token_signed_numbers[token.data] = -(int32_t)(uint32_t)parsed_number;
-			token_number_size += 1;
+			token_signed_number_size += 1;
 		} else if (is_number(first_char)) {
+			
 			// positive number
 			uint64_t parsed_number = (unsigned char)first_char - (unsigned char)'0';
 			char next_char = input.chars[input_offset + token_length];
@@ -97,16 +100,44 @@ void lexer_scan(CompilationUnit *compunit)
 				token_length += 1;
 				next_char = input.chars[input_offset + token_length];
 			}
-			bool has_unsigned_suffix = token_length < input.length && next_char == 'u';
 			
-			token.kind = TokenKind_UnsignedNumber;
-			// Add the number literal to the compilation unit data
-			if (token_number_size >= ARRAY_LENGTH(compunit->token_unsigned_numbers)) {
-				__debugbreak();
+			if (token_length < input.length && next_char == '.') {
+				// It has a floating point delimiter, it must be a float
+				float parsed_float = (float)parsed_number;
+	
+				token.kind = TokenKind_FloatingNumber;
+
+				float divisor = 1.0f;
+				uint32_t parsed_decimals = 0;
+				token_length += 1;
+				next_char = input.chars[input_offset + token_length];
+				while (token_length < input.length && is_number(next_char)) {
+					uint8_t digit = (unsigned char)next_char - (unsigned char)'0';
+					parsed_decimals = parsed_decimals * 10 + digit;
+					divisor = divisor / 10.0f;
+					token_length += 1;
+					next_char = input.chars[input_offset + token_length];
+				}
+				parsed_float = parsed_float + ((float)parsed_decimals / divisor);
+
+				// Add the number literal to the compilation unit data
+				if (token_float_number_size >= ARRAY_LENGTH(compunit->token_float_numbers)) {
+					__debugbreak();
+				}
+				token.data = token_float_number_size;
+				compunit->token_float_numbers[token.data] = parsed_float;
+				token_float_number_size += 1;
+			} else {
+				// It does not have a floating point delimiter, it is a positive number
+				token.kind = TokenKind_UnsignedNumber;
+				// Add the number literal to the compilation unit data
+				if (token_unsigned_number_size >= ARRAY_LENGTH(compunit->token_unsigned_numbers)) {
+					__debugbreak();
+				}
+				token.data = token_unsigned_number_size;
+				compunit->token_unsigned_numbers[token.data] = (uint32_t)parsed_number;
+				token_unsigned_number_size += 1;
 			}
-			token.data = token_number_size;
-			compunit->token_unsigned_numbers[token.data] = (uint32_t)parsed_number;
-			token_number_size += 1;
 		} else if (is_identifier_first_char(first_char)) {
 			while (token_length < input.length && is_identifier_char(input.chars[input_offset + token_length])) {
 				token_length += 1;

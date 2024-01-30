@@ -76,8 +76,8 @@ void cross_log(uint64_t handle, sv message)
 	if (message.length > 0) {
 		// Make sure that we have a NULL terminator because OutputDebugString does not take a length
 		char *chars = (char*)message.chars;
-		if (chars[message.length-1] != 0) {
-			chars[message.length-1] = 0;
+		if (chars[message.length] != 0) {
+			chars[message.length] = 0;
 		}
 		OutputDebugStringA(message.chars);
 	}

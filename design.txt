@@ -1,38 +1,42 @@
-; store-local <var_ident> <value>                    trivial
-; bool / true / false                                trivial
-; u8 / u32                                           kinda hard
-; u32 =                                              trivial
-; pointer_offset                                     done
+(struct Rect
+	(x f32)
+	(y f32)
+	(width f32)
+	(height f32))
 
-(define (is_digit bool) (c u8)
-	(and (<= '0' c) ( <= c '9')))
+(struct RenderList
+	(rects ([] Rect))
+	(rects-count u32))
 
-(define (day1 ()) (input (* u8) input-length u32)
-	(let i-line 0)
-	(let i-first 0)
-	(let has-first false)
-	(let i-last 0)
-	(let i 0)
-	(loop
-		(if (>= i input_end) (break) ())
-		(let c (load (_ptr_offset (* u8) input i)))
-		(if (is_digit c)
-			(if has-first
-				(set i-last i)
-				(seq
-					(set i-first i)
-					(set has-first true)))
-			(if (= c '\n')
-				(set i-line (+ i-line 1))
-				(set has-first false)
-				()))
-		(set i (+ i 1))))
+(define (push-rect ()) (rl (* RenderList) x f32 y f32 w f32 h f32)
+	(let rects (load-field rl rects))
+	(let rects-count (load-field rl rects-count))
+	(if (< (+ rects-count 1) (load-field rects len))
+		(begin
+			(let new-rect (_ptr_offset (load-field rects data) (* rects-count (_sizeof Rect))))
+			(store-field new-rect x x)
+			(store-field new-rect y y)
+			(store-field new-rect width w)
+			(store-field new-rect height h)
+			(store-field rl rects-count (+ rects-count 1))
+			())
+		()))
+
+(define (render ()) ()
+	(let rl (get-render-list))
+	(push-rect rl 0.0 0.0 100.0 200.0)
+	(push-rect rl 100.0 0.0 100.0 200.0)
+	(push-rect rl 0.0 100.0 100.0 200.0))
+
+(define (update ()) ()
+	(render))
+
+
 
 
 == Current progress:
-- Implementing slices as two-elements (ptr, u32), could be implemented as a single stack element when u64 get implemented
 - Builtins? or Opcodes for everything?
-
+- Implementing structs fields again... Populating rects to draw every frame
 
 == Pointers
 After implementing pointers, I think that strings (or pointers in general?) should embed length.
@@ -50,4 +54,9 @@ But:
 It doesn't align with what I have in mind for ode. I would like to have modules that only export table of data (struct type + array of objects).
 How to implement that? Local module memory? In a sense it should work the same way as "constants" memory... So should it be possible to include constants?
 "Global" variables where struct are allowed by value?
+
+(field <expr> <identifier>) -> (* T)
+(load-field <expr> <identifier>) -> T
+(store-field <expr> <identifier> <value>)
+
 

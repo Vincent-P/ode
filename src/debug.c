@@ -33,6 +33,12 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 		string_builder_append_u64(&sb, (uint64_t)(bytecode_u32[0]));                                                                        \
 		offset += sizeof(uint32_t);                                                                                    \
 	}
+#define PRINT_F32                                                                                                      \
+	{                                                                                                                  \
+		const float *bytecode_f32 = (const float*)(bytecode + offset + 1);                      \
+		string_builder_append_f32(&sb, bytecode_f32[0]);                                                                        \
+		offset += sizeof(float);                                                                                    \
+	}		
 #define PRINT_TYPEID PRINT_U32
 
 		switch (opcode_kind) {
@@ -40,6 +46,9 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 		case OpCode_Nop: break;
 		case OpCode_PushU32:
 			PRINT_U32;
+		break;
+		case OpCode_PushF32:
+			PRINT_F32;
 		break;
 		case OpCode_PushStr: {
 			const uint32_t *bytecode_u32 = (const uint32_t*)(bytecode + offset + 1);

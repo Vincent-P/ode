@@ -10,6 +10,7 @@ enum TokenKind
 	TokenKind_RightParen,
 	TokenKind_UnsignedNumber,
 	TokenKind_SignedNumber,
+	TokenKind_FloatingNumber,
 	TokenKind_Identifier,
 	TokenKind_StringLiteral,
 	TokenKind_Count,
@@ -22,6 +23,7 @@ const char *TokenKind_str[] = {
 	"RightParen",
 	"UnsignedNumber",
 	"SignedNumber",
+	"FloatNumber",
 	"Identifier",
 	"StringLiteral",
 };

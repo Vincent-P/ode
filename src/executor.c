@@ -25,6 +25,14 @@ static uint32_t bytecode_read_u32(ExecutionContext *ctx, uint32_t mp, uint32_t *
 	return *result;
 }
 
+static float bytecode_read_f32(ExecutionContext *ctx, uint32_t mp, uint32_t *ip)
+{
+	const uint8_t *bytecode = ctx->modules[mp].bytecode;
+	const float *result = (const float*)(bytecode + *ip);
+	*ip = *ip + sizeof(float);
+	return *result;
+}
+
 static void push_n(ExecutionContext *ctx, uint32_t *_sp, Value *values, uint32_t values_len)
 {
 	// SP always point to the top of the stack (the latest pushed element)
@@ -132,6 +140,18 @@ void call_function(
 #if 0			
 			string_builder_append_sv(&sb, SV("[DEBUG] | val.u32 = "));
 			string_builder_append_u64(&sb, (uint64_t)(val.u32));
+			string_builder_append_char(&sb, '\n');
+			cross_log(cross_stderr, string_builder_get_string(&sb));
+#endif
+			break;
+		}
+		case OpCode_PushF32: {
+			Value val;
+			val.f32 = bytecode_read_f32(ctx, mp, &ip);
+			push(ctx, &sp, val);
+#if 1
+			string_builder_append_sv(&sb, SV("[DEBUG] | val.f32 = "));
+			string_builder_append_f32(&sb, val.f32);
 			string_builder_append_char(&sb, '\n');
 			cross_log(cross_stderr, string_builder_get_string(&sb));
 #endif

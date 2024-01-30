@@ -10,6 +10,8 @@ enum OpCode
 	// -- Stack manipulation
 	// PushU32 <constant:i32>
 	OpCode_PushU32,
+	// PushF32 <constant:f32>
+	OpCode_PushF32,
 	// PushStr <constant_offset:u32>
 	OpCode_PushStr,
 	OpCode_Pop,
@@ -80,6 +82,7 @@ const char *OpCode_str[] = {
 	"Halt",
 	"Nop",
 	"PushU32",
+	"PushF32",
 	"PushStr",
 	"Pop",
 	"Swap",

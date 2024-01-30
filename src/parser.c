@@ -71,7 +71,7 @@ static Token parser_expect_token(Parser *parser, TokenKind expect_kind)
 		parser->i_current_token += 1;
 		parser->compunit->error.code = ErrorCode_Ok;
 	} else {
-		parser->compunit->error.code = ErrorCode_UnexpectedToken;
+		INIT_ERROR(&parser->compunit->error, ErrorCode_UnexpectedToken);
 		parser->compunit->error.span = token.span;
 		parser->expected_token_kind = expect_kind;
 	}
@@ -111,7 +111,10 @@ static uint32_t parse_atom(Parser *parser)
 {
 	Token current_token = parser_current_token(parser);
 
-	bool is_a_valid_atom = current_token.kind == TokenKind_UnsignedNumber || current_token.kind == TokenKind_SignedNumber || current_token.kind == TokenKind_Identifier
+	bool is_a_valid_atom = current_token.kind == TokenKind_UnsignedNumber
+			       || current_token.kind == TokenKind_SignedNumber
+			       || current_token.kind == TokenKind_FloatingNumber
+			       || current_token.kind == TokenKind_Identifier
 	                       || current_token.kind == TokenKind_StringLiteral;
 	if (is_a_valid_atom) {
 		uint32_t new_node_index = parser_push_ast_node_atom(parser, parser->i_current_token);
@@ -122,7 +125,7 @@ static uint32_t parse_atom(Parser *parser)
 		}
 		return new_node_index;
 	} else {
-		parser->compunit->error.code = ErrorCode_UnexpectedToken;
+		INIT_ERROR(&parser->compunit->error, ErrorCode_UnexpectedToken);
 		parser->compunit->error.span = current_token.span;
 		parser->expected_token_kind = TokenKind_UnsignedNumber;
 		return parser->compunit->nodes_length;

@@ -54,8 +54,11 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 	lexer_scan(&compunit);
 	if (compunit.error.code != ErrorCode_Ok) {
 		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
-		// # Lexer returned <errorcode>
-		string_builder_append_sv(&sb, SV("# Lexer returned "));
+		// <file>:<line>:0: error Lexer[] returned <errcode>
+		string_builder_append_sv(&sb, compunit.error.file);
+		string_builder_append_char(&sb, ':');
+		string_builder_append_u64(&sb, (uint64_t)(compunit.error.line));
+		string_builder_append_sv(&sb, SV(":0: error: Lexer[] returned "));
 		string_builder_append_sv(&sb, SV(ErrorCode_str[(uint32_t)(compunit.error.code)]));
 		string_builder_append_char(&sb, '\n');
 		// Error at: '<errorstr>'
@@ -74,7 +77,11 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 	if (compunit.error.code != ErrorCode_Ok) {
 		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 
-		string_builder_append_sv(&sb, SV("# Parser[token_length: "));
+		// <file>:<line>:0: error Parser[] returned <errcode>
+		string_builder_append_sv(&sb, compunit.error.file);
+		string_builder_append_char(&sb, ':');
+		string_builder_append_u64(&sb, (uint64_t)(compunit.error.line));
+		string_builder_append_sv(&sb, SV(":0: error: Parser[token_length: "));
 		string_builder_append_u64(&sb, (uint64_t)(compunit.tokens_length));
 		string_builder_append_sv(&sb, SV(", i_current_token: "));
 		string_builder_append_u64(&sb, (uint64_t)(parser.i_current_token));

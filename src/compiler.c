@@ -107,6 +107,21 @@ static void compiler_push_sv(Compiler *compiler, sv value)
 	current_module->bytecode_length += to_write;
 }
 
+static float *compiler_push_f32(Compiler *compiler, float value)
+{
+	CompilerModule *current_module = &compiler->module;
+	uint32_t to_write = sizeof(float);
+	if (current_module->bytecode_length + to_write >= ARRAY_LENGTH(current_module->bytecode)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		return nullptr;
+	}
+
+	float *bytecode = (float *)(current_module->bytecode + current_module->bytecode_length);
+	bytecode[0] = value;
+	current_module->bytecode_length += to_write;
+	return bytecode;
+}
+
 static void compiler_bytecode_push_u32(Compiler *compiler, uint32_t value)
 {
 	compiler_push_opcode(compiler, OpCode_PushU32);
@@ -118,6 +133,12 @@ static void compiler_bytecode_push_str(Compiler *compiler, sv value)
 	uint32_t constants_offset = compiler_push_str(compiler, value);
 	compiler_push_opcode(compiler, OpCode_PushStr);
 	compiler_push_u32(compiler, constants_offset);
+}
+
+static void compiler_bytecode_push_f32(Compiler *compiler, float value)
+{
+	compiler_push_opcode(compiler, OpCode_PushF32);
+	compiler_push_f32(compiler, value);
 }
 
 static void compiler_bytecode_push_i32(Compiler *compiler, int32_t value)
@@ -423,8 +444,10 @@ static TypeID compile_atom(Compiler *compiler, const Token *token)
 			type_id.builtin.number_width = NumberWidth_8;
 		} else if (token_number <= 0xFFFFu) {
 			// u16
+			type_id.builtin.number_width = NumberWidth_16;
 		} else if (token_number <= 0xFFFFFFFFu) {
 			// u32
+			type_id.builtin.number_width = NumberWidth_32;
 		}
 		else {
 			// u64
@@ -441,12 +464,22 @@ static TypeID compile_atom(Compiler *compiler, const Token *token)
 			type_id.builtin.number_width = NumberWidth_8;
 		} else if (-0x7FFF-1 <= token_number && token_number <= 0x7FFF) {
 			// i16
+			type_id.builtin.number_width = NumberWidth_16;
 		} else if (-0x7FFFFFFF-1 <= token_number && token_number <= 0x7FFFFFFF) {
 			// i32
+			type_id.builtin.number_width = NumberWidth_32;
 		}
 		else {
 			// i64
 		}
+		return type_id;
+	} else if (token->kind == TokenKind_FloatingNumber) {
+		// An floating point constant
+		// <number>.<number>
+		float token_number = compiler->compunit->token_float_numbers[token->data];
+		compiler_bytecode_push_f32(compiler, token_number);
+		TypeID type_id = type_id_new_builtin(BuiltinTypeKind_Float);
+		type_id.builtin.number_width = NumberWidth_32;
 		return type_id;
 	} else if (token->kind == TokenKind_StringLiteral) {
 		// A string literal
