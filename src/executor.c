@@ -159,15 +159,7 @@ void call_function(
 			break;
 		}
 		case OpCode_Pop: {
-			Value popped_value = pop(ctx, &sp);
-#if 0
-			// debug print
-			string_builder_append_sv(&sb, SV("[DEBUG] | popped.u32 = "));
-			string_builder_append_u64(&sb, (uint64_t)(popped_value.u32));
-			string_builder_append_char(&sb, '\n');
-			cross_log(cross_stderr, string_builder_get_string(&sb));
-			debug_print_stack(ctx, sp, bp);
-#endif
+			pop(ctx, &sp);
 			break;
 		}
 		case OpCode_Swap: {

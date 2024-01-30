@@ -1,3 +1,5 @@
+#define NULL 0
+
 #if defined(UNITY_BUILD)
 #include "debug.c"
 #include "type_id.c"
@@ -9,61 +11,98 @@
 #include "cross.c"
 #endif
 
-#define _CRT_SECURE_NO_WARNINGS
+// CRT stub for sokol...
+static void abort(void) {}
+size_t wcslen(const wchar_t *s) { size_t len = 0; while(*s++) len++; return len; }
+size_t strlen(const char *s) { size_t len = 0; while(*s++) len++; return len; }
+static float roundf(float f) { return f; }
+static void *win32_malloc(size_t s, void* user_data) { return HeapAlloc(GetProcessHeap(), 0, s); }
+static void win32_free(void* p, void* user_data) { HeapFree(GetProcessHeap(), 0, p); }
+
 #define SOKOL_IMPL
 #define SOKOL_ASSERT(x)
+#define SOKOL_D3D11
+#define SOKOL_NO_ENTRY
 #include "sokol_time.h"
+#include "sokol_app.h"
+#include "sokol_gfx.h"
+#include "sokol_glue.h"
 
 #include "cross.h"
 #include "arena.h"
 #include "vm.h"
 
-// options
-sv src_dir_arg = {0};
-// modules
 typedef char NameBuffer[64];
-NameBuffer modules_name[32];
-sv modules_name_sv[32];
-NameBuffer modules_path[32];
-sv modules_path_sv[32];
-uint64_t modules_file_last_write[32];
-uint32_t modules_len;
+
+static struct {
+	Arena persistent_arena;
+	// rendering
+	sg_pipeline pip;
+	sg_bindings bind;
+	sg_pass_action pass_action;
+	// options
+	bool watch_opt;
+	sv src_dir_arg;
+	// modules
+	VM *vm;
+	sv main_module_arg;
+	NameBuffer modules_name[32];
+	sv modules_name_sv[32];
+	NameBuffer modules_path[32];
+	sv modules_path_sv[32];
+	uint64_t modules_file_last_write[32];
+	uint32_t modules_len;
+} state;
+
+typedef struct RenderRect
+{
+	float x;
+	float y;
+	float width;
+	float height;
+} RenderRect;
+
+struct RenderCommands
+{
+	uint32_t rects_count;
+	RenderRect rects[128];
+};
 
 static bool get_module_path(char *out_path, uint32_t *out_path_length, sv src_dir, sv module_name)
 {
-        // src/ module_name .ode \0
-        if ((4 + module_name.length + 4 + 1) > *out_path_length) {
-                return false;
-        }
-        // Append src dir
-        uint32_t i = 0;
-        uint32_t i_src_dir = 0;
-        for (; i_src_dir < src_dir.length; ++i_src_dir) {
-                out_path[i + i_src_dir] = src_dir.chars[i_src_dir];
-        }
-        i += i_src_dir;
-        // Add separator
-        out_path[i++] = '/';
-        // Append module name
-        uint32_t i_module_name = 0;
-        for (; i_module_name < module_name.length; ++i_module_name) {
-                out_path[i + i_module_name] = module_name.chars[i_module_name];
-        }
-        i += i_module_name;
-        // Append '.ode'
-        out_path[i++] = '.';
-        out_path[i++] = 'o';
-        out_path[i++] = 'd';
-        out_path[i++] = 'e';
-        // Terminate with 0
-        out_path[i++] = 0;
-        *out_path_length = i;
-        return true;
+	// src/ module_name .ode \0
+	if ((4 + module_name.length + 4 + 1) > *out_path_length) {
+		return false;
+	}
+	// Append src dir
+	uint32_t i = 0;
+	uint32_t i_src_dir = 0;
+	for (; i_src_dir < src_dir.length; ++i_src_dir) {
+		out_path[i + i_src_dir] = src_dir.chars[i_src_dir];
+	}
+	i += i_src_dir;
+	// Add separator
+	out_path[i++] = '/';
+	// Append module name
+	uint32_t i_module_name = 0;
+	for (; i_module_name < module_name.length; ++i_module_name) {
+		out_path[i + i_module_name] = module_name.chars[i_module_name];
+	}
+	i += i_module_name;
+	// Append '.ode'
+	out_path[i++] = '.';
+	out_path[i++] = 'o';
+	out_path[i++] = 'd';
+	out_path[i++] = 'e';
+	// Terminate with 0
+	out_path[i++] = 0;
+	*out_path_length = i;
+	return true;
 }
 
 static void dummy_foreign_func(ExecutionContext *ctx, Value *stack, uint32_t arg_count)
 {
-        cross_log(cross_stdout, SV("Dummy foreign func.\n"));
+	cross_log(cross_stdout, SV("Dummy foreign func.\n"));
 }
 
 static void log_foreign_func(ExecutionContext *ctx, Value *stack, uint32_t arg_count)
@@ -87,7 +126,7 @@ static void log_foreign_func(ExecutionContext *ctx, Value *stack, uint32_t arg_c
 
 static void logi_foreign_func(ExecutionContext *ctx, Value *stack, uint32_t arg_count)
 {
-        cross_log(cross_stderr, SV("logi foreign func.\n"));
+	cross_log(cross_stderr, SV("logi foreign func.\n"));
 
 	if (arg_count != 1) {
 		cross_log(cross_stderr, SV("===HOST: logi_foreign_func: expected 1 argument ===\n"));
@@ -114,79 +153,79 @@ static ForeignFn on_foreign(sv module_name, sv function_name)
 	string_builder_append_sv(&sb, SV(" ===\n"));
 	cross_log(cross_stdout, string_builder_get_string(&sb));
 
-        if (sv_equals(function_name, sv_from_null_terminated("log"))) {
-                return log_foreign_func;
-        } else if (sv_equals(function_name, sv_from_null_terminated("logi"))) {
-                return logi_foreign_func;
-        }
+	if (sv_equals(function_name, sv_from_null_terminated("log"))) {
+		return log_foreign_func;
+	} else if (sv_equals(function_name, sv_from_null_terminated("logi"))) {
+		return logi_foreign_func;
+	}
 
-        return dummy_foreign_func;
+	return dummy_foreign_func;
 }
 
 static bool on_load_module(sv module_name, sv *out_code)
 {
-	char logbuf[64]  = {0};
+	char logbuf[64]	 = {0};
 	StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 	
-        // Open the module file
-        char module_path[64] = {0};
-        uint32_t module_path_length = 64;
-        bool success = get_module_path(module_path, &module_path_length, src_dir_arg, module_name);
-        if (!success) {
-                return false;
-        }
-        ReadFileResult file_content = cross_read_entire_file(module_path);
+	// Open the module file
+	char module_path[64] = {0};
+	uint32_t module_path_length = 64;
+	bool success = get_module_path(module_path, &module_path_length, state.src_dir_arg, module_name);
+	if (!success) {
+		return false;
+	}
+	ReadFileResult file_content = cross_read_entire_file(module_path);
 	if (!file_content.success) {
 		string_builder_append_sv(&sb, SV("Cannot open file "));
 		string_builder_append_sv(&sb, (sv){module_path, module_path_length});
 		string_builder_append_char(&sb, '\n');
-                cross_log(cross_stderr, string_builder_get_string(&sb));
-                return false;
+		cross_log(cross_stderr, string_builder_get_string(&sb));
+		return false;
 	}
 	string_builder_append_sv(&sb, SV("Load module: "));
 	string_builder_append_sv(&sb, (sv){module_path, module_path_length-1});
 	string_builder_append_char(&sb, '\n');
-        cross_log(cross_stderr, string_builder_get_string(&sb));
+	cross_log(cross_stderr, string_builder_get_string(&sb));
 
-        *out_code = file_content.content;
-        // Register the module in our modules array
-        uint32_t i_module = 0;
-        for (; i_module < modules_len; ++i_module) {
-                if (sv_equals(modules_name_sv[i_module], module_name)) {
-                        break;
-                }
-        }
-        if (i_module >= modules_len) {
-                // Add a new module
-                i_module = modules_len;
-                modules_len += 1;
-                // Init name
-                memcpy(&modules_name[i_module], module_name.chars, module_name.length);
-                modules_name[i_module][module_name.length] = '\0';
-                modules_name_sv[i_module].chars = modules_name[i_module];
-                modules_name_sv[i_module].length = module_name.length;
-                // Init path
-                memcpy(&modules_path[i_module], module_path, sizeof(module_path));
-                modules_path_sv[i_module].chars = modules_path[i_module];
-                modules_path_sv[i_module].length = module_path_length;
-                // Init time
-                modules_file_last_write[i_module] = 0;
-        }
+	*out_code = file_content.content;
+	// Register the module in our modules array
+	uint32_t i_module = 0;
+	for (; i_module < state.modules_len; ++i_module) {
+		if (sv_equals(state.modules_name_sv[i_module], module_name)) {
+			break;
+		}
+	}
+	if (i_module >= state.modules_len) {
+		// Add a new module
+		i_module = state.modules_len;
+		state.modules_len += 1;
+		// Init name
+		memcpy(&state.modules_name[i_module], module_name.chars, module_name.length);
+		state.modules_name[i_module][module_name.length] = '\0';
+		state.modules_name_sv[i_module].chars = state.modules_name[i_module];
+		state.modules_name_sv[i_module].length = module_name.length;
+		// Init path
+		memcpy(&state.modules_path[i_module], module_path, sizeof(module_path));
+		state.modules_path_sv[i_module].chars = state.modules_path[i_module];
+		state.modules_path_sv[i_module].length = module_path_length;
+		// Init time
+		state.modules_file_last_write[i_module] = 0;
+	}
 
-        return true;
+	return true;
 }
 
 static void on_error(VM *vm, Error err)
 {
 	char buf[96] = {0};
 	StringBuilder sb = string_builder_from_buffer(buf, sizeof(buf));
-        if (err.file.chars != nullptr) {
+	if (err.file.chars != nullptr) {
 		// <file>:<line>:0: error: 
 		string_builder_append_sv(&sb, err.file);
 		string_builder_append_char(&sb, ':');
 		string_builder_append_u64(&sb, (uint64_t)(err.line));
 		string_builder_append_sv(&sb, SV(":0: error: "));
-        }
+	}
 	string_builder_append_sv(&sb, SV(ErrorCode_str[(uint32_t)(err.code)]));
 	// EXECUTOR FAILED at (<ip>): <msg>
 	string_builder_append_sv(&sb, SV(" EXECUTOR FAILED at ("));
@@ -197,108 +236,188 @@ static void on_error(VM *vm, Error err)
 	cross_log(cross_stderr, string_builder_get_string(&sb));
 }
 
-int main(int argc, const char *argv[])
+static void sokol_logger (
+			  const char* tag,		  // always "sapp"
+			  uint32_t log_level,		  // 0=panic, 1=error, 2=warning, 3=info
+			  uint32_t log_item_id,		  // SAPP_LOGITEM_*
+			  const char* message_or_null,	  // a message string, may be nullptr in release mode
+			  uint32_t line_nr,		  // line number in sokol_app.h
+			  const char* filename_or_null,	  // source filename, may be nullptr in release mode
+			  void* user_data)
 {
-	argc = 4;
-	argv[0] = "";
-	argv[1] = "src";
-	argv[2] = "test";
-	argv[3] = "-w";
-        if (argc < 3) {
-                cross_log(cross_stderr, sv_from_null_terminated("Usage: ode.exe <src dir> <main_module> (-w)\n"));
-                return 1;
-        }
+	char buf[256] = {0};
+	StringBuilder sb = string_builder_from_buffer(buf, sizeof(buf));
 
-	uint32_t persistent_memory_size = 1 << 20;
-	uint8_t *persistent_memory = (uint8_t*)cross_alloc(persistent_memory_size);
-	Arena persistent_arena = {0};
-	persistent_arena.begin = persistent_memory;
-	persistent_arena.end = persistent_memory + persistent_memory_size;
-	
-        // Paths
-        src_dir_arg = sv_from_null_terminated(argv[1]);
-        const sv main_module_arg = sv_from_null_terminated(argv[2]);
-        // Options
-        const sv watch_arg = sv_from_null_terminated("-w");
-        bool watch_opt = false;
-        for (int i_arg = 3; i_arg < argc; ++i_arg) {
-                sv arg = sv_from_null_terminated(argv[i_arg]);
-                if (sv_equals(arg, watch_arg)) {
-                        watch_opt = true;
-                }
-        }
+	if (filename_or_null) {
+		string_builder_append_sv(&sb, sv_from_null_terminated(filename_or_null));
+	}
+	string_builder_append_char(&sb, ':');
+	string_builder_append_u64(&sb, (uint64_t)line_nr);
+	string_builder_append_char(&sb, ':');
+	string_builder_append_char(&sb, ' ');
+	if (log_level == 0) {
+		string_builder_append_sv(&sb, SV("panic"));
+	} else if (log_level == 1) {
+		string_builder_append_sv(&sb, SV("error"));
+	} else if (log_level == 2) {
+		string_builder_append_sv(&sb, SV("warning"));
+	} else if (log_level == 3) {
+		string_builder_append_sv(&sb, SV("info"));
+	}
+	string_builder_append_sv(&sb, SV(": "));
+	if (message_or_null) {
+		string_builder_append_sv(&sb, sv_from_null_terminated(message_or_null));
+	}
+	string_builder_append_char(&sb, '\n');
+	cross_log(cross_stderr, string_builder_get_string(&sb));
 
-        // Misc
-        stm_setup();                              // Enable timer
-
-        // Setup the main module
-        // Add the module as module#0
-        modules_len = 1;
-        // Init name
-        modules_name_sv[0] = main_module_arg;
-        // Init path
-        modules_path_sv[0].chars = modules_path[0];
-        modules_path_sv[0].length = 64; // buffer size is 64, get_module_path will replace it with real length
-        if (!get_module_path(modules_path[0], &modules_path_sv[0].length, src_dir_arg, main_module_arg)) {
-                return 1;
-        }
-        // Init time
-        modules_file_last_write[0] = 0;
- 
-        // Create the VM
-        VMConfig vm_config = {0};
-        vm_config.load_module = on_load_module;
-        vm_config.error_callback = on_error;
-        vm_config.foreign_callback = on_foreign;
-        VM *vm = vm_create(&persistent_arena, vm_config);
-        // Watch and execute
-        bool stop = !watch_opt;
-        do {
-                bool any_module_changed = false;
-                for (uint32_t i_module = 0; i_module < modules_len; ++i_module) {
-                        const uint64_t last_write = cross_get_file_last_write(modules_path_sv[i_module].chars, modules_path_sv[i_module].length);
-                        if (last_write != modules_file_last_write[i_module]) {
-                                modules_file_last_write[i_module] = last_write;
-                                any_module_changed = true;
-    
-                                // read entire source code
-                                ReadFileResult file_content = cross_read_entire_file(modules_path[i_module]);
-				if (!file_content.success) {
-					char buf[64] = {0};
-					StringBuilder sb = string_builder_from_buffer(buf, sizeof(buf));
-					string_builder_append_sv(&sb, SV("Cannot open file "));
-					string_builder_append_sv(&sb, modules_path_sv[i_module]);
-					string_builder_append_char(&sb, '\n');			
-					cross_log(cross_stderr, string_builder_get_string(&sb));
-                                        return 1;
-				}
-                                // compile
-                                Error error = vm_compile(vm, modules_name_sv[i_module], file_content.content);
-				if (error.code != ErrorCode_Ok) {
-					on_error(vm, error);
-				}
-                        }
-                }
-
-                if (any_module_changed) {
-                        vm_call(vm, modules_name_sv[0], sv_from_null_terminated("main"), persistent_arena);
-			uint64_t timestamp = stm_now();
-
-			char buf[32] = {0};
-			StringBuilder sb = string_builder_from_buffer(buf, sizeof(buf));
-			string_builder_append_sv(&sb, SV("Done executing at "));
-			string_builder_append_u64(&sb, timestamp);
-			string_builder_append_char(&sb, '\n');			
-			cross_log(cross_stdout, string_builder_get_string(&sb));
-                }
-
-		vm_call(vm, modules_name_sv[0], sv_from_null_terminated("update"), persistent_arena);
-  
-                cross_sleep_ms(500);
-        } while (!stop);
-        return 0;
+	if (log_level <= 1) {
+		__debugbreak();
+	}
 }
 
+static void init(void)
+{
+	// Init sokol_timer
+	stm_setup();
+	// Init sokol_gfx
+	sg_setup(&(sg_desc){
+		.context = sapp_sgcontext(),
+		.logger.func = sokol_logger,
+		.allocator.alloc_fn = win32_malloc,
+		.allocator.free_fn = win32_free,
+	});
+	float vertices[] = {
+		// positions		// colors
+		0.0f,  0.5f, 0.5f,     1.0f, 0.0f, 0.0f, 1.0f,
+		0.5f, -0.5f, 0.5f,     0.0f, 1.0f, 0.0f, 1.0f,
+		-0.5f, -0.5f, 0.5f,	0.0f, 0.0f, 1.0f, 1.0f
+	};
+	state.bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc){
+		.data = SG_RANGE(vertices),
+		.label = "triangle-vertices"
+	});
+	sg_shader triangle_shader = sg_make_shader(&(sg_shader_desc){
+		.attrs = {
+			[0].sem_name = "POS",
+			[1].sem_name = "COLOR"
+		},
+		.vs.source =
+	    "struct vs_in {\n"
+	    "  float4 pos: POS;\n"
+	    "  float4 color: COLOR;\n"
+	    "};\n"
+	    "struct vs_out {\n"
+	    "  float4 color: COLOR0;\n"
+	    "  float4 pos: SV_Position;\n"
+	    "};\n"
+	    "vs_out main(vs_in inp) {\n"
+	    "  vs_out outp;\n"
+	    "  outp.pos = inp.pos;\n"
+	    "  outp.color = inp.color;\n"
+	    "  return outp;\n"
+	    "}\n",
+		.fs.source =
+	    "float4 main(float4 color: COLOR0): SV_Target0 {\n"
+	    "  return color;\n"
+	    "}\n"
+	});	
+	state.pip = sg_make_pipeline(&(sg_pipeline_desc){
+		.shader = triangle_shader,
+		.layout = {
+			.attrs = {
+				[0].format = SG_VERTEXFORMAT_FLOAT3,
+				[1].format = SG_VERTEXFORMAT_FLOAT4
+			}
+		},
+		.label = "triangle-pipeline"
+	});
+	state.pass_action = (sg_pass_action) {
+		.colors[0] = { .load_action=SG_LOADACTION_CLEAR, .clear_value={0.0f, 0.0f, 0.0f, 1.0f } }
+	};
+
+	// Init ode
+	uint32_t persistent_memory_size = 1 << 20;
+	uint8_t *persistent_memory = (uint8_t*)cross_alloc(persistent_memory_size);
+	state.persistent_arena.begin = persistent_memory;
+	state.persistent_arena.end = persistent_memory + persistent_memory_size;
+
+	// Setup the main module
+	// Add the module as module#0
+	state.modules_len = 1;
+	// Init name
+	state.modules_name_sv[0] = state.main_module_arg;
+	// Init path
+	state.modules_path_sv[0].chars = state.modules_path[0];
+	state.modules_path_sv[0].length = 64; // buffer size is 64, get_module_path will replace it with real length
+	if (!get_module_path(state.modules_path[0], &state.modules_path_sv[0].length, state.src_dir_arg, state.main_module_arg)) {
+		return;
+	}
+	// Init time
+	state.modules_file_last_write[0] = 0;
+ 
+	// Create the VM
+	VMConfig vm_config = {0};
+	vm_config.load_module = on_load_module;
+	vm_config.error_callback = on_error;
+	vm_config.foreign_callback = on_foreign;
+	state.vm = vm_create(&state.persistent_arena, vm_config);
+}
+
+static void frame(void)
+{
+	// Update ode VM
+	bool any_module_changed = false;
+	for (uint32_t i_module = 0; i_module < state.modules_len; ++i_module) {
+		const uint64_t last_write = cross_get_file_last_write(state.modules_path_sv[i_module].chars, state.modules_path_sv[i_module].length);
+		if (last_write != state.modules_file_last_write[i_module]) {
+			state.modules_file_last_write[i_module] = last_write;
+			any_module_changed = true;
+    
+			// read entire source code
+			ReadFileResult file_content = cross_read_entire_file(state.modules_path[i_module]);
+			if (!file_content.success) {
+				char buf[64] = {0};
+				StringBuilder sb = string_builder_from_buffer(buf, sizeof(buf));
+				string_builder_append_sv(&sb, SV("Cannot open file "));
+				string_builder_append_sv(&sb, state.modules_path_sv[i_module]);
+				string_builder_append_char(&sb, '\n');			
+				cross_log(cross_stderr, string_builder_get_string(&sb));
+				return;
+			}
+			// compile
+			Error error = vm_compile(state.vm, state.modules_name_sv[i_module], file_content.content);
+			if (error.code != ErrorCode_Ok) {
+				on_error(state.vm, error);
+			}
+		}
+	}
+	if (any_module_changed) {
+		vm_call(state.vm, state.modules_name_sv[0], sv_from_null_terminated("main"), state.persistent_arena);
+		uint64_t timestamp = stm_now();
+
+		char buf[32] = {0};
+		StringBuilder sb = string_builder_from_buffer(buf, sizeof(buf));
+		string_builder_append_sv(&sb, SV("Done executing at "));
+		string_builder_append_u64(&sb, timestamp);
+		string_builder_append_char(&sb, '\n');			
+		cross_log(cross_stdout, string_builder_get_string(&sb));
+	}
+	vm_call(state.vm, state.modules_name_sv[0], sv_from_null_terminated("update"), state.persistent_arena);
+
+	// Render frame
+	sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
+	sg_apply_pipeline(state.pip);
+	sg_apply_bindings(&state.bind);
+	sg_draw(0, 3, 1);
+	sg_end_pass();
+	sg_commit();
+}
+
+static void cleanup(void)
+{
+	sg_shutdown();
+}
 
 // CRT
 
@@ -335,14 +454,33 @@ void *memmove(void *dest, const void *src, size_t count)
 }
 
 int _fltused;
-int mainCRTStartup(void);
 
-int mainCRTStartup(void)
+
+int WinMainCRTStartup(void);
+int __DllMainCRTStartup(HANDLE hinstDLL, DWORD dwReason, LPVOID lpvReserved);
+
+int WinMainCRTStartup(void)
 {
 	cross_init();
 
-	int argc = 0;
-	const char* argv[5] = {0};
-	main(argc, argv);
+	// Paths
+	state.src_dir_arg = SV("src");
+	state.main_module_arg = SV("test");
+	sapp_desc desc =  (sapp_desc){
+		.init_cb = init,
+		.frame_cb = frame,
+		.cleanup_cb = cleanup,
+		.event_cb = NULL,
+		.width = 640,
+		.height = 480,
+		.window_title = "Ode demo",
+		.icon.sokol_default = true,
+		.logger.func = sokol_logger,
+		.allocator.alloc_fn = win32_malloc,
+		.allocator.free_fn = win32_free,
+	};
+	sapp_run(&desc);
+
+	ExitProcess(0);
 	return 0;
 }

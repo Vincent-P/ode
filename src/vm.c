@@ -356,7 +356,7 @@ static LoadModuleResult load_compiler_module(VM *vm, uint32_t i_compiler_module)
 	}
 	runtime_module->export_length = export_length;
 	// Fill foreign function data
-	for (uint32_t f = 0; f < compiler_module->foreign_functions_length; ++f) {
+	for (f = 0; f < compiler_module->foreign_functions_length; ++f) {
 		sv foreign_module_name = compiler_module->foreign_functions_module_name[f];
 		sv foreign_function_name = compiler_module->foreign_functions_name[f];
 		ForeignFn callback = vm->config.foreign_callback(foreign_module_name, foreign_function_name);

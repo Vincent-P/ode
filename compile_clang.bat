@@ -9,7 +9,7 @@ clang.exe src/main.c -o build/%1.exe ^
 	  -O0 -g -std=c11 ^
 	  -nostdlib^
 	  -mno-stack-arg-probe ^
-	  -Wall -Wextra -Wpedantic -Wconversion -Wmissing-prototypes -Wimplicit-fallthrough -Wno-c2x-extensions ^
+	  -Wall -Wextra -Wpedantic -Wconversion -Wmissing-prototypes -Wimplicit-fallthrough -Wno-c2x-extensions -Wno-unused-parameter ^
 	  -DUNITY_BUILD ^
 	  %ALL_BUT_FIRST% ^
-	  -fuse-ld=lld -Xlinker /SUBSYSTEM:console -lkernel32 -Xlinker /STACK:0x100000,0x100000 
+	  -fuse-ld=lld -Xlinker /SUBSYSTEM:windows -lkernel32 -Xlinker /STACK:0x100000,0x100000 

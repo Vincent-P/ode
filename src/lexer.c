@@ -11,7 +11,8 @@ static bool is_identifier_char(char c)
 	bool is_lower = 'a' <= c && c <= 'z';
 	bool is_upper = 'A' <= c && c <= 'Z';
 	bool is_operator = c == '+' || c == '-' || c == '/' || c == '*' || c == '<' || c == '>' || c == '=';
-	return c == '_' || is_operator || is_lower || is_upper || is_number(c);
+	bool is_slice = c == '[' || c == ']';
+	return c == '_' || is_operator || is_lower || is_upper || is_number(c) || is_slice;
 }
 
 // Reserve the identifier that start with a number for literals

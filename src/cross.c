@@ -72,9 +72,15 @@ ReadFileResult cross_read_entire_file(const char* filepath)
 
 void cross_log(uint64_t handle, sv message)
 {
-	bool success = WriteFile((HANDLE)handle, message.chars, message.length, nullptr, nullptr);
-	if (!success)
-		__debugbreak();
+	WriteFile((HANDLE)handle, message.chars, message.length, nullptr, nullptr);
+	if (message.length > 0) {
+		// Make sure that we have a NULL terminator because OutputDebugString does not take a length
+		char *chars = (char*)message.chars;
+		if (chars[message.length-1] != 0) {
+			chars[message.length-1] = 0;
+		}
+		OutputDebugStringA(message.chars);
+	}
 }
 
 
