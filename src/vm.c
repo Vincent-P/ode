@@ -466,5 +466,6 @@ void vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 	ExecutionContext *exec = (ExecutionContext*)(arena_alloc(&temp_mem, sizeof(ExecutionContext)));
 	exec->modules = vm->runtime_modules;
 	exec->modules_len = vm->runtime_modules_length;
+	exec->heap = vm->config.heap;
 	call_function(exec, i_runtime_module, entrypoint_address, nullptr, 0);
 }

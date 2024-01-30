@@ -13,9 +13,9 @@ enum Executor_Constants
 
 typedef enum PointerType
 {
-	PointerType_Host,
-	PointerType_Image,
-	PointerType_Heap,
+	PointerType_Host = 0,
+	PointerType_Image = 1,
+	PointerType_Heap = 2,
 } PointerType;
 enum PointerTypeCount {
 	PointerType_Count = PointerType_Heap + 1,
@@ -23,9 +23,9 @@ enum PointerTypeCount {
 
 typedef struct Pointer
 {
-	uint32_t offset : 23;
+	uint32_t offset : 22;
 	uint32_t module : 7;
-	PointerType type : 2;
+	PointerType type : 3;
 } Pointer;
 _Static_assert(sizeof(Pointer) == sizeof(uint32_t));
 
@@ -41,7 +41,7 @@ typedef union Value
 	uint8_t u8;
 	uint16_t u16;
 	uint32_t u32;
-	uint32_t u64;
+	uint64_t u64;
 	int8_t i8;
 	int16_t i16;
 	int32_t  i32;
@@ -52,7 +52,7 @@ typedef union Value
 } Value;
 _Static_assert(sizeof(Value) == sizeof(uint64_t));
 
-typedef void(*ForeignFn)(ExecutionContext*,Value*, uint32_t);
+typedef void(*ForeignFn)(ExecutionContext*,Value*, uint32_t, uint32_t*);
 
 typedef struct Module
 {
@@ -92,8 +92,13 @@ typedef struct ExecutionContext
 	uint32_t callstack_ret_address[64];
 	uint32_t callstack_ret_bp[64];
 	uint32_t callstack_argc[64]; // number of arguments
+	// memory
+	uint8_t *heap;
 } ExecutionContext;
 
 void call_function(ExecutionContext *ctx, uint32_t callee_module, uint32_t callee_ip, Value *args, uint32_t args_len);
 const uint8_t *deref_pointer(ExecutionContext *ctx, Pointer ptr);
 uint8_t *deref_pointer_mut(ExecutionContext *ctx, Pointer ptr);
+
+// host
+Value make_heap_pointer(ExecutionContext *ctx, uint32_t offset_in_heap);

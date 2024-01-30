@@ -47,6 +47,7 @@ enum OpCode
 	OpCode_Load8,
 	OpCode_Load16,
 	OpCode_Load32,
+	OpCode_Load64,
 	// Store (ptr, value)
 	OpCode_Store8,
 	OpCode_Store16,
@@ -55,6 +56,8 @@ enum OpCode
 	OpCode_SliceData,
 	OpCode_SliceLength,
 	// -- Integers arithmetic
+	// Mul (arg0, arg1)
+	OpCode_MulI32,
 	// Add (arg0, arg1)
 	OpCode_AddU8,
 	OpCode_AddU16,
@@ -65,6 +68,7 @@ enum OpCode
 	OpCode_SubU32,
 	// LteI32 (arg0, arg1)
 	OpCode_LteI32,
+	OpCode_LtI32,
 	// GteI32 (arg0, arg1)
 	OpCode_GteI32,
 	// EqI32 (arg0, arg1)
@@ -99,11 +103,13 @@ const char *OpCode_str[] = {
 	"Load8",
 	"Load16",
 	"Load32",
+	"Load64",
 	"Store8",
 	"Store16",
 	"Store32",
 	"SliceData",
 	"SliceLength",
+	"MulI32",
 	"AddU8",
 	"AddU16",
 	"AddU32",
@@ -111,6 +117,7 @@ const char *OpCode_str[] = {
 	"SubU16",
 	"SubU32",
 	"LteI32",
+	"LtI32",
 	"GteI32",
 	"EqI32",
 	"And",

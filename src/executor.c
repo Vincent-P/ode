@@ -272,7 +272,7 @@ void call_function(
 			string_builder_append_char(&sb, '\n');
 			cross_log(cross_stderr, string_builder_get_string(&sb));
 #endif
-			callback(ctx, ctx->stack + sp - argc + 1, argc);			
+			callback(ctx, ctx->stack + sp - argc + 1, argc, &sp);
 			// Pop arguments
 			sp = sp - argc;
 			break;
@@ -397,6 +397,14 @@ void call_function(
 			push(ctx, &sp, result);
 			break;
 		}
+		case OpCode_Load64: {
+			Pointer ptr = pop(ctx, &sp).ptr;	
+			const uint8_t *memory = deref_pointer(ctx, ptr);
+			Value result = {0};
+			result.u64 = *(uint64_t*)memory;
+			push(ctx, &sp, result);
+			break;
+		}
 		case OpCode_Store8: {
 			Value operands[2] = {0};
 			pop_n(ctx, &sp, operands, 2);
@@ -439,6 +447,14 @@ void call_function(
 			Value length = {0};
 			length.u32 = val.slice.length;
 			push(ctx, &sp, length);
+			break;
+		}
+		case OpCode_MulI32: {
+			Value operands[2] = {0};
+			pop_n(ctx, &sp, operands, 2);
+			Value result = {0};
+			result.i32 = operands[1].i32 * operands[0].i32;
+			push(ctx, &sp, result);
 			break;
 		}
 		case OpCode_AddU8: {
@@ -494,6 +510,14 @@ void call_function(
 			pop_n(ctx, &sp, operands, 2);
 			Value result = {0};
 			result.i32 = operands[1].i32 <= operands[0].i32;
+			push(ctx, &sp, result);
+			break;
+		}
+		case OpCode_LtI32: {
+			Value operands[2] = {0};
+			pop_n(ctx, &sp, operands, 2);
+			Value result = {0};
+			result.i32 = operands[1].i32 < operands[0].i32;
 			push(ctx, &sp, result);
 			break;
 		}
@@ -554,7 +578,7 @@ const uint8_t *deref_pointer(ExecutionContext *ctx, Pointer ptr)
 		break;
 	}
 	case PointerType_Heap: {
-		__debugbreak();
+		memory = ctx->heap + ptr.offset;
 		break;
 	}
 	default: {
@@ -577,7 +601,7 @@ uint8_t *deref_pointer_mut(ExecutionContext *ctx, Pointer ptr)
 		break;
 	}
 	case PointerType_Heap: {
-		__debugbreak();
+		memory = ctx->heap + ptr.offset;
 		break;
 	}
 	default: {
@@ -585,4 +609,12 @@ uint8_t *deref_pointer_mut(ExecutionContext *ctx, Pointer ptr)
 	}
 	}
 	return memory;
+}
+
+Value make_heap_pointer(ExecutionContext *ctx, uint32_t offset_in_heap)
+{
+	Value val = {0};
+	val.ptr.offset = offset_in_heap;
+	val.ptr.type = PointerType_Heap;
+	return val;
 }

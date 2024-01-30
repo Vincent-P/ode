@@ -95,11 +95,13 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 		case OpCode_Load8:
 		case OpCode_Load16:
 		case OpCode_Load32:
+		case OpCode_Load64:
 		case OpCode_Store8:
 		case OpCode_Store16:
 		case OpCode_Store32:
 		case OpCode_SliceData:
 		case OpCode_SliceLength:
+		case OpCode_MulI32:
 		case OpCode_AddU8:
 		case OpCode_AddU16:
 		case OpCode_AddU32:
@@ -107,6 +109,7 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 		case OpCode_SubU16:
 		case OpCode_SubU32:
 		case OpCode_LteI32:
+		case OpCode_LtI32:
 		case OpCode_GteI32:
 		case OpCode_EqI32:
 		case OpCode_And:

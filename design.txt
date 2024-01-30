@@ -32,11 +32,10 @@
 	(render))
 
 
-
-
 == Current progress:
 - Builtins? or Opcodes for everything?
 - Implementing structs fields again... Populating rects to draw every frame
+- BUG: add module to foreign functions pointers, and structs
 
 == Pointers
 After implementing pointers, I think that strings (or pointers in general?) should embed length.

@@ -15,6 +15,7 @@ typedef struct VMConfig
 	bool (*load_module)(sv module_name, sv *out_code);
 	void (*error_callback)(VM *, Error);
 	ForeignFn (*foreign_callback)(sv module_name, sv function_name);
+	uint8_t *heap;
 } VMConfig;
 
 typedef struct VM

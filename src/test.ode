@@ -1,4 +1,30 @@
-(require "testlib")
+
+(struct Rect
+	(x f32)
+	(y f32)
+	(width f32)
+	(height f32))
+
+(struct RenderList
+	(rects ([] Rect))
+	(rects-count u32))
+
+(define-foreign (log ()) (chars (* u8) len u32))
+(define-foreign (logi ()) (n i32))
+(define-foreign (get-render-list (* RenderList)) ())
+
+
+(define-global (adder i32) (n i32) (let tmp 0) (+ n 1))
+
+(define-global (identity i32) (n i32) n)
+
+(define-global (fib_rec i32) (n i32)
+	(if (<= n 1)
+		n
+		(+ (fib_rec (- n 1)) (fib_rec (- n 2)))))
+
+
+
 
 (struct Point
 	(x i32)
@@ -64,42 +90,30 @@ treb7uchet
 	(day1 (_data day1_input) 1)
 	0)
 
-
-
-(struct Rect
-	(x f32)
-	(y f32)
-	(width f32)
-	(height f32))
-
-(struct RenderList
-	(rects ([] Rect))
-	(rects-count u32))
-
 (define (push-rect ()) (rl (* RenderList) x f32 y f32 w f32 h f32)
-	(let rects (load-field rl rects))
-	(let rects-count (load-field rl rects-count))
-	(if (< (+ rects-count 1) (load-field rects len))
+	(let rects (_load_field rl rects))
+	(let rects-count (_load_field rl rects-count))
+	(if (< (+ rects-count 1) (_len rects))
 		(begin
-			(let new-rect (_ptr_offset (load-field rects data) (* rects-count (_sizeof Rect))))
-			(store-field new-rect x x)
-			(store-field new-rect y y)
-			(store-field new-rect width w)
-			(store-field new-rect height h)
-			(store-field (field rl rects) data (+ rects-count 1))
+			(let new-rect (_ptr_offset (* Rect) (_data rects) (* rects-count (_sizeof Rect))))
+			(_store_field new-rect x x)
+			(_store_field new-rect y y)
+			(_store_field new-rect width w)
+			(_store_field new-rect height h)
 			())
-		()))
+		())
+	(_store_field rl rects-count (+ rects-count 1)))
 
 (define (render ()) ()
 	(let rl (get-render-list))
-	(push-rect rl 0.0 0.0 100.0 200.0)
-	(push-rect rl 100.0 0.0 100.0 200.0)
-	(push-rect rl 0.0 100.0 100.0 200.0)
+	(push-rect rl 0.0 0.0 0.25 0.25)
+	(push-rect rl 0.0 0.2 0.33 0.25)
+
+	(push-rect rl 0.0 0.6 0.25 0.25)
 	)
 
 (define (update ()) ()
 	(let n 0)
 	(let update-msg "update ahahah!")
 	(log (_data update-msg) (_len update-msg))
-	(render)
-	)
+	(render))

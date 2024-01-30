@@ -122,10 +122,10 @@ static float *compiler_push_f32(Compiler *compiler, float value)
 	return bytecode;
 }
 
-static void compiler_bytecode_push_u32(Compiler *compiler, uint32_t value)
+static uint32_t *compiler_bytecode_push_u32(Compiler *compiler, uint32_t value)
 {
 	compiler_push_opcode(compiler, OpCode_PushU32);
-	compiler_push_u32(compiler, value);
+	return compiler_push_u32(compiler, value);
 }
 
 static void compiler_bytecode_push_str(Compiler *compiler, sv value)
@@ -479,7 +479,6 @@ static TypeID compile_atom(Compiler *compiler, const Token *token)
 		float token_number = compiler->compunit->token_float_numbers[token->data];
 		compiler_bytecode_push_f32(compiler, token_number);
 		TypeID type_id = type_id_new_builtin(BuiltinTypeKind_Float);
-		type_id.builtin.number_width = NumberWidth_32;
 		return type_id;
 	} else if (token->kind == TokenKind_StringLiteral) {
 		// A string literal
@@ -903,6 +902,9 @@ static TypeID compile_set(Compiler *compiler, const AstNode *node)
 	}
 
 	TypeID expr_type = compile_expr(compiler, nodes.value_node);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
 
 	if (!type_similar(expr_type, variable_type)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
@@ -1049,6 +1051,17 @@ static TypeID compile_isub(Compiler *compiler, const AstNode *node)
 	return res.inferred_type;
 }
 
+static TypeID compile_imul(Compiler *compiler, const AstNode *node)
+{
+	CompileNumBinaryOpResult res = compile_num_binary_op(compiler, node);
+	if (!res.success) {
+		return UNIT_TYPE;
+	}
+
+	compiler_push_opcode(compiler, OpCode_MulI32);
+	return res.inferred_type;
+}
+
 // Compare two integers
 // (<= <lhs> <rhs>)
 static TypeID compile_ltethan(Compiler *compiler, const AstNode *node)
@@ -1058,6 +1071,18 @@ static TypeID compile_ltethan(Compiler *compiler, const AstNode *node)
 		return UNIT_TYPE;
 	}
 	compiler_push_opcode(compiler, OpCode_LteI32);
+	return type_id_new_builtin(BuiltinTypeKind_Bool);
+}
+
+// Compare two integers
+// (< <lhs> <rhs>)
+static TypeID compile_lthan(Compiler *compiler, const AstNode *node)
+{
+	CompileNumBinaryOpResult res = compile_num_binary_op(compiler, node);
+	if (!res.success) {
+		return UNIT_TYPE;
+	}
+	compiler_push_opcode(compiler, OpCode_LtI32);
 	return type_id_new_builtin(BuiltinTypeKind_Bool);
 }
 
@@ -1122,6 +1147,28 @@ static TypeID compile_and(Compiler *compiler, const AstNode *node)
 	return expected_type;
 }
 
+static TypeID compiler_load_pointer(Compiler *compiler, TypeID pointed_type)
+{
+	uint32_t type_size = type_get_size(&compiler->module, pointed_type);
+	OpCode opcode = OpCode_Halt;
+	if (type_size == 1) {
+		opcode = OpCode_Load8;
+	} else if (type_size == 2) {
+		opcode = OpCode_Load16;
+	} else if (type_size == 4) {
+		opcode = OpCode_Load32;
+	} else if (type_size == 8) {
+		opcode = OpCode_Load64;
+	} else {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		__debugbreak();
+		return UNIT_TYPE;
+	}
+	
+	compiler_push_opcode(compiler, opcode);
+	return pointed_type;
+}
+
 // Load a value at the given memory address
 // (load <addr>)
 static TypeID compile_load(Compiler *compiler, const AstNode *node)
@@ -1147,21 +1194,27 @@ static TypeID compile_load(Compiler *compiler, const AstNode *node)
 	}
 
 	TypeID pointed_type_id = type_id_deref_pointer(addr_type_id);
-	uint32_t type_size = type_get_size(&compiler->module, pointed_type_id);
+	return compiler_load_pointer(compiler, pointed_type_id);
+}
+
+static TypeID compiler_store_pointer(Compiler *compiler, TypeID pointed_type)
+{
+	uint32_t value_type_size = type_get_size(&compiler->module, pointed_type);
+	
 	OpCode opcode = OpCode_Halt;
-	if (type_size == 1) {
-		opcode = OpCode_Load8;
-	} else if (type_size == 2) {
-		opcode = OpCode_Load16;
-	} else if (type_size == 4) {
-		opcode = OpCode_Load32;
+	if (value_type_size == 1) {
+		opcode = OpCode_Store8;
+	} else if (value_type_size == 2) {
+		opcode = OpCode_Store16;
+	} else if (value_type_size == 4) {
+		opcode = OpCode_Store32;
 	} else {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
 		return UNIT_TYPE;
 	}
 	
 	compiler_push_opcode(compiler, opcode);
-	return pointed_type_id;
+	return UNIT_TYPE;
 }
 
 // Store a value at the given memory address
@@ -1190,22 +1243,7 @@ static TypeID compile_store(Compiler *compiler, const AstNode *node)
 		return UNIT_TYPE;
 	}
 
-	uint32_t value_type_size = type_get_size(&compiler->module, expr_type_id);
-	
-	OpCode opcode = OpCode_Halt;
-	if (value_type_size == 1) {
-		opcode = OpCode_Store8;
-	} else if (value_type_size == 2) {
-		opcode = OpCode_Store16;
-	} else if (value_type_size == 4) {
-		opcode = OpCode_Store32;
-	} else {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
-		return UNIT_TYPE;
-	}
-	
-	compiler_push_opcode(compiler, opcode);
-	return UNIT_TYPE;
+	return compiler_store_pointer(compiler, expr_type_id);
 }
 
 // Returns the size of a type
@@ -1233,6 +1271,10 @@ static TypeID compile_data(Compiler *compiler, const AstNode *node)
 	}
 
 	const TypeID expr_type = compile_expr(compiler, value_node);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+
 	if (!type_id_is_slice(expr_type)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
 		compiler->compunit->error.span = value_node->span;
@@ -1257,6 +1299,10 @@ static TypeID compile_len(Compiler *compiler, const AstNode *node)
 	}
 
 	const TypeID expr_type = compile_expr(compiler, value_node);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+
 	if (!type_id_is_slice(expr_type)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
 		compiler->compunit->error.span = value_node->span;
@@ -1268,6 +1314,228 @@ static TypeID compile_len(Compiler *compiler, const AstNode *node)
 	compiler_push_opcode(compiler, OpCode_SliceLength);
 	
 	return type_id_new_unsigned(NumberWidth_32);
+}
+
+// (field <expr> <identifier>)
+static TypeID compile_field(Compiler *compiler, const AstNode *node)
+{
+	// -- Parsing
+	const AstNode *nodes[2] = {0};
+	parse_nary_op(compiler->compunit, node, ARRAY_LENGTH(nodes), nodes);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+
+	// -- Typecheck
+	TypeID pointer_type = compile_expr(compiler, nodes[0]);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+
+	if (!type_id_is_pointer(pointer_type)) {
+		// The expr type has to be a pointer
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot)
+		compiler->compunit->error.got_type = pointer_type;
+		compiler->compunit->error.expected_type = type_id_pointer_from(UNIT_TYPE);
+		compiler->compunit->error.span = nodes[0]->span;
+		return UNIT_TYPE;
+	}
+	TypeID struct_type = type_id_deref_pointer(pointer_type);
+	if (!type_id_is_user_defined(struct_type)) {
+		// The pointed type HAS to be a struct.
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
+		compiler->compunit->error.span = nodes[0]->span;
+		compiler->compunit->error.got_type = pointer_type;
+		compiler->compunit->error.expected_type = UNIT_TYPE;
+		return UNIT_TYPE;
+	}
+
+	const Token *field_token = compiler->compunit->tokens + nodes[1]->atom_token_index;
+	const bool is_an_identifier = ast_is_atom(nodes[1]) && field_token->kind == TokenKind_Identifier;
+	if (!is_an_identifier) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedIdentifier);
+		compiler->compunit->error.span = nodes[1]->span;
+		return UNIT_TYPE;
+	}
+	sv field_identifier_str = sv_substr(compiler->compunit->input, field_token->span);
+	// -- Find field offset
+	if (struct_type.user_defined.index >= compiler->module.types_length) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		return UNIT_TYPE;
+	}
+	UserDefinedType *type = compiler->module.types + struct_type.user_defined.index;
+	uint32_t i_field = 0;
+	for (; i_field < type->field_count; ++i_field) {
+		if (sv_equals(type->field_names[i_field], field_identifier_str)) {
+			break;
+		}
+	}
+	if (i_field >= type->field_count) {
+		// The field was not found in the struct.
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_UnknownSymbol);
+		compiler->compunit->error.span = field_token->span;
+		return UNIT_TYPE;
+	}
+
+	uint32_t field_offset = type->field_offsets[i_field];
+	compiler_bytecode_push_u32(compiler, field_offset);
+	compiler_push_opcode(compiler, OpCode_AddU32);
+
+	TypeID field_type = type->field_types[i_field];
+	TypeID pointer_to_field_type = type_id_pointer_from(field_type);
+	return pointer_to_field_type;
+}
+
+// (store-field <expr> <identifier> <value>)
+static TypeID compile_store_field(Compiler *compiler, const AstNode *node)
+{
+	// -- Parsing
+	const AstNode *nodes[3] = {0};
+	parse_nary_op(compiler->compunit, node, ARRAY_LENGTH(nodes), nodes);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+
+	// -- Typecheck
+	TypeID pointer_type = compile_expr(compiler, nodes[0]);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+
+	if (!type_id_is_pointer(pointer_type)) {
+		// The expr type has to be a pointer
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot)
+		compiler->compunit->error.got_type = pointer_type;
+		compiler->compunit->error.expected_type = type_id_pointer_from(UNIT_TYPE);
+		compiler->compunit->error.span = nodes[0]->span;
+		return UNIT_TYPE;
+	}
+	TypeID struct_type = type_id_deref_pointer(pointer_type);
+	if (!type_id_is_user_defined(struct_type)) {
+		// The pointed type HAS to be a struct.
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
+		compiler->compunit->error.span = nodes[0]->span;
+		compiler->compunit->error.got_type = pointer_type;
+		compiler->compunit->error.expected_type = UNIT_TYPE;
+		return UNIT_TYPE;
+	}
+	// Generate the field offset
+	uint32_t *field_offset_to_fix = compiler_bytecode_push_u32(compiler, 0);
+	compiler_push_opcode(compiler, OpCode_AddU32);
+
+	const Token *field_token = compiler->compunit->tokens + nodes[1]->atom_token_index;
+	const bool is_an_identifier = ast_is_atom(nodes[1]) && field_token->kind == TokenKind_Identifier;
+	if (!is_an_identifier) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedIdentifier);
+		compiler->compunit->error.span = nodes[1]->span;
+		return UNIT_TYPE;
+	}
+	sv field_identifier_str = sv_substr(compiler->compunit->input, field_token->span);
+	// -- Find field offset
+	if (struct_type.user_defined.index >= compiler->module.types_length) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		return UNIT_TYPE;
+	}
+	UserDefinedType *type = compiler->module.types + struct_type.user_defined.index;
+	uint32_t i_field = 0;
+	for (; i_field < type->field_count; ++i_field) {
+		if (sv_equals(type->field_names[i_field], field_identifier_str)) {
+			break;
+		}
+	}
+	if (i_field >= type->field_count) {
+		// The field was not found in the struct.
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_UnknownSymbol);
+		compiler->compunit->error.span = field_token->span;
+		return UNIT_TYPE;
+	}
+
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+
+	TypeID expr_type = compile_expr(compiler, nodes[2]);
+	TypeID field_type = type->field_types[i_field];
+	if (!type_similar(expr_type, field_type)) {
+		// The expression type has to match the field type
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot)
+		compiler->compunit->error.got_type = expr_type;
+		compiler->compunit->error.expected_type = field_type;
+		compiler->compunit->error.span = nodes[2]->span;
+		return UNIT_TYPE;
+	}
+
+	*field_offset_to_fix = type->field_offsets[i_field];
+
+	return compiler_store_pointer(compiler, type->field_types[i_field]);
+}
+
+// (load-field <expr> <identifier>)
+static TypeID compile_load_field(Compiler *compiler, const AstNode *node)
+{
+	// -- Parsing
+	const AstNode *nodes[2] = {0};
+	parse_nary_op(compiler->compunit, node, ARRAY_LENGTH(nodes), nodes);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+
+	// -- Typecheck
+	compiler_bytecode_debug_label(compiler, SV("l"));
+
+	TypeID expr_type = compile_expr(compiler, nodes[0]);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+	if (!type_id_is_pointer(expr_type)) {
+		// The expr type has to be a pointer
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot)
+		compiler->compunit->error.got_type = expr_type;
+		compiler->compunit->error.expected_type = type_id_pointer_from(UNIT_TYPE);
+		compiler->compunit->error.span = nodes[0]->span;
+		return UNIT_TYPE;
+	}
+	TypeID struct_type = type_id_deref_pointer(expr_type);
+	if (!type_id_is_user_defined(struct_type)) {
+		// The pointed type HAS to be a struct.
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
+		compiler->compunit->error.span = nodes[0]->span;
+		compiler->compunit->error.got_type = expr_type;
+		compiler->compunit->error.expected_type = UNIT_TYPE;
+		return UNIT_TYPE;
+	}
+	// Generate the pointer offset
+	uint32_t *field_offset_to_fix = compiler_bytecode_push_u32(compiler, 0);
+	compiler_push_opcode(compiler, OpCode_AddU32);			
+
+	const Token *field_token = compiler->compunit->tokens + nodes[1]->atom_token_index;
+	const bool is_an_identifier = ast_is_atom(nodes[1]) && field_token->kind == TokenKind_Identifier;
+	if (!is_an_identifier) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedIdentifier);
+		compiler->compunit->error.span = nodes[1]->span;
+		return UNIT_TYPE;
+	}
+	sv field_identifier_str = sv_substr(compiler->compunit->input, field_token->span);
+
+	// -- Find field offset
+	if (struct_type.user_defined.index >= compiler->module.types_length) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		return UNIT_TYPE;
+	}
+	UserDefinedType *type = compiler->module.types + struct_type.user_defined.index;
+	for (uint32_t i_field = 0; i_field < type->field_count; ++i_field) {
+		if (sv_equals(type->field_names[i_field], field_identifier_str)) {
+			*field_offset_to_fix = type->field_offsets[i_field];
+			TypeID result = compiler_load_pointer(compiler, type->field_types[i_field]);
+			compiler_bytecode_debug_label(compiler, SV("L"));
+			return result;
+		}
+	}
+
+	// The field was not found in the struct.
+	INIT_ERROR(&compiler->compunit->error, ErrorCode_UnknownSymbol);
+	compiler->compunit->error.span = field_token->span;
+	return UNIT_TYPE;
 }
  
 static TypeID compile_field_offset(Compiler *compiler, const AstNode *node)
@@ -1331,6 +1599,10 @@ static TypeID compile_stack_alloc(Compiler *compiler, const AstNode *node)
 	TypeID type_of_pointed_memory = parse_type(compiler->compunit, &compiler->module, nodes[0]);
 
 	/*TypeID size_type =*/compile_expr(compiler, nodes[1]);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+
 
 	// TODO: We need to bound check the alloc, <size> > sizeof(<type>
 	// TODO: Implement
@@ -1355,6 +1627,9 @@ static TypeID compile_ptr_offset(Compiler *compiler, const AstNode *node)
 	}
 
 	TypeID base_pointer_type = compile_expr(compiler, nodes.base_pointer_node);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
 	if (!type_id_is_pointer(base_pointer_type)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot)
 		compiler->compunit->error.got_type = return_type;
@@ -1364,6 +1639,9 @@ static TypeID compile_ptr_offset(Compiler *compiler, const AstNode *node)
 
 	// Check that the provided offset is an int
 	TypeID offset_type = compile_expr(compiler, nodes.offset_node);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
 	TypeID expected_offset_type = type_id_new_unsigned(NumberWidth_32);
 	if (!type_similar(offset_type, expected_offset_type)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
@@ -1405,7 +1683,9 @@ const CompilerBuiltin compiler_expr_builtins[] = {
 	compile_begin,
 	compile_iadd,
 	compile_isub,
+	compile_imul,
 	compile_ltethan,
+	compile_lthan,
 	compile_gtethan,
 	compile_eq,
 	compile_and,
@@ -1414,6 +1694,9 @@ const CompilerBuiltin compiler_expr_builtins[] = {
 	compile_sizeof,
 	compile_data,
 	compile_len,
+	compile_field,
+	compile_store_field,
+	compile_load_field,
 	compile_field_offset,
 	compile_stack_alloc,
 	compile_ptr_offset,
@@ -1427,7 +1710,9 @@ const sv compiler_expr_builtins_str[] = {
 	SV_LIT("begin"),
 	SV_LIT("+"),
 	SV_LIT("-"),
+	SV_LIT("*"),
 	SV_LIT("<="),
+	SV_LIT("<"),
 	SV_LIT(">="),
 	SV_LIT("="),
 	SV_LIT("and"),
@@ -1436,6 +1721,9 @@ const sv compiler_expr_builtins_str[] = {
 	SV_LIT("_sizeof"),
 	SV_LIT("_data"),
 	SV_LIT("_len"),
+	SV_LIT("_field"),
+	SV_LIT("_store_field"),
+	SV_LIT("_load_field"),
 	SV_LIT("_field_offset"),
 	SV_LIT("_stack_alloc"),
 	SV_LIT("_ptr_offset"),

@@ -62,11 +62,18 @@ typedef struct RenderRect
 	float height;
 } RenderRect;
 
-struct RenderCommands
+typedef struct RenderList
 {
-	uint32_t rects_count;
+	Slice rects;
+	uint32_t rects_length;
+} RenderList;
+
+struct OdeHeap
+{
+	RenderList render_list;
 	RenderRect rects[128];
 };
+static struct OdeHeap ode_heap;
 
 static bool get_module_path(char *out_path, uint32_t *out_path_length, sv src_dir, sv module_name)
 {
@@ -100,12 +107,24 @@ static bool get_module_path(char *out_path, uint32_t *out_path_length, sv src_di
 	return true;
 }
 
-static void dummy_foreign_func(ExecutionContext *ctx, Value *stack, uint32_t arg_count)
+static void foreign_get_render_list(ExecutionContext *ctx, Value *stack, uint32_t arg_count, uint32_t *sp)
+{
+	if (arg_count != 0) {
+		cross_log(cross_stderr, SV("===HOST: get_render_list: expected 0 arguments.\n"));
+	}
+
+	ode_heap.render_list.rects.ptr = make_heap_pointer(ctx, sizeof(RenderList)).ptr;
+	
+	*stack = make_heap_pointer(ctx, 0);
+	*sp = *sp + 1;
+}
+
+static void dummy_foreign_func(ExecutionContext *ctx, Value *stack, uint32_t arg_count, uint32_t *sp)
 {
 	cross_log(cross_stdout, SV("Dummy foreign func.\n"));
 }
 
-static void log_foreign_func(ExecutionContext *ctx, Value *stack, uint32_t arg_count)
+static void log_foreign_func(ExecutionContext *ctx, Value *stack, uint32_t arg_count, uint32_t *sp)
 {
 	if (arg_count != 2) {
 		cross_log(cross_stderr, SV("===HOST: log_foreign_func: expected 2 arguments\n"));
@@ -124,7 +143,7 @@ static void log_foreign_func(ExecutionContext *ctx, Value *stack, uint32_t arg_c
 	}
 }
 
-static void logi_foreign_func(ExecutionContext *ctx, Value *stack, uint32_t arg_count)
+static void logi_foreign_func(ExecutionContext *ctx, Value *stack, uint32_t arg_count, uint32_t *sp)
 {
 	cross_log(cross_stderr, SV("logi foreign func.\n"));
 
@@ -157,6 +176,8 @@ static ForeignFn on_foreign(sv module_name, sv function_name)
 		return log_foreign_func;
 	} else if (sv_equals(function_name, sv_from_null_terminated("logi"))) {
 		return logi_foreign_func;
+	} else if (sv_equals(function_name, sv_from_null_terminated("get-render-list"))) {
+		return foreign_get_render_list;
 	}
 
 	return dummy_foreign_func;
@@ -287,15 +308,10 @@ static void init(void)
 		.allocator.alloc_fn = win32_malloc,
 		.allocator.free_fn = win32_free,
 	});
-	float vertices[] = {
-		// positions		// colors
-		0.0f,  0.5f, 0.5f,     1.0f, 0.0f, 0.0f, 1.0f,
-		0.5f, -0.5f, 0.5f,     0.0f, 1.0f, 0.0f, 1.0f,
-		-0.5f, -0.5f, 0.5f,	0.0f, 0.0f, 1.0f, 1.0f
-	};
 	state.bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc){
-		.data = SG_RANGE(vertices),
-		.label = "triangle-vertices"
+		.usage = SG_USAGE_STREAM,
+		.label = "triangle-vertices",
+		.size = 128 * 6 * 7*sizeof(float),
 	});
 	sg_shader triangle_shader = sg_make_shader(&(sg_shader_desc){
 		.attrs = {
@@ -361,6 +377,7 @@ static void init(void)
 	vm_config.load_module = on_load_module;
 	vm_config.error_callback = on_error;
 	vm_config.foreign_callback = on_foreign;
+	vm_config.heap = &ode_heap;
 	state.vm = vm_create(&state.persistent_arena, vm_config);
 }
 
@@ -403,13 +420,55 @@ static void frame(void)
 		string_builder_append_char(&sb, '\n');			
 		cross_log(cross_stdout, string_builder_get_string(&sb));
 	}
+
+	ode_heap = (struct OdeHeap){0};
+	ode_heap.render_list.rects.length = ARRAY_LENGTH(ode_heap.rects);
+	
 	vm_call(state.vm, state.modules_name_sv[0], sv_from_null_terminated("update"), state.persistent_arena);
 
+	static float offset = 0.0f;
+	offset += 0.001f;
+	float vertices[128*6*7] = {0};
+	uint32_t i_vert_attr = 0;
+	uint32_t vert_count = 0;
+	for (uint32_t i_rect = 0; i_rect < ode_heap.render_list.rects_length; ++i_rect)
+	{
+		RenderRect r = ode_heap.rects[i_rect];
+		// 0 1
+		// 2 3
+
+		// 0
+		vertices[i_vert_attr++] = r.x; vertices[i_vert_attr++] = r.y; vertices[i_vert_attr++] = 0.0f;
+		vertices[i_vert_attr++] = 1.0f; vertices[i_vert_attr++] = 0.0f; vertices[i_vert_attr++] = 1.0f; vertices[i_vert_attr++] = 1.0f;
+		// 2
+		vertices[i_vert_attr++] = r.x; vertices[i_vert_attr++] = r.y + r.height; vertices[i_vert_attr++] = 0.0f;
+		vertices[i_vert_attr++] = 1.0f; vertices[i_vert_attr++] = 0.0f; vertices[i_vert_attr++] = 1.0f; vertices[i_vert_attr++] = 1.0f;	
+		// 1
+		vertices[i_vert_attr++] = r.x + r.width; vertices[i_vert_attr++] = r.y; vertices[i_vert_attr++] = 0.0f;
+		vertices[i_vert_attr++] = 1.0f; vertices[i_vert_attr++] = 0.0f; vertices[i_vert_attr++] = 1.0f; vertices[i_vert_attr++] = 1.0f;
+
+		// 2
+		vertices[i_vert_attr++] = r.x; vertices[i_vert_attr++] = r.y + r.height; vertices[i_vert_attr++] = 0.0f;
+		vertices[i_vert_attr++] = 1.0f; vertices[i_vert_attr++] = 0.0f; vertices[i_vert_attr++] = 0.0f; vertices[i_vert_attr++] = 1.0f;
+		// 3
+		vertices[i_vert_attr++] = r.x + r.width; vertices[i_vert_attr++] = r.y + r.height; vertices[i_vert_attr++] = 0.0f;
+		vertices[i_vert_attr++] = 1.0f; vertices[i_vert_attr++] = 0.0f; vertices[i_vert_attr++] = 0.0f; vertices[i_vert_attr++] = 1.0f;	
+		// 1
+		vertices[i_vert_attr++] = r.x + r.width; vertices[i_vert_attr++] = r.y; vertices[i_vert_attr++] = 0.0f;
+		vertices[i_vert_attr++] = 1.0f; vertices[i_vert_attr++] = 0.0f; vertices[i_vert_attr++] = 0.0f; vertices[i_vert_attr++] = 1.0f;
+
+		vert_count += 6;
+	}
+	sg_range new_vertices = SG_RANGE(vertices);
+	new_vertices.size = i_vert_attr * sizeof(float);
+	sg_update_buffer(state.bind.vertex_buffers[0], &new_vertices);
+
+	
 	// Render frame
 	sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
 	sg_apply_pipeline(state.pip);
 	sg_apply_bindings(&state.bind);
-	sg_draw(0, 3, 1);
+	sg_draw(0, vert_count, 1);
 	sg_end_pass();
 	sg_commit();
 }

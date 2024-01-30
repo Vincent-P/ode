@@ -118,7 +118,7 @@ void lexer_scan(CompilationUnit *compunit)
 					token_length += 1;
 					next_char = input.chars[input_offset + token_length];
 				}
-				parsed_float = parsed_float + ((float)parsed_decimals / divisor);
+				parsed_float = parsed_float + ((float)parsed_decimals * divisor);
 
 				// Add the number literal to the compilation unit data
 				if (token_float_number_size >= ARRAY_LENGTH(compunit->token_float_numbers)) {
