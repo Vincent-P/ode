@@ -55,7 +55,7 @@ typedef enum FunctionType
 typedef struct Function
 {
 	sv name;
-	uint32_t address; // offset into the compiler bytecode
+	uint32_t address; // offset into the compiler bytecode, OR foreign function index
 	TypeID arg_types[MAX_ARGUMENTS];
 	uint32_t arg_count;
 	TypeID return_type;
@@ -65,7 +65,7 @@ typedef struct Function
 typedef struct CompilerModule
 {
 	sv name;
-	// functions contained in this module
+	// functions contained in this module (native, global, or foreign)
 	Function functions[16];
 	uint32_t functions_length;
 	// types defined in this module
@@ -78,7 +78,7 @@ typedef struct CompilerModule
 	uint32_t imported_module_indices[8];
 	uint32_t imported_function_indices[8];
 	uint32_t imported_functions_length;
-	// foreign functions
+	// foreign functions, either from this module, or imported from other module
 	sv foreign_functions_module_name[8];
 	sv foreign_functions_name[8];
 	uint32_t foreign_functions_length;

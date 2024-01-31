@@ -27,7 +27,6 @@ static void user_defined_type_build_string(StringBuilder *sb, uint32_t user_defi
 	string_builder_append_char(sb, '>');
 }
 
-
 void type_build_string(StringBuilder *sb, TypeID id)
 {
 	if (id.builtin.is_user_defined)

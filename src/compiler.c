@@ -654,10 +654,21 @@ static TypeID compile_define_foreign(Compiler *compiler, const AstNode *node)
 		return UNIT_TYPE;
 	}
 
+	// Add to foreign function list
+	uint32_t foreign_functions_length = current_module->foreign_functions_length;
+	if (foreign_functions_length + 1 >= ARRAY_LENGTH(current_module->foreign_functions_name)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		compiler->compunit->error.span = node->span;
+		return UNIT_TYPE;
+	}
+	current_module->foreign_functions_module_name[foreign_functions_length] = current_module->name;
+	current_module->foreign_functions_name[foreign_functions_length] = function_name_token_str;
+	current_module->foreign_functions_length += 1;
+
 	// Create a new function symbol
 	Function *function = current_module->functions + current_module->functions_length;
 	function->name = function_name_token_str;
-	function->address = current_module->bytecode_length;
+	function->address = foreign_functions_length;
 	function->type = FunctionType_Foreign;
 	// parse return type
 	TypeID return_type = parse_type(compiler->compunit, &compiler->module, nodes.return_type_node);
@@ -672,17 +683,6 @@ static TypeID compile_define_foreign(Compiler *compiler, const AstNode *node)
 		function->arg_count += 1;
 	}
 	current_module->functions_length += 1;
-
-	// Add to foreign function list
-	uint32_t foreign_functions_length = current_module->foreign_functions_length;
-	if (foreign_functions_length + 1 >= ARRAY_LENGTH(current_module->foreign_functions_name)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
-		compiler->compunit->error.span = node->span;
-		return UNIT_TYPE;
-	}
-	current_module->foreign_functions_module_name[foreign_functions_length] = current_module->name;
-	current_module->foreign_functions_name[foreign_functions_length] = function->name;
-	current_module->foreign_functions_length += 1;
 	
 	return return_type;
 }
@@ -1481,8 +1481,6 @@ static TypeID compile_load_field(Compiler *compiler, const AstNode *node)
 	}
 
 	// -- Typecheck
-	compiler_bytecode_debug_label(compiler, SV("l"));
-
 	TypeID expr_type = compile_expr(compiler, nodes[0]);
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
@@ -1527,7 +1525,6 @@ static TypeID compile_load_field(Compiler *compiler, const AstNode *node)
 		if (sv_equals(type->field_names[i_field], field_identifier_str)) {
 			*field_offset_to_fix = type->field_offsets[i_field];
 			TypeID result = compiler_load_pointer(compiler, type->field_types[i_field]);
-			compiler_bytecode_debug_label(compiler, SV("L"));
 			return result;
 		}
 	}
@@ -1805,7 +1802,7 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 
 	// -- The found function signature matched
 	if (found_function->type == FunctionType_Foreign) {
-		uint32_t i_foreign_function = i_found_function;
+		uint32_t i_foreign_function = 0;
 		if (is_external) {
 			CompilerModule *external_module = compiler->vm->compiler_modules + i_found_module;
 			
@@ -1818,7 +1815,6 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 				if (sv_equals(current_module->foreign_functions_name[f],
 					      found_function->name))
 				{
-					i_foreign_function = f;
 					break;
 				}
 			}
@@ -1828,12 +1824,15 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 				if (current_module->foreign_functions_length >= ARRAY_LENGTH(current_module->foreign_functions_name)) {
 					__debugbreak();
 				}
-				uint32_t new_f = current_module->foreign_functions_length;
-				current_module->foreign_functions_module_name[new_f] = external_module->name;
-				current_module->foreign_functions_name[new_f] = found_function->name;
+				f = current_module->foreign_functions_length;
+				current_module->foreign_functions_module_name[f] = external_module->name;
+				current_module->foreign_functions_name[f] = found_function->name;
 				current_module->foreign_functions_length += 1;
-				i_foreign_function = new_f;
 			}
+			i_foreign_function = f;
+		}
+		else {
+			i_foreign_function = found_function->address;
 		}
 		compiler_bytecode_call_foreign(compiler, (uint8_t)i_foreign_function, (uint8_t)(found_function->arg_count));
 	}
@@ -1904,6 +1903,9 @@ void compile_module(Compiler *compiler)
 		if (i_builtin >= ARRAY_LENGTH(compiler_top_builtins)) {
 			INIT_ERROR(&compiler->compunit->error, ErrorCode_UnknownSymbol);
 			compiler->compunit->error.span = first_sexpr_member->span;
+		}
+		if (compiler->compunit->error.code != ErrorCode_Ok) {
+			break;
 		}
 
 		// Go to the next root expression

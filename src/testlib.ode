@@ -10,5 +10,4 @@
 (define-foreign (log ()) (chars (* u8) len u32))
 (define-foreign (logi ()) (n i32))
 
-(define-foreign (get-render-list (* RenderList)) ())
 
