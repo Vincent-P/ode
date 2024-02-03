@@ -11,3 +11,15 @@
 (define-foreign (logi ()) (n i32))
 
 
+(struct Rect
+	(x f32)
+	(y f32)
+	(width f32)
+	(height f32))
+
+(struct RenderList
+	(rects ([] Rect))
+	(rects-count u32))
+
+(define-foreign (get-render-list (* RenderList)) ())
+

@@ -471,6 +471,8 @@ static void frame(void)
 	sg_draw(0, vert_count, 1);
 	sg_end_pass();
 	sg_commit();
+
+	sapp_quit();
 }
 
 static void cleanup(void)
