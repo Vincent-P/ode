@@ -1,19 +1,5 @@
 #pragma once
-#define _CRT_SECURE_NO_WARNINGS
-#include <stdint.h>
-
 #define ARRAY_LENGTH(x) sizeof(x) / sizeof(x[0])
-
-// CRT stub
-void *memset(void *dest, int c, size_t count);
-void *memcpy(void *dest, const void *src, size_t count);
-typedef _Bool bool;
-enum Core_Constants
-{
-	false = 0,
-	true = 1,
-};
-#define nullptr (void*)0
 
 // Text span
 struct span

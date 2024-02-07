@@ -1,20 +1,19 @@
+// Compatibility crap
+#include <stdint.h>
 #define NULL 0
-#define wchar_t unsigned short
+#define wchar_t uint16_t
+// CRT stub
+void *memset(void *dest, int c, size_t count);
+void *memcpy(void *dest, const void *src, size_t count);
+typedef _Bool bool;
+enum Core_Constants
+{
+	false = 0,
+	true = 1,
+};
 
-#if defined(UNITY_BUILD)
-#include "debug.c"
-#include "type_id.c"
-#include "lexer.c"
-#include "parser.c"
-#include "compiler.c"
-#include "vm.c"
-#include "executor.c"
-#include "cross.c"
-#endif
 
-static void *win32_malloc(size_t s, void* user_data) { return HeapAlloc(GetProcessHeap(), 0, s); }
-static void win32_free(void* p, void* user_data) { HeapFree(GetProcessHeap(), 0, p); }
-
+// SOKOL crap
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wsign-conversion"
 #pragma clang diagnostic ignored "-Wunused-but-set-variable"
@@ -28,12 +27,26 @@ static void win32_free(void* p, void* user_data) { HeapFree(GetProcessHeap(), 0,
 #include "sokol_glue.h"
 #pragma clang diagnostic pop
 
+// 
+#if defined(UNITY_BUILD)
+#include "debug.c"
+#include "type_id.c"
+#include "lexer.c"
+#include "parser.c"
+#include "compiler.c"
+#include "vm.c"
+#include "executor.c"
+#include "cross.c"
+#endif
+
 #include "cross.h"
 #include "arena.h"
 #include "vm.h"
 
-typedef char NameBuffer[64];
+static void *win32_malloc(size_t s, void* user_data) { return HeapAlloc(GetProcessHeap(), 0, s); }
+static void win32_free(void* p, void* user_data) { HeapFree(GetProcessHeap(), 0, p); }
 
+typedef char NameBuffer[64];
 static struct {
 	Arena persistent_arena;
 	// rendering
@@ -240,7 +253,7 @@ static void on_error(VM *vm, Error err)
 {
 	char buf[96] = {0};
 	StringBuilder sb = string_builder_from_buffer(buf, sizeof(buf));
-	if (err.file.chars != nullptr) {
+	if (err.file.chars != NULL) {
 		// <file>:<line>:0: error: 
 		string_builder_append_sv(&sb, err.file);
 		string_builder_append_char(&sb, ':');

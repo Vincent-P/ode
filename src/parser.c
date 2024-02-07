@@ -192,11 +192,11 @@ void parse_module(Parser *parser)
 	uint32_t root_node_index = parser_push_ast_node_sexpr(parser, INVALID_NODE_INDEX);
 	AstNode *root_node = parser->compunit->nodes + root_node_index;
 
-	AstNode *current_child = nullptr;
+	AstNode *current_child = NULL;
 	while (parser->i_current_token < parser->compunit->tokens_length) {
 		uint32_t expr_node_index = parse_s_expression(parser);
 		root_node->child_count += 1;
-		if (current_child == nullptr) {
+		if (current_child == NULL) {
 			root_node->left_child_index = expr_node_index;
 		} else {
 			current_child->right_sibling_index = expr_node_index;

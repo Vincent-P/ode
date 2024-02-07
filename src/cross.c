@@ -25,14 +25,14 @@ uint64_t cross_get_file_last_write(const char *path, size_t path_length)
 	MultiByteToWideChar(CP_UTF8, MB_PRECOMPOSED, path, (int)path_length, &wide_path[0], 256);
 
 	HANDLE file =
-		CreateFileW(wide_path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		CreateFileW(wide_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 
 	if (file == INVALID_HANDLE_VALUE) {
 		return 0;
 	}
 
 	FILETIME last_write_time = {0};
-	GetFileTime(file, nullptr, nullptr, &last_write_time);
+	GetFileTime(file, NULL, NULL, &last_write_time);
 	CloseHandle(file);
 
 	ULARGE_INTEGER time;
@@ -45,18 +45,18 @@ ReadFileResult cross_read_entire_file(const char* filepath)
 {
 	ReadFileResult result = {0};
 	// Open file
-        HANDLE file = CreateFileA(filepath, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        HANDLE file = CreateFileA(filepath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
         if (file == INVALID_HANDLE_VALUE) {
 		result.success = false;
                 return result;
         }
 	// Get size on disk
-	uint32_t size = GetFileSize(file, nullptr);
+	uint32_t size = GetFileSize(file, NULL);
 	// Allocate memory
         void *file_content = cross_alloc(size + 1);
 	// Read file
 	uint32_t bytes_read = 0;
-	bool success = ReadFile(file, file_content, size, (LPDWORD)&bytes_read, nullptr);
+	bool success = ReadFile(file, file_content, size, (LPDWORD)&bytes_read, NULL);
 	if (!success) {
 		CloseHandle(file);
 		result.success = false;
@@ -72,7 +72,7 @@ ReadFileResult cross_read_entire_file(const char* filepath)
 
 void cross_log(uint64_t handle, sv message)
 {
-	WriteFile((HANDLE)handle, message.chars, message.length, nullptr, nullptr);
+	WriteFile((HANDLE)handle, message.chars, message.length, NULL, NULL);
 	if (message.length > 0) {
 		// Make sure that we have a NULL terminator because OutputDebugString does not take a length
 		char *chars = (char*)message.chars;

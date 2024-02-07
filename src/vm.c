@@ -367,7 +367,7 @@ static LoadModuleResult load_compiler_module(VM *vm, uint32_t i_compiler_module)
 		sv foreign_module_name = compiler_module->foreign_functions_module_name[f];
 		sv foreign_function_name = compiler_module->foreign_functions_name[f];
 		ForeignFn callback = vm->config.foreign_callback(foreign_module_name, foreign_function_name);
-		if (callback == nullptr) {
+		if (callback == NULL) {
 			__debugbreak();
 		}
 		runtime_module->foreign_function_module_names[f] = foreign_module_name;
@@ -467,5 +467,5 @@ void vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 	exec->modules = vm->runtime_modules;
 	exec->modules_len = vm->runtime_modules_length;
 	exec->heap = vm->config.heap;
-	call_function(exec, i_runtime_module, entrypoint_address, nullptr, 0);
+	call_function(exec, i_runtime_module, entrypoint_address, NULL, 0);
 }

@@ -26,7 +26,7 @@ static uint8_t *compiler_push_u8(Compiler *compiler, uint8_t value)
 	uint32_t to_write = sizeof(uint8_t);
 	if (current_module->bytecode_length + to_write >= ARRAY_LENGTH(current_module->bytecode)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
-		return nullptr;
+		return NULL;
 	}
 
 	uint8_t *bytecode = (uint8_t *)(current_module->bytecode + current_module->bytecode_length);
@@ -41,7 +41,7 @@ static uint32_t *compiler_push_u32(Compiler *compiler, uint32_t value)
 	uint32_t to_write = sizeof(uint32_t);
 	if (current_module->bytecode_length + to_write >= ARRAY_LENGTH(current_module->bytecode)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
-		return nullptr;
+		return NULL;
 	}
 
 	uint32_t *bytecode = (uint32_t *)(current_module->bytecode + current_module->bytecode_length);
@@ -78,7 +78,7 @@ static int32_t *compiler_push_i32(Compiler *compiler, int32_t value)
 	uint32_t to_write = sizeof(int32_t);
 	if (current_module->bytecode_length + to_write >= ARRAY_LENGTH(current_module->bytecode)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
-		return nullptr;
+		return NULL;
 	}
 
 	int32_t *bytecode = (int32_t *)(current_module->bytecode + current_module->bytecode_length);
@@ -113,7 +113,7 @@ static float *compiler_push_f32(Compiler *compiler, float value)
 	uint32_t to_write = sizeof(float);
 	if (current_module->bytecode_length + to_write >= ARRAY_LENGTH(current_module->bytecode)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
-		return nullptr;
+		return NULL;
 	}
 
 	float *bytecode = (float *)(current_module->bytecode + current_module->bytecode_length);
@@ -1753,7 +1753,7 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 		compiler->compunit->error.span = identifier->span;
 		return UNIT_TYPE;
 	}
-	Function *found_function = nullptr;
+	Function *found_function = NULL;
 	if (is_external) {
 		found_function = compiler->vm->compiler_modules[i_found_module].functions + i_found_function;
 	} else {
