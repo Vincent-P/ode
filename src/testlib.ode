@@ -23,3 +23,24 @@
 
 (define-foreign (get-render-list (* RenderList)) ())
 
+(define (push-rect ()) (rl (* RenderList) x f32 y f32 w f32 h f32)
+	(let rects (_load_field rl rects))
+	(let rects-count (_load_field rl rects-count))
+	(if (< (+ rects-count 1) (_len rects))
+		(begin
+			(let new-rect (_ptr_offset (* Rect) (_data rects) (* rects-count (_sizeof Rect))))
+			(_store_field new-rect x x)
+			(_store_field new-rect y y)
+			(_store_field new-rect width w)
+			(_store_field new-rect height h)
+			())
+		())
+	(_store_field rl rects-count (+ rects-count 1)))
+
+(define-global (render ()) ()
+	(let rl (get-render-list))
+	(push-rect rl 0.0 0.0 0.25 0.25)
+	(push-rect rl 0.0 0.2 0.33 0.25)
+	(push-rect rl 0.0 0.6 0.25 0.25)
+	(push-rect rl 0.0 0.6 0.25 0.25)
+	(push-rect rl 0.0 0.1 0.5 0.15))
