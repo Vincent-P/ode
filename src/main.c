@@ -15,6 +15,9 @@
 static void *win32_malloc(size_t s, void* user_data) { return HeapAlloc(GetProcessHeap(), 0, s); }
 static void win32_free(void* p, void* user_data) { HeapFree(GetProcessHeap(), 0, p); }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wsign-conversion"
+#pragma clang diagnostic ignored "-Wunused-but-set-variable"
 #define SOKOL_IMPL
 #define SOKOL_ASSERT(x)
 #define SOKOL_D3D11
@@ -23,6 +26,7 @@ static void win32_free(void* p, void* user_data) { HeapFree(GetProcessHeap(), 0,
 #include "sokol_app.h"
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
+#pragma clang diagnostic pop
 
 #include "cross.h"
 #include "arena.h"
@@ -373,7 +377,7 @@ static void init(void)
 	vm_config.load_module = on_load_module;
 	vm_config.error_callback = on_error;
 	vm_config.foreign_callback = on_foreign;
-	vm_config.heap = &ode_heap;
+	vm_config.heap = (uint8_t*)&ode_heap;
 	state.vm = vm_create(&state.persistent_arena, vm_config);
 }
 
@@ -422,11 +426,9 @@ static void frame(void)
 	
 	vm_call(state.vm, state.modules_name_sv[0], sv_from_null_terminated("update"), state.persistent_arena);
 
-	static float offset = 0.0f;
-	offset += 0.001f;
 	float vertices[128*6*7] = {0};
 	uint32_t i_vert_attr = 0;
-	uint32_t vert_count = 0;
+	int32_t vert_count = 0;
 	for (uint32_t i_rect = 0; i_rect < ode_heap.render_list.rects_length; ++i_rect)
 	{
 		RenderRect r = ode_heap.rects[i_rect];
