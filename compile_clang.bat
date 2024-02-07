@@ -16,3 +16,15 @@ clang.exe src/main.c -o build/%1.exe ^
 	  -DUNITY_BUILD ^
 	  %ALL_BUT_FIRST% ^
 	  -fuse-ld=lld -Xlinker /SUBSYSTEM:windows -lkernel32 -Xlinker /STACK:0x100000,0x100000 
+
+clang.exe src/cli.c -o build/%1-cli.exe ^
+	  -Os -g -std=c11 ^
+	  -isystem "C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\um" ^
+	  -isystem "C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\shared" ^
+	  -isystem "src/stub" ^
+	  -nostdlib ^
+	  -mno-stack-arg-probe ^
+	  -Wall -Wextra -Wpedantic -Wconversion -Wmissing-prototypes -Wimplicit-fallthrough -Wno-c2x-extensions -Wno-unused-parameter ^
+	  -DUNITY_BUILD ^
+	  %ALL_BUT_FIRST% ^
+	  -fuse-ld=lld -Xlinker /SUBSYSTEM:windows -lkernel32 -Xlinker /STACK:0x100000,0x100000  -Xlinker /ltcg

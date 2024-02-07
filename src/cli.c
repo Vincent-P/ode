@@ -12,22 +12,10 @@ enum Core_Constants
 	true = 1,
 };
 
-
-// SOKOL crap
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wsign-conversion"
-#pragma clang diagnostic ignored "-Wunused-but-set-variable"
 #define SOKOL_IMPL
 #define SOKOL_ASSERT(c) do { if (!(c)) __debugbreak(); } while(0)
-#define SOKOL_D3D11
-#define SOKOL_NO_ENTRY
 #include "sokol_time.h"
-#include "sokol_app.h"
-#include "sokol_gfx.h"
-#include "sokol_glue.h"
-#pragma clang diagnostic pop
 
-// 
 #if defined(UNITY_BUILD)
 #include "debug.c"
 #include "type_id.c"
@@ -43,16 +31,9 @@ enum Core_Constants
 #include "arena.h"
 #include "vm.h"
 
-static void *win32_malloc(size_t s, void* user_data) { return HeapAlloc(GetProcessHeap(), 0, s); }
-static void win32_free(void* p, void* user_data) { HeapFree(GetProcessHeap(), 0, p); }
-
 typedef char NameBuffer[64];
 static struct {
 	Arena persistent_arena;
-	// rendering
-	sg_pipeline pip;
-	sg_bindings bind;
-	sg_pass_action pass_action;
 	// options
 	bool watch_opt;
 	sv src_dir_arg;
@@ -270,100 +251,11 @@ static void on_error(VM *vm, Error err)
 	cross_log(cross_stderr, string_builder_get_string(&sb));
 }
 
-static void sokol_logger (
-			  const char* tag,		  // always "sapp"
-			  uint32_t log_level,		  // 0=panic, 1=error, 2=warning, 3=info
-			  uint32_t log_item_id,		  // SAPP_LOGITEM_*
-			  const char* message_or_null,	  // a message string, may be nullptr in release mode
-			  uint32_t line_nr,		  // line number in sokol_app.h
-			  const char* filename_or_null,	  // source filename, may be nullptr in release mode
-			  void* user_data)
-{
-	char buf[256] = {0};
-	StringBuilder sb = string_builder_from_buffer(buf, sizeof(buf));
-
-	if (filename_or_null) {
-		string_builder_append_sv(&sb, sv_from_null_terminated(filename_or_null));
-	}
-	string_builder_append_char(&sb, ':');
-	string_builder_append_u64(&sb, (uint64_t)line_nr);
-	string_builder_append_char(&sb, ':');
-	string_builder_append_char(&sb, ' ');
-	if (log_level == 0) {
-		string_builder_append_sv(&sb, SV("panic"));
-	} else if (log_level == 1) {
-		string_builder_append_sv(&sb, SV("error"));
-	} else if (log_level == 2) {
-		string_builder_append_sv(&sb, SV("warning"));
-	} else if (log_level == 3) {
-		string_builder_append_sv(&sb, SV("info"));
-	}
-	string_builder_append_sv(&sb, SV(": "));
-	if (message_or_null) {
-		string_builder_append_sv(&sb, sv_from_null_terminated(message_or_null));
-	}
-	string_builder_append_char(&sb, '\n');
-	cross_log(cross_stderr, string_builder_get_string(&sb));
-
-	if (log_level <= 1) {
-		__debugbreak();
-	}
-}
 
 static void init(void)
 {
 	// Init sokol_timer
 	stm_setup();
-	// Init sokol_gfx
-	sg_setup(&(sg_desc){
-		.context = sapp_sgcontext(),
-		.logger.func = sokol_logger,
-		.allocator.alloc_fn = win32_malloc,
-		.allocator.free_fn = win32_free,
-	});
-	state.bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc){
-		.usage = SG_USAGE_STREAM,
-		.label = "triangle-vertices",
-		.size = 128 * 6 * 7*sizeof(float),
-	});
-	sg_shader triangle_shader = sg_make_shader(&(sg_shader_desc){
-		.attrs = {
-			[0].sem_name = "POS",
-			[1].sem_name = "COLOR"
-		},
-		.vs.source =
-	    "struct vs_in {\n"
-	    "  float4 pos: POS;\n"
-	    "  float4 color: COLOR;\n"
-	    "};\n"
-	    "struct vs_out {\n"
-	    "  float4 color: COLOR0;\n"
-	    "  float4 pos: SV_Position;\n"
-	    "};\n"
-	    "vs_out main(vs_in inp) {\n"
-	    "  vs_out outp;\n"
-	    "  outp.pos = inp.pos;\n"
-	    "  outp.color = inp.color;\n"
-	    "  return outp;\n"
-	    "}\n",
-		.fs.source =
-	    "float4 main(float4 color: COLOR0): SV_Target0 {\n"
-	    "  return color;\n"
-	    "}\n"
-	});	
-	state.pip = sg_make_pipeline(&(sg_pipeline_desc){
-		.shader = triangle_shader,
-		.layout = {
-			.attrs = {
-				[0].format = SG_VERTEXFORMAT_FLOAT3,
-				[1].format = SG_VERTEXFORMAT_FLOAT4
-			}
-		},
-		.label = "triangle-pipeline"
-	});
-	state.pass_action = (sg_pass_action) {
-		.colors[0] = { .load_action=SG_LOADACTION_CLEAR, .clear_value={0.0f, 0.0f, 0.0f, 1.0f } }
-	};
 
 	// Init ode
 	uint32_t persistent_memory_size = 1 << 20;
@@ -397,7 +289,7 @@ static void init(void)
 static void frame(void)
 {
 	// Update ode VM
-	bool any_module_changed = false;
+	bool any_module_changed = true;
 	for (uint32_t i_module = 0; i_module < state.modules_len; ++i_module) {
 		const uint64_t last_write = cross_get_file_last_write(state.modules_path_sv[i_module].chars, state.modules_path_sv[i_module].length);
 		if (last_write != state.modules_file_last_write[i_module]) {
@@ -433,63 +325,9 @@ static void frame(void)
 		string_builder_append_char(&sb, '\n');			
 		cross_log(cross_stdout, string_builder_get_string(&sb));
 	}
-
-	ode_heap = (struct OdeHeap){0};
-	ode_heap.render_list.rects.length = ARRAY_LENGTH(ode_heap.rects);
-	
-	vm_call(state.vm, state.modules_name_sv[0], sv_from_null_terminated("update"), state.persistent_arena);
-
-	float vertices[128*6*7] = {0};
-	uint32_t i_vert_attr = 0;
-	int32_t vert_count = 0;
-	for (uint32_t i_rect = 0; i_rect < ode_heap.render_list.rects_length; ++i_rect)
-	{
-		RenderRect r = ode_heap.rects[i_rect];
-		// 0 1
-		// 2 3
-
-		// 0
-		vertices[i_vert_attr++] = r.x; vertices[i_vert_attr++] = r.y; vertices[i_vert_attr++] = 0.0f;
-		vertices[i_vert_attr++] = 1.0f; vertices[i_vert_attr++] = 0.0f; vertices[i_vert_attr++] = 1.0f; vertices[i_vert_attr++] = 1.0f;
-		// 2
-		vertices[i_vert_attr++] = r.x; vertices[i_vert_attr++] = r.y + r.height; vertices[i_vert_attr++] = 0.0f;
-		vertices[i_vert_attr++] = 1.0f; vertices[i_vert_attr++] = 0.0f; vertices[i_vert_attr++] = 1.0f; vertices[i_vert_attr++] = 1.0f;	
-		// 1
-		vertices[i_vert_attr++] = r.x + r.width; vertices[i_vert_attr++] = r.y; vertices[i_vert_attr++] = 0.0f;
-		vertices[i_vert_attr++] = 1.0f; vertices[i_vert_attr++] = 0.0f; vertices[i_vert_attr++] = 1.0f; vertices[i_vert_attr++] = 1.0f;
-
-		// 2
-		vertices[i_vert_attr++] = r.x; vertices[i_vert_attr++] = r.y + r.height; vertices[i_vert_attr++] = 0.0f;
-		vertices[i_vert_attr++] = 1.0f; vertices[i_vert_attr++] = 0.0f; vertices[i_vert_attr++] = 0.0f; vertices[i_vert_attr++] = 1.0f;
-		// 3
-		vertices[i_vert_attr++] = r.x + r.width; vertices[i_vert_attr++] = r.y + r.height; vertices[i_vert_attr++] = 0.0f;
-		vertices[i_vert_attr++] = 1.0f; vertices[i_vert_attr++] = 0.0f; vertices[i_vert_attr++] = 0.0f; vertices[i_vert_attr++] = 1.0f;	
-		// 1
-		vertices[i_vert_attr++] = r.x + r.width; vertices[i_vert_attr++] = r.y; vertices[i_vert_attr++] = 0.0f;
-		vertices[i_vert_attr++] = 1.0f; vertices[i_vert_attr++] = 0.0f; vertices[i_vert_attr++] = 0.0f; vertices[i_vert_attr++] = 1.0f;
-
-		vert_count += 6;
-	}
-	sg_range new_vertices = SG_RANGE(vertices);
-	new_vertices.size = i_vert_attr * sizeof(float);
-	sg_update_buffer(state.bind.vertex_buffers[0], &new_vertices);
-
-	
-	// Render frame
-	sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
-	sg_apply_pipeline(state.pip);
-	sg_apply_bindings(&state.bind);
-	sg_draw(0, vert_count, 1);
-	sg_end_pass();
-	sg_commit();
-
-	// sapp_quit();
 }
 
-static void cleanup(void)
-{
-	sg_shutdown();
-}
+static void cleanup(void) {}
 
 // CRT
 
@@ -527,31 +365,15 @@ void *memmove(void *dest, const void *src, size_t count)
 
 int _fltused;
 
-
 int WinMainCRTStartup(void);
-int __DllMainCRTStartup(HANDLE hinstDLL, DWORD dwReason, LPVOID lpvReserved);
-
 int WinMainCRTStartup(void)
 {
 	cross_init();
-
-	// Paths
 	state.src_dir_arg = SV("src");
 	state.main_module_arg = SV("test");
-	sapp_desc desc =  (sapp_desc){
-		.init_cb = init,
-		.frame_cb = frame,
-		.cleanup_cb = cleanup,
-		.event_cb = NULL,
-		.width = 640,
-		.height = 480,
-		.window_title = "Ode demo",
-		.icon.sokol_default = true,
-		.logger.func = sokol_logger,
-		.allocator.alloc_fn = win32_malloc,
-		.allocator.free_fn = win32_free,
-	};
-	sapp_run(&desc);
+	init();
+	frame();
+	cleanup();
 	ExitProcess(0);
 	return 0;
 }
