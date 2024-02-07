@@ -1,4 +1,5 @@
 #define NULL 0
+#define wchar_t unsigned short
 
 #if defined(UNITY_BUILD)
 #include "debug.c"
@@ -11,11 +12,6 @@
 #include "cross.c"
 #endif
 
-// CRT stub for sokol...
-static void abort(void) {}
-size_t wcslen(const wchar_t *s) { size_t len = 0; while(*s++) len++; return len; }
-size_t strlen(const char *s) { size_t len = 0; while(*s++) len++; return len; }
-static float roundf(float f) { return f; }
 static void *win32_malloc(size_t s, void* user_data) { return HeapAlloc(GetProcessHeap(), 0, s); }
 static void win32_free(void* p, void* user_data) { HeapFree(GetProcessHeap(), 0, p); }
 
@@ -472,7 +468,7 @@ static void frame(void)
 	sg_end_pass();
 	sg_commit();
 
-	sapp_quit();
+	// sapp_quit();
 }
 
 static void cleanup(void)
@@ -541,7 +537,6 @@ int WinMainCRTStartup(void)
 		.allocator.free_fn = win32_free,
 	};
 	sapp_run(&desc);
-
 	ExitProcess(0);
 	return 0;
 }

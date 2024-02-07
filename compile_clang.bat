@@ -7,7 +7,10 @@ for /f "tokens=1,* delims= " %%a in ("%*") do set ALL_BUT_FIRST=%%b
 :: -fno-stack-check, -fno-stack-protector, -mno-stack-arg-probe disables stack checks that relies on CRT
 clang.exe src/main.c -o build/%1.exe ^
 	  -O0 -g -std=c11 ^
-	  -nostdlib^
+	  -isystem "C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\um" ^
+	  -isystem "C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\shared" ^
+	  -isystem "src/stub" ^
+	  -nostdlib ^
 	  -mno-stack-arg-probe ^
 	  -Wall -Wextra -Wpedantic -Wconversion -Wmissing-prototypes -Wimplicit-fallthrough -Wno-c2x-extensions -Wno-unused-parameter ^
 	  -DUNITY_BUILD ^
