@@ -7,6 +7,8 @@
 #include "opcodes.h"
 #include "parser.h"
 
+#define VM_LOG 1
+
 VM *vm_create(Arena *arena, VMConfig config)
 {
 	VM *vm = (VM*)arena_alloc(arena, sizeof(VM));
@@ -43,8 +45,9 @@ CompileLoadLinkResult compile_load_link_code(VM *vm, sv module_name, sv code);
 // Parse code, compile module.
 static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 {
+#if VM_LOG > 0
 	char logbuf[128] = {0};
-	
+#endif	
 	CompilationResult result = {0};
 
 	CompilationUnit compunit = {0};
@@ -53,6 +56,7 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 	// -- Lex tokens
 	lexer_scan(&compunit);
 	if (compunit.error.code != ErrorCode_Ok) {
+#if VM_LOG > 0
 		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 		// <file>:<line>:0: error Lexer[] returned <errcode>
 		string_builder_append_sv(&sb, compunit.error.file);
@@ -64,7 +68,7 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 		// Error at: '<errorstr>'
 		build_error_at(code, compunit.error.span, &sb);
 		cross_log(cross_stderr, string_builder_get_string(&sb));
-		
+#endif	
 		result.error = compunit.error;
 		return result;
 	}
@@ -75,8 +79,8 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 	parser.compunit = &compunit;
 	parse_module(&parser);
 	if (compunit.error.code != ErrorCode_Ok) {
+#if VM_LOG > 0
 		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
-
 		// <file>:<line>:0: error Parser[] returned <errcode>
 		string_builder_append_sv(&sb, compunit.error.file);
 		string_builder_append_char(&sb, ':');
@@ -91,14 +95,12 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 		cross_log(cross_stderr, string_builder_get_string(&sb));
 		build_error_at(code, compunit.error.span, &sb);
 		cross_log(cross_stderr, string_builder_get_string(&sb));
-
 		if (compunit.tokens_length > 0) {
 			uint32_t i_last_token =
 				parser.i_current_token < compunit.tokens_length ? parser.i_current_token : compunit.tokens_length - 1;
 			const Token *last_token = compunit.tokens + i_last_token;
 			sv last_token_str = sv_substr(compunit.input, last_token->span);
 			const char *token_kind_str = TokenKind_str[(uint32_t)(last_token->kind)];
-
 			string_builder_append_sv(&sb, SV("# Last seen token is "));
 			string_builder_append_sv(&sb, SV(token_kind_str));
 			string_builder_append_char(&sb, '[');
@@ -112,8 +114,8 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 			string_builder_append_sv(&sb, SV(TokenKind_str[(uint32_t)(parser.expected_token_kind)]));
 			string_builder_append_char(&sb, '\n');
 			cross_log(cross_stderr, string_builder_get_string(&sb));
-
 		}
+#endif
 		result.error = compunit.error;
 		return result;
 	}
@@ -125,9 +127,12 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 	compiler_scan_requires(&compunit, require_paths, 16, &require_paths_length);
 	if (require_paths_length == 16) {
 		INIT_ERROR(&compunit.error, ErrorCode_Fatal);
+#if VM_LOG > 0
 		cross_log(cross_stderr, SV("Too much requires!\n"));
+#endif
 	}
 	if (compunit.error.code != ErrorCode_Ok) {
+#if VM_LOG > 0
 		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 		Error err = compunit.error;
 		string_builder_append_sv(&sb, err.file);
@@ -137,6 +142,7 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 		string_builder_append_sv(&sb, SV(ErrorCode_str[(uint32_t)(err.code)]));
 		string_builder_append_char(&sb, '\n');
 		cross_log(cross_stderr, string_builder_get_string(&sb));
+#endif
 		result.error = compunit.error;
 		return result;
 	}
@@ -171,6 +177,7 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 	compiler.module.imports_length = require_paths_length;
 	compile_module(&compiler);
 	if (compunit.error.code != ErrorCode_Ok) {
+#if VM_LOG > 0
 		Error err = compunit.error;
 		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 		// <file>:<line>:0: error Compiler[] returned <errcode>
@@ -181,26 +188,24 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 		string_builder_append_sv(&sb, SV(ErrorCode_str[(uint32_t)(err.code)]));
 		string_builder_append_char(&sb, '\n');
 		cross_log(cross_stderr, string_builder_get_string(&sb));
-
 		// Error at: <error_str>
 		build_error_at(code, compunit.error.span, &sb);
 		cross_log(cross_stderr, string_builder_get_string(&sb));
-
 		// # expected type <type_str>
 		string_builder_append_sv(&sb, SV("# expected type "));
 		type_build_string(&sb, err.expected_type);
 		string_builder_append_char(&sb, '\n');
 		cross_log(cross_stderr, string_builder_get_string(&sb));
-
 		// # got type <type_str>
 		string_builder_append_sv(&sb, SV("# got type "));
 		type_build_string(&sb, err.got_type);
 		string_builder_append_char(&sb, '\n');
 		cross_log(cross_stderr, string_builder_get_string(&sb));
-		
+#endif
 		result.error = compunit.error;
 		return result;
 	}
+#if VM_LOG > 1
 	cross_log(cross_stderr, SV("\nCompilation success:\n"));
 	for (uint32_t i_import = 0; i_import < compiler.module.imported_functions_length; ++i_import)
 	{
@@ -219,6 +224,7 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 		cross_log(cross_stderr, string_builder_get_string(&sb));
 	}
 	print_bytecode(compiler.module.bytecode, compiler.module.bytecode_length);
+#endif
 
 	// -- Copy the new module to the VM
 	uint32_t i_module = 0;
@@ -229,7 +235,9 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 	}
 	if (i_module >= vm->compiler_modules_length) {
 		if (i_module >= ARRAY_LENGTH(vm->compiler_modules)) {
+#if VM_LOG > 0
 			cross_log(cross_stderr, SV("Fatal: module capacity\n"));
+#endif
 			INIT_ERROR(&compunit.error, ErrorCode_Fatal);
 			result.error = compunit.error;
 			return result;
@@ -398,6 +406,11 @@ CompileLoadLinkResult compile_load_link_code(VM *vm, sv module_name, sv code)
 	}
 	result.i_compiler_module = comp_result.i_compiler_module;
 	result.i_runtime_module = load_result.i_runtime_module;
+
+	if (vm->config.on_module_compiled != NULL) {
+		vm->config.on_module_compiled(module_name);
+	}
+	
 	return result;
 }
 
@@ -409,8 +422,9 @@ Error vm_compile(VM *vm, sv module_name, sv code)
 
 void vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 {	
+#if VM_LOG > 0
 	char *log_buffer = (char*)arena_alloc(&temp_mem, 64);
-	
+#endif
 	// Find the function name in the compiler module
 	const uint32_t modules_len = vm->compiler_modules_length;
 	uint32_t i_module = 0;
@@ -420,11 +434,13 @@ void vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 		}
 	}
 	if (i_module >= modules_len) {
+#if VM_LOG > 0
 		StringBuilder sb = string_builder_from_buffer(log_buffer, 64);
 		string_builder_append_sv(&sb, SV("Compiler module \""));
 		string_builder_append_sv(&sb, module_name);
 		string_builder_append_sv(&sb, SV("\" not found\n"));
 		cross_log(cross_stderr, string_builder_get_string(&sb));
+#endif
 		return;
 	}
 	CompilerModule *module = vm->compiler_modules + i_module;
@@ -438,11 +454,13 @@ void vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 		}
 	}
 	if (i_entrypoint >= functions_len) {
+#if VM_LOG > 0
 		StringBuilder sb = string_builder_from_buffer(log_buffer, 64);
 		string_builder_append_sv(&sb, SV("Function '"));
 		string_builder_append_sv(&sb, function_name);
 		string_builder_append_sv(&sb, SV("' not found\n"));
 		cross_log(cross_stderr, string_builder_get_string(&sb));
+#endif
 		return;
 	}
 
@@ -455,11 +473,13 @@ void vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 		}
 	}
 	if (i_runtime_module >= runtime_modules_len) {
+#if VM_LOG > 0
 		StringBuilder sb = string_builder_from_buffer(log_buffer, 64);
 		string_builder_append_sv(&sb, SV("Runtime module \""));
 		string_builder_append_sv(&sb, module_name);
 		string_builder_append_sv(&sb, SV("\" not found\n"));
 		cross_log(cross_stderr, string_builder_get_string(&sb));
+#endif
 		return;
 	}
 	

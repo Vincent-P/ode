@@ -13,6 +13,7 @@ typedef struct Arena Arena;
 typedef struct VMConfig
 {
 	bool (*load_module)(sv module_name, sv *out_code);
+	void (*on_module_compiled)(sv module_name);
 	void (*error_callback)(VM *, Error);
 	ForeignFn (*foreign_callback)(sv module_name, sv function_name);
 	uint8_t *heap;

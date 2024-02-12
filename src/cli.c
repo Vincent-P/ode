@@ -31,6 +31,8 @@ enum Core_Constants
 #include "arena.h"
 #include "vm.h"
 
+#define CLI_LOG 2
+
 typedef char NameBuffer[64];
 static struct {
 	Arena persistent_arena;
@@ -95,9 +97,10 @@ static bool get_module_path(char *out_path, uint32_t *out_path_length, sv src_di
 	out_path[i++] = 'o';
 	out_path[i++] = 'd';
 	out_path[i++] = 'e';
+	// Don't count the NULL terminator in the length
+	*out_path_length = i;
 	// Terminate with 0
 	out_path[i++] = 0;
-	*out_path_length = i;
 	return true;
 }
 
@@ -108,7 +111,7 @@ static void foreign_get_render_list(ExecutionContext *ctx, Value *stack, uint32_
 	}
 
 	ode_heap.render_list.rects.ptr = make_heap_pointer(ctx, sizeof(RenderList)).ptr;
-	
+
 	*stack = make_heap_pointer(ctx, 0);
 	*sp = *sp + 1;
 }
@@ -127,7 +130,7 @@ static void log_foreign_func(ExecutionContext *ctx, Value *stack, uint32_t arg_c
 		sv message = {0};
 		message.chars = (const char*)deref_pointer(ctx, stack[0].ptr);
 		message.length = stack[1].u32;
-		
+
 		char logbuf[128] = {0};
 		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 		string_builder_append_sv(&sb, SV("=== HOST: log_foreign_func: \""));
@@ -157,7 +160,7 @@ static void logi_foreign_func(ExecutionContext *ctx, Value *stack, uint32_t arg_
 
 static ForeignFn on_foreign(sv module_name, sv function_name)
 {
-	char logbuf[64] = {0};
+	char logbuf[96] = {0};
 	StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 	string_builder_append_sv(&sb, SV("=== HOST: On foreign function: module "));
 	string_builder_append_sv(&sb, module_name);
@@ -177,11 +180,40 @@ static ForeignFn on_foreign(sv module_name, sv function_name)
 	return dummy_foreign_func;
 }
 
-static bool on_load_module(sv module_name, sv *out_code)
+static void on_module_compiled(sv module_name)
 {
+#if CLI_LOG > 0
 	char logbuf[64]	 = {0};
 	StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
-	
+#endif
+	// Search the module by name
+	uint32_t i_module = 0;
+	for (; i_module < state.modules_len; ++i_module) {
+		if (sv_equals(state.modules_name_sv[i_module], module_name)) {
+			break;
+		}
+	}
+	if (i_module >= state.modules_len) {
+#if CLI_LOG > 0
+		string_builder_append_sv(&sb, SV("Cannot find compiled module: "));
+		string_builder_append_sv(&sb, module_name);
+		string_builder_append_char(&sb, '\n');
+		cross_log(cross_stderr, string_builder_get_string(&sb));
+#endif
+		return;
+	}
+	const uint64_t file_last_write = cross_get_file_last_write(
+								   state.modules_path_sv[i_module].chars,
+								   state.modules_path_sv[i_module].length);
+
+	state.modules_file_last_write[i_module] = file_last_write;
+}
+static bool on_load_module(sv module_name, sv *out_code)
+{
+#if CLI_LOG > 0
+	char logbuf[64]	 = {0};
+	StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
+#endif
 	// Open the module file
 	char module_path[64] = {0};
 	uint32_t module_path_length = 64;
@@ -191,17 +223,20 @@ static bool on_load_module(sv module_name, sv *out_code)
 	}
 	ReadFileResult file_content = cross_read_entire_file(module_path);
 	if (!file_content.success) {
+#if CLI_LOG > 0
 		string_builder_append_sv(&sb, SV("Cannot open file "));
 		string_builder_append_sv(&sb, (sv){module_path, module_path_length});
 		string_builder_append_char(&sb, '\n');
 		cross_log(cross_stderr, string_builder_get_string(&sb));
+#endif
 		return false;
 	}
+#if CLI_LOG > 0
 	string_builder_append_sv(&sb, SV("Load module: "));
-	string_builder_append_sv(&sb, (sv){module_path, module_path_length-1});
+	string_builder_append_sv(&sb, (sv){module_path, module_path_length});
 	string_builder_append_char(&sb, '\n');
 	cross_log(cross_stderr, string_builder_get_string(&sb));
-
+#endif
 	*out_code = file_content.content;
 	// Register the module in our modules array
 	uint32_t i_module = 0;
@@ -226,7 +261,6 @@ static bool on_load_module(sv module_name, sv *out_code)
 		// Init time
 		state.modules_file_last_write[i_module] = 0;
 	}
-
 	return true;
 }
 
@@ -235,7 +269,7 @@ static void on_error(VM *vm, Error err)
 	char buf[96] = {0};
 	StringBuilder sb = string_builder_from_buffer(buf, sizeof(buf));
 	if (err.file.chars != NULL) {
-		// <file>:<line>:0: error: 
+		// <file>:<line>:0: error:
 		string_builder_append_sv(&sb, err.file);
 		string_builder_append_char(&sb, ':');
 		string_builder_append_u64(&sb, (uint64_t)(err.line));
@@ -276,10 +310,11 @@ static void init(void)
 	}
 	// Init time
 	state.modules_file_last_write[0] = 0;
- 
+
 	// Create the VM
 	VMConfig vm_config = {0};
 	vm_config.load_module = on_load_module;
+	vm_config.on_module_compiled = on_module_compiled;
 	vm_config.error_callback = on_error;
 	vm_config.foreign_callback = on_foreign;
 	vm_config.heap = (uint8_t*)&ode_heap;
@@ -288,42 +323,64 @@ static void init(void)
 
 static void frame(void)
 {
+#if CLI_LOG > 0
+ 	char buf[128] = {0};
+	StringBuilder sb = string_builder_from_buffer(buf, sizeof(buf));
+#endif
+
 	// Update ode VM
 	bool any_module_changed = true;
 	for (uint32_t i_module = 0; i_module < state.modules_len; ++i_module) {
 		const uint64_t last_write = cross_get_file_last_write(state.modules_path_sv[i_module].chars, state.modules_path_sv[i_module].length);
-		if (last_write != state.modules_file_last_write[i_module]) {
+		if (last_write > state.modules_file_last_write[i_module]) {
 			state.modules_file_last_write[i_module] = last_write;
 			any_module_changed = true;
-    
+
 			// read entire source code
 			ReadFileResult file_content = cross_read_entire_file(state.modules_path[i_module]);
 			if (!file_content.success) {
-				char buf[64] = {0};
-				StringBuilder sb = string_builder_from_buffer(buf, sizeof(buf));
+#if CLI_LOG > 0
 				string_builder_append_sv(&sb, SV("Cannot open file "));
 				string_builder_append_sv(&sb, state.modules_path_sv[i_module]);
-				string_builder_append_char(&sb, '\n');			
+				string_builder_append_char(&sb, '\n');
 				cross_log(cross_stderr, string_builder_get_string(&sb));
+#endif
 				return;
 			}
 			// compile
+#if CLI_LOG > 0
+			string_builder_append_sv(&sb, SV("Compile module: "));
+			string_builder_append_sv(&sb, state.modules_path_sv[i_module]);
+			string_builder_append_char(&sb, '\n');
+			cross_log(cross_stderr, string_builder_get_string(&sb));
+#endif
+
 			Error error = vm_compile(state.vm, state.modules_name_sv[i_module], file_content.content);
 			if (error.code != ErrorCode_Ok) {
 				on_error(state.vm, error);
 			}
+
+		} else {
+#if CLI_LOG > 1
+			string_builder_append_sv(&sb, SV("Skipping module: "));
+			string_builder_append_sv(&sb, state.modules_path_sv[i_module]);
+			string_builder_append_sv(&sb, SV(" because it is cached.\n"));
+			cross_log(cross_stderr, string_builder_get_string(&sb));
+#endif		  	 
 		}
 	}
 	if (any_module_changed) {
 		vm_call(state.vm, state.modules_name_sv[0], sv_from_null_terminated("main"), state.persistent_arena);
+#if CLI_LOG > 0
 		uint64_t timestamp = stm_now();
 
 		char buf[32] = {0};
 		StringBuilder sb = string_builder_from_buffer(buf, sizeof(buf));
 		string_builder_append_sv(&sb, SV("Done executing at "));
 		string_builder_append_u64(&sb, timestamp);
-		string_builder_append_char(&sb, '\n');			
+		string_builder_append_char(&sb, '\n');
 		cross_log(cross_stdout, string_builder_get_string(&sb));
+#endif
 	}
 }
 
