@@ -23,6 +23,13 @@
 
 (define-foreign (get-render-list (* RenderList)) ())
 
+(struct GameState
+	(ball_x f32)
+	(ball_y f32)
+	(v_x f32))
+
+(define-foreign (get-game-state (* GameState)) ())
+
 (define (push-rect ()) (rl (* RenderList) x f32 y f32 w f32 h f32)
 	(let rects (_load_field rl rects))
 	(let rects-count (_load_field rl rects-count))
@@ -39,6 +46,20 @@
 
 (define-global (render ()) ()
 	(let rl (get-render-list))
+	(let gs (get-game-state))
+	
+	(let b_x (_load_field gs ball_x))
+	(let b_y (_load_field gs ball_y))
+	(let v_x (_load_field gs v_x))
+	(if (> b_x (- 1.0 0.15))
+	    (set v_x (* v_x -1.0))
+	    (if (< b_x -1.0) (set v_x (* v_x -1.0)) ()))
+	(set b_x (+ b_x v_x))
+
+	(_store_field gs ball_x b_x)
+	(_store_field gs v_x v_x)
+
 	(push-rect rl (+ -0.75 0.5) (* 0.2 2.5) 0.33 0.25)
 	(push-rect rl -0.5 -0.2 0.25 0.25)
-	(push-rect rl 0.0 0.1 0.5 0.15))
+	(push-rect rl 0.0 0.1 0.5 0.15)
+	(push-rect rl b_x b_y 0.15 0.15))

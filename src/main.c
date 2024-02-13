@@ -84,6 +84,7 @@ typedef struct RenderList
 struct OdeHeap
 {
 	RenderList render_list;
+	uint8_t game_state[1024];
 	RenderRect rects[128];
 };
 static struct OdeHeap ode_heap;
@@ -126,9 +127,19 @@ static void foreign_get_render_list(ExecutionContext *ctx, Value *stack, uint32_
 		cross_log(cross_stderr, SV("===HOST: get_render_list: expected 0 arguments.\n"));
 	}
 
-	ode_heap.render_list.rects.ptr = make_heap_pointer(ctx, sizeof(RenderList)).ptr;
+	ode_heap.render_list.rects.ptr = make_heap_pointer(ctx, sizeof(ode_heap.render_list) + sizeof(ode_heap.game_state)).ptr;
 	
 	*stack = make_heap_pointer(ctx, 0);
+	*sp = *sp + 1;
+}
+
+static void foreign_get_game_state(ExecutionContext *ctx, Value *stack, uint32_t arg_count, uint32_t *sp)
+{
+	if (arg_count != 0) {
+		cross_log(cross_stderr, SV("===HOST: get_render_list: expected 0 arguments.\n"));
+	}
+
+	*stack = make_heap_pointer(ctx, sizeof(ode_heap.render_list));
 	*sp = *sp + 1;
 }
 
@@ -191,6 +202,8 @@ static ForeignFn on_foreign(sv module_name, sv function_name)
 		return logi_foreign_func;
 	} else if (sv_equals(function_name, sv_from_null_terminated("get-render-list"))) {
 		return foreign_get_render_list;
+	} else if (sv_equals(function_name, sv_from_null_terminated("get-game-state"))) {
+		return foreign_get_game_state;
 	}
 
 	return dummy_foreign_func;
@@ -434,8 +447,12 @@ static void frame(void)
 		cross_log(cross_stdout, string_builder_get_string(&sb));
 	}
 
+	uint8_t tmp_state[sizeof(ode_heap.game_state)] = {0};
+	memcpy(tmp_state, ode_heap.game_state, sizeof(ode_heap.game_state));
+
 	ode_heap = (struct OdeHeap){0};
 	ode_heap.render_list.rects.length = ARRAY_LENGTH(ode_heap.rects);
+	memcpy(ode_heap.game_state, tmp_state, sizeof(ode_heap.game_state));
 	
 	vm_call(state.vm, state.modules_name_sv[0], sv_from_null_terminated("update"), state.persistent_arena);
 
@@ -472,7 +489,9 @@ static void frame(void)
 	}
 	sg_range new_vertices = SG_RANGE(vertices);
 	new_vertices.size = i_vert_attr * sizeof(float);
-	sg_update_buffer(state.bind.vertex_buffers[0], &new_vertices);
+	if (new_vertices.size > 0) {
+		sg_update_buffer(state.bind.vertex_buffers[0], &new_vertices);
+	}
 
 	
 	// Render frame
