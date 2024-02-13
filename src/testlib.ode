@@ -39,8 +39,6 @@
 
 (define-global (render ()) ()
 	(let rl (get-render-list))
-	(push-rect rl 0.0 0.0 0.25 0.25)
-	(push-rect rl 0.0 0.2 0.33 0.25)
-	(push-rect rl 0.0 0.6 0.25 0.25)
-	(push-rect rl 0.0 0.6 0.25 0.25)
+	(push-rect rl (+ -0.75 0.5) (* 0.2 2.5) 0.33 0.25)
+	(push-rect rl -0.5 -0.2 0.25 0.25)
 	(push-rect rl 0.0 0.1 0.5 0.15))

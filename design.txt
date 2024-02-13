@@ -7,7 +7,6 @@
 (struct RenderList
 	(rects ([] Rect))
 	(rects-count u32))
-
 (define (push-rect ()) (rl (* RenderList) x f32 y f32 w f32 h f32)
 	(let rects (load-field rl rects))
 	(let rects-count (load-field rl rects-count))
@@ -34,13 +33,8 @@
 
 == Current progress:
 - Builtins? or Opcodes for everything?
-- Implementing structs fields again... Populating rects to draw every frame
 - Missing feature: we can import global functions, but we can't import structs.
-
-== Pointers
-After implementing pointers, I think that strings (or pointers in general?) should embed length.
-- So either all pointers have an associated length (in elements or bytes)
-- Or there is a separate slice type
+- Implementing floats
 
 == Structs
 How to implement structs?

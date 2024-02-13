@@ -72,9 +72,9 @@ static Value pop(ExecutionContext *ctx, uint32_t *sp)
 static void debug_print_stack(ExecutionContext *ctx, uint32_t sp, uint32_t bp)
 {
 	char logbuf[64] = {0};
-	
+
 	cross_log(cross_stderr, sv_from_null_terminated("[DEBUG] Stack:\n"));
-	
+
 	for (uint32_t i = 0; i <= sp && i < ARRAY_LENGTH(ctx->stack); ++i) {
 		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 		string_builder_append_char(&sb, '[');
@@ -121,7 +121,7 @@ void call_function(
 		string_builder_append_sv(&sb, SV(OpCode_str[(uint8_t)(op)]));
 		string_builder_append_char(&sb, '\n');
 		cross_log(cross_stderr, string_builder_get_string(&sb));
-#endif		
+#endif
 		switch (op) {
 		case OpCode_Halt: {
 			cross_log(cross_stderr, SV("HALT\n"));
@@ -137,7 +137,7 @@ void call_function(
 			Value val;
 			val.u32 = bytecode_read_u32(ctx, mp, &ip);
 			push(ctx, &sp, val);
-#if 0			
+#if 0
 			string_builder_append_sv(&sb, SV("[DEBUG] | val.u32 = "));
 			string_builder_append_u64(&sb, (uint64_t)(val.u32));
 			string_builder_append_char(&sb, '\n');
@@ -149,7 +149,7 @@ void call_function(
 			Value val;
 			val.f32 = bytecode_read_f32(ctx, mp, &ip);
 			push(ctx, &sp, val);
-#if 1
+#if 0
 			string_builder_append_sv(&sb, SV("[DEBUG] | val.f32 = "));
 			string_builder_append_f32(&sb, val.f32);
 			string_builder_append_char(&sb, '\n');
@@ -168,7 +168,7 @@ void call_function(
 			val.slice.ptr.module = mp;
 			val.slice.ptr.type = PointerType_Image;
 			push(ctx, &sp, val);
-#if 0			
+#if 0
 			string_builder_append_sv(&sb, SV("[DEBUG] | str = "));
 			string_builder_append_sv(&sb, sv_from_null_terminated(PointerType_str[slice[1].ptr.type]));
 			string_builder_append_char(&sb, ' ');
@@ -191,7 +191,7 @@ void call_function(
 		case OpCode_Call: {
 #if 0
 			debug_print_stack(ctx, sp, bp);
-#endif			
+#endif
 			uint32_t function_address = bytecode_read_u32(ctx, mp, &ip);
 			uint8_t argc = bytecode_read_u8(ctx, mp, &ip);
 			// Push callstack
@@ -214,10 +214,10 @@ void call_function(
 		case OpCode_CallInModule: {
 #if 0
 			debug_print_stack(ctx, sp, bp);
-#endif			
+#endif
 			uint8_t i_imported_function = bytecode_read_u8(ctx, mp, &ip);
 			uint32_t external_module_address = ctx->modules[mp].import_module[i_imported_function];
-			uint32_t external_function_address = (uint32_t)(ctx->modules[mp].import_addresses[i_imported_function]);			
+			uint32_t external_function_address = (uint32_t)(ctx->modules[mp].import_addresses[i_imported_function]);
 			uint8_t argc = bytecode_read_u8(ctx, mp, &ip);
 #if 0
 			// debug print
@@ -253,9 +253,9 @@ void call_function(
 		case OpCode_CallForeign: {
 #if 0
 			debug_print_stack(ctx, sp, bp);
-#endif			
+#endif
 			uint8_t i_foreign_function = bytecode_read_u8(ctx, mp, &ip);
-			uint8_t argc = bytecode_read_u8(ctx, mp, &ip);			
+			uint8_t argc = bytecode_read_u8(ctx, mp, &ip);
 			ForeignFn callback = ctx->modules[mp].foreign_function_callback[i_foreign_function];
 #if 0
 			// debug print
@@ -390,7 +390,7 @@ void call_function(
 			break;
 		}
 		case OpCode_Load32: {
-			Pointer ptr = pop(ctx, &sp).ptr;	
+			Pointer ptr = pop(ctx, &sp).ptr;
 			const uint8_t *memory = deref_pointer(ctx, ptr);
 			Value result = {0};
 			result.u32 = *(uint32_t*)memory;
@@ -398,7 +398,7 @@ void call_function(
 			break;
 		}
 		case OpCode_Load64: {
-			Pointer ptr = pop(ctx, &sp).ptr;	
+			Pointer ptr = pop(ctx, &sp).ptr;
 			const uint8_t *memory = deref_pointer(ctx, ptr);
 			Value result = {0};
 			result.u64 = *(uint64_t*)memory;
@@ -449,113 +449,57 @@ void call_function(
 			push(ctx, &sp, length);
 			break;
 		}
-		case OpCode_MulI32: {
-			Value operands[2] = {0};
-			pop_n(ctx, &sp, operands, 2);
-			Value result = {0};
-			result.i32 = operands[1].i32 * operands[0].i32;
-			push(ctx, &sp, result);
-			break;
-		}
-		case OpCode_AddU8: {
-			Value operands[2] = {0};
-			pop_n(ctx, &sp, operands, 2);
-			Value result = {0};
-			result.u32 = operands[1].u8 + operands[0].u8;
-			push(ctx, &sp, result);
-			break;
-		}
-		case OpCode_AddU16: {
-			Value operands[2] = {0};
-			pop_n(ctx, &sp, operands, 2);
-			Value result = {0};
-			result.u32 = operands[1].u16 + operands[0].u16;
-			push(ctx, &sp, result);
-			break;
-		}
-		case OpCode_AddU32: {
-			Value operands[2] = {0};
-			pop_n(ctx, &sp, operands, 2);
-			Value result = {0};
-			result.u32 = operands[1].u32 + operands[0].u32;
-			push(ctx, &sp, result);
-			break;
-		}
-		case OpCode_SubU8: {
-			Value operands[2] = {0};
-			pop_n(ctx, &sp, operands, 2);
-			Value result = {0};
-			result.u32 = operands[1].u8 - operands[0].u8;
-			push(ctx, &sp, result);
-			break;
-		}
-		case OpCode_SubU16: {
-			Value operands[2] = {0};
-			pop_n(ctx, &sp, operands, 2);
-			Value result = {0};
-			result.u32 = operands[1].u16 - operands[0].u16;
-			push(ctx, &sp, result);
-			break;
-		}
-		case OpCode_SubU32: {
-			Value operands[2] = {0};
-			pop_n(ctx, &sp, operands, 2);
-			Value result = {0};
-			result.u32 = operands[1].u32 - operands[0].u32;
-			push(ctx, &sp, result);
-			break;
-		}
-		case OpCode_LteI32: {
-			Value operands[2] = {0};
-			pop_n(ctx, &sp, operands, 2);
-			Value result = {0};
-			result.i32 = operands[1].i32 <= operands[0].i32;
-			push(ctx, &sp, result);
-			break;
-		}
-		case OpCode_LtI32: {
-			Value operands[2] = {0};
-			pop_n(ctx, &sp, operands, 2);
-			Value result = {0};
-			result.i32 = operands[1].i32 < operands[0].i32;
-			push(ctx, &sp, result);
-			break;
-		}
-		case OpCode_GteI32: {
-			Value operands[2] = {0};
-			pop_n(ctx, &sp, operands, 2);
-			Value result = {0};
-			result.i32 = operands[1].i32 >= operands[0].i32;
-			push(ctx, &sp, result);
-			break;
-		}
-		case OpCode_EqI32: {
-			Value operands[2] = {0};
-			pop_n(ctx, &sp, operands, 2);
-			Value result = {0};
-			result.i32 = operands[1].i32 == operands[0].i32;
-			push(ctx, &sp, result);
-			break;
-		}
-		case OpCode_And: {
-			Value operands[2] = {0};
-			pop_n(ctx, &sp, operands, 2);
-			Value result = {0};
-			result.u32 = operands[1].u32 & operands[0].u32;
-			push(ctx, &sp, result);
-			break;
-		}
+
+#define BINARY_OP(op) do {					\
+				Value operands[2] = {0};	\
+				pop_n(ctx, &sp, operands, 2);	\
+				Value result = {0};		\
+				op;				\
+				push(ctx, &sp, result); \
+			} while(0)
+
+		case OpCode_MulI32: { BINARY_OP(result.i32 = operands[1].i32 * operands[0].i32); break; }
+
+		case OpCode_AddU8:  { BINARY_OP(result.u8  = operands[1].u8  + operands[0].u8); break; }
+		case OpCode_AddU16: { BINARY_OP(result.u16 = operands[1].u16 + operands[0].u16); break; }
+		case OpCode_AddU32: { BINARY_OP(result.u32 = operands[1].u32 + operands[0].u32); break; }
+
+		case OpCode_SubU8:  { BINARY_OP(result.u8  = operands[1].u8  - operands[0].u8 ); break; }
+		case OpCode_SubU16: { BINARY_OP(result.u16 = operands[1].u16 - operands[0].u16); break; }
+		case OpCode_SubU32: { BINARY_OP(result.u32 = operands[1].u32 - operands[0].u32); break; }
+
+		case OpCode_LteI32: { BINARY_OP(result.i32 = operands[1].i32 <= operands[0].i32); break; }
+		case OpCode_LtI32:  { BINARY_OP(result.i32 = operands[1].i32 <  operands[0].i32); break; }
+		case OpCode_GtI32:  { BINARY_OP(result.i32 = operands[1].i32 >= operands[0].i32); break; }
+		case OpCode_GteI32: { BINARY_OP(result.i32 = operands[1].i32 >  operands[0].i32); break; }
+		case OpCode_EqI32:  { BINARY_OP(result.i32 = operands[1].i32 ==  operands[0].i32); break; }
+
+		case OpCode_MulF32: { BINARY_OP(result.f32 = operands[1].f32 *  operands[0].f32); break; }
+		case OpCode_AddF32: { BINARY_OP(result.f32 = operands[1].f32 +  operands[0].f32); break; } 
+		case OpCode_SubF32: { BINARY_OP(result.f32 = operands[1].f32 -  operands[0].f32); break; }
+		case OpCode_LtF32:  { BINARY_OP(result.i32 = operands[1].f32 <  operands[0].f32); break; }
+		case OpCode_LteF32: { BINARY_OP(result.i32 = operands[1].f32 <= operands[0].f32); break; }
+		case OpCode_GtF32:  { BINARY_OP(result.i32 = operands[1].f32 >  operands[0].f32); break; }
+		case OpCode_GteF32: { BINARY_OP(result.i32 = operands[1].f32 >= operands[0].f32); break; }
+		case OpCode_EqF32:  { BINARY_OP(result.i32 = operands[1].f32 == operands[0].f32); break; }
+			
+		case OpCode_And:    { BINARY_OP(result.i32 = operands[1].i32 & operands[0].i32); break; }
+											
+#undef BINARY_OP
+											
 		case OpCode_DebugLabel: {
 			char debug_buffer[64] = {0};
 			uint32_t string_length = bytecode_read_u32(ctx, mp, &ip);
 			for (uint32_t i = 0; i < string_length && i < 64; ++i) {
 				debug_buffer[i] = (char)bytecode_read_u8(ctx, mp, &ip);
-			}			
+			}
+#if 0
 			// debug print
 			string_builder_append_sv(&sb, SV("[DEBUG] "));
 			string_builder_append_sv(&sb, (sv){debug_buffer, string_length});
 			string_builder_append_char(&sb, '\n');
 			cross_log(cross_stderr, string_builder_get_string(&sb));
+#endif
 			break;
 		}
 		case OpCode_Count: {

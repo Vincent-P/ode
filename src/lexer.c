@@ -81,16 +81,41 @@ void lexer_scan(CompilationUnit *compunit)
 				token_length += 1;
 				next_char = input.chars[input_offset + token_length];
 			}
-			token.kind = TokenKind_SignedNumber;
-			// Add the number literal to the compilation unit data
-			if (token_signed_number_size >= ARRAY_LENGTH(compunit->token_signed_numbers)) {
-				__debugbreak();
+			// floating point
+			if (token_length < input.length && next_char == '.') {
+				float parsed_float = (float)parsed_number;
+				token.kind = TokenKind_FloatingNumber;
+				float divisor = 1.0f;
+				uint32_t parsed_decimals = 0;
+				token_length += 1;
+				next_char = input.chars[input_offset + token_length];
+				while (token_length < input.length && is_number(next_char)) {
+					uint8_t digit = (unsigned char)next_char - (unsigned char)'0';
+					parsed_decimals = parsed_decimals * 10 + digit;
+					divisor = divisor / 10.0f;
+					token_length += 1;
+					next_char = input.chars[input_offset + token_length];
+				}
+				parsed_float = parsed_float + ((float)parsed_decimals * divisor);
+				parsed_float = -parsed_float;
+				// Add the number literal to the compilation unit data
+				if (token_float_number_size >= ARRAY_LENGTH(compunit->token_float_numbers)) {
+					__debugbreak();
+				}
+				token.data = token_float_number_size;
+				compunit->token_float_numbers[token.data] = parsed_float;
+				token_float_number_size += 1;
+			} else {
+				token.kind = TokenKind_SignedNumber;
+				// Add the number literal to the compilation unit data
+				if (token_signed_number_size >= ARRAY_LENGTH(compunit->token_signed_numbers)) {
+					__debugbreak();
+				}
+				token.data = token_signed_number_size;
+				compunit->token_signed_numbers[token.data] = -(int32_t)(uint32_t)parsed_number;
+				token_signed_number_size += 1;
 			}
-			token.data = token_signed_number_size;
-			compunit->token_signed_numbers[token.data] = -(int32_t)(uint32_t)parsed_number;
-			token_signed_number_size += 1;
-		} else if (is_number(first_char)) {
-			
+		} else if (is_number(first_char)) {		
 			// positive number
 			uint64_t parsed_number = (unsigned char)first_char - (unsigned char)'0';
 			char next_char = input.chars[input_offset + token_length];
@@ -100,9 +125,8 @@ void lexer_scan(CompilationUnit *compunit)
 				token_length += 1;
 				next_char = input.chars[input_offset + token_length];
 			}
-			
+			// floating point
 			if (token_length < input.length && next_char == '.') {
-				// It has a floating point delimiter, it must be a float
 				float parsed_float = (float)parsed_number;
 	
 				token.kind = TokenKind_FloatingNumber;
@@ -178,7 +202,7 @@ void lexer_scan(CompilationUnit *compunit)
 			token.kind = TokenKind_StringLiteral;
 			token_string_size += 1;
 		} else {
-			error->code = ErrorCode_LexerUnknownToken;
+	    		INIT_ERROR(error, ErrorCode_LexerUnknownToken);
 			error->span = (span){input_offset, input_offset + 1};
 			break;
 		}

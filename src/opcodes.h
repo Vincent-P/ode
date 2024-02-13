@@ -71,8 +71,18 @@ enum OpCode
 	OpCode_LtI32,
 	// GteI32 (arg0, arg1)
 	OpCode_GteI32,
+	OpCode_GtI32,
 	// EqI32 (arg0, arg1)
 	OpCode_EqI32,
+	// Floats (arg0, arg1)
+	OpCode_MulF32,
+	OpCode_AddF32,
+	OpCode_SubF32,
+	OpCode_LtF32,
+	OpCode_LteF32,
+	OpCode_GtF32,
+	OpCode_GteF32,
+	OpCode_EqF32,
 	// -- Logic
 	// Binary AND
 	OpCode_And,
@@ -119,7 +129,16 @@ const char *OpCode_str[] = {
 	"LteI32",
 	"LtI32",
 	"GteI32",
+	"GtI32",
 	"EqI32",
+	"MulF32",
+	"AddF32",
+	"SubF32",
+	"LtF32",
+	"LteF32",
+	"GtF32",
+	"GteF32",
+	"EqF32",
 	"And",
 	"DebugLabel",
 };

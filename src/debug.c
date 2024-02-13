@@ -6,7 +6,7 @@
 void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 {
 	char logbuf[64] = {0};
-	
+
 	for (uint32_t offset = 0; offset < bytecode_length; ++offset) {
 		uint8_t opcode = bytecode[offset];
 		if (opcode >= (uint8_t)OpCode_Count) {
@@ -18,7 +18,7 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 		string_builder_append_u64(&sb, (uint64_t)(offset));
 		string_builder_append_char(&sb, '\t');
-		string_builder_append_sv(&sb, SV(OpCode_str[(uint8_t)(opcode_kind)]));		
+		string_builder_append_sv(&sb, SV(OpCode_str[(uint8_t)(opcode_kind)]));
 		string_builder_append_char(&sb, ' ');
 
 #define PRINT_BYTE                                                                                                     \
@@ -38,7 +38,7 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 		const float *bytecode_f32 = (const float*)(bytecode + offset + 1);                      \
 		string_builder_append_f32(&sb, bytecode_f32[0]);                                                                        \
 		offset += sizeof(float);                                                                                    \
-	}		
+	}
 #define PRINT_TYPEID PRINT_U32
 
 		switch (opcode_kind) {
@@ -56,7 +56,7 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 			string_builder_append_char(&sb, '#');
 			string_builder_append_u64(&sb, (uint64_t)string_index);
 			offset += sizeof(uint32_t);
-			
+
 			break;
 		}
 		case OpCode_Pop:
@@ -111,7 +111,16 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 		case OpCode_LteI32:
 		case OpCode_LtI32:
 		case OpCode_GteI32:
+		case OpCode_GtI32:
 		case OpCode_EqI32:
+		case OpCode_MulF32:
+		case OpCode_AddF32:
+		case OpCode_SubF32:
+		case OpCode_LtF32:
+		case OpCode_LteF32:
+		case OpCode_GtF32:
+		case OpCode_GteF32:
+		case OpCode_EqF32:
 		case OpCode_And:
 			break;
 		case OpCode_DebugLabel: {

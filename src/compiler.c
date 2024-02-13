@@ -964,7 +964,7 @@ static CompileNumBinaryOpResult compile_num_binary_op(Compiler *compiler, const 
 	}
 
 	// Both types need to be numeric
-	bool lhs_numeric = type_id_is_builtin(lhs) && (lhs.builtin.kind == BuiltinTypeKind_Signed || lhs.builtin.kind == BuiltinTypeKind_Unsigned);
+	bool lhs_numeric = type_id_is_builtin(lhs) && (lhs.builtin.kind == BuiltinTypeKind_Signed || lhs.builtin.kind == BuiltinTypeKind_Unsigned || lhs.builtin.kind == BuiltinTypeKind_Float);
 	if (!lhs_numeric) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedNumericType);
 		compiler->compunit->error.expected_type = UNIT_TYPE;
@@ -972,7 +972,7 @@ static CompileNumBinaryOpResult compile_num_binary_op(Compiler *compiler, const 
 		compiler->compunit->error.span = nodes[0]->span;
 		return (CompileNumBinaryOpResult){0};
 	}
-	bool rhs_numeric = type_id_is_builtin(rhs) && (rhs.builtin.kind == BuiltinTypeKind_Signed || rhs.builtin.kind == BuiltinTypeKind_Unsigned);
+	bool rhs_numeric = type_id_is_builtin(rhs) && (rhs.builtin.kind == BuiltinTypeKind_Signed || rhs.builtin.kind == BuiltinTypeKind_Unsigned || lhs.builtin.kind == BuiltinTypeKind_Float);
 	if (!rhs_numeric) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedNumericType);
 		compiler->compunit->error.expected_type = UNIT_TYPE;
@@ -981,16 +981,19 @@ static CompileNumBinaryOpResult compile_num_binary_op(Compiler *compiler, const 
 		return (CompileNumBinaryOpResult){0};
 	}
 
-	// We assume that the type of the operation:
-	// - is the wider type
-	// - is signed if one of the two operands is signed
-	TypeID expected_type = type_id_new_unsigned(lhs.builtin.number_width);
-	if (lhs.builtin.kind == BuiltinTypeKind_Signed || rhs.builtin.kind == BuiltinTypeKind_Signed) {
-		expected_type.builtin.kind = BuiltinTypeKind_Signed;
-	}
-	if (rhs.builtin.number_width > lhs.builtin.number_width) {
-		expected_type.builtin.number_width = rhs.builtin.number_width;
-	}
+	TypeID expected_type = lhs;
+	if (lhs.builtin.kind != BuiltinTypeKind_Float) {
+		// We assume that the type of the operation:
+		// - is the wider type
+		// - is signed if one of the two operands is signed
+		expected_type = type_id_new_unsigned(lhs.builtin.number_width);
+		if (lhs.builtin.kind == BuiltinTypeKind_Signed || rhs.builtin.kind == BuiltinTypeKind_Signed) {
+			expected_type.builtin.kind = BuiltinTypeKind_Signed;
+		}
+		if (rhs.builtin.number_width > lhs.builtin.number_width) {
+			expected_type.builtin.number_width = rhs.builtin.number_width;
+		}
+	}	
 
 	// Check that the two operands are similar to the expected type
 	bool lhs_valid = type_similar(lhs, expected_type);
@@ -1023,7 +1026,9 @@ static TypeID compile_iadd(Compiler *compiler, const AstNode *node)
 		return UNIT_TYPE;
 	}
 
-	if (res.inferred_type.builtin.number_width <= NumberWidth_32) {
+	if (res.inferred_type.builtin.kind == BuiltinTypeKind_Float) {
+		compiler_push_opcode(compiler, OpCode_AddF32);
+	} else if (res.inferred_type.builtin.number_width <= NumberWidth_32) {
 		_Static_assert(OpCode_AddU8 + NumberWidth_32 == OpCode_AddU32);
 		compiler_push_opcode(compiler, OpCode_AddU8 + res.inferred_type.builtin.number_width);
 	} else {
@@ -1041,7 +1046,9 @@ static TypeID compile_isub(Compiler *compiler, const AstNode *node)
 		return UNIT_TYPE;
 	}
 
-	if (res.inferred_type.builtin.number_width <= NumberWidth_32) {
+	if (res.inferred_type.builtin.kind == BuiltinTypeKind_Float) {
+		compiler_push_opcode(compiler, OpCode_SubF32);
+	} else if (res.inferred_type.builtin.number_width <= NumberWidth_32) {
 		_Static_assert(OpCode_SubU8 + NumberWidth_32 == OpCode_SubU32);
 		compiler_push_opcode(compiler, OpCode_SubU8 + res.inferred_type.builtin.number_width);
 	} else {
@@ -1057,8 +1064,11 @@ static TypeID compile_imul(Compiler *compiler, const AstNode *node)
 	if (!res.success) {
 		return UNIT_TYPE;
 	}
-
-	compiler_push_opcode(compiler, OpCode_MulI32);
+	if (res.inferred_type.builtin.kind == BuiltinTypeKind_Float) {
+		compiler_push_opcode(compiler, OpCode_MulF32);
+	} else {
+		compiler_push_opcode(compiler, OpCode_MulI32);
+	}
 	return res.inferred_type;
 }
 
@@ -1070,7 +1080,11 @@ static TypeID compile_ltethan(Compiler *compiler, const AstNode *node)
 	if (!res.success) {
 		return UNIT_TYPE;
 	}
-	compiler_push_opcode(compiler, OpCode_LteI32);
+	if (res.inferred_type.builtin.kind == BuiltinTypeKind_Float) {
+		compiler_push_opcode(compiler, OpCode_LteF32);
+	} else  {
+		compiler_push_opcode(compiler, OpCode_LteI32);
+	}
 	return type_id_new_builtin(BuiltinTypeKind_Bool);
 }
 
@@ -1082,7 +1096,11 @@ static TypeID compile_lthan(Compiler *compiler, const AstNode *node)
 	if (!res.success) {
 		return UNIT_TYPE;
 	}
-	compiler_push_opcode(compiler, OpCode_LtI32);
+	if (res.inferred_type.builtin.kind == BuiltinTypeKind_Float) {
+		compiler_push_opcode(compiler, OpCode_LtF32);
+	} else {
+		compiler_push_opcode(compiler, OpCode_LtI32);
+	}
 	return type_id_new_builtin(BuiltinTypeKind_Bool);
 }
 
@@ -1094,7 +1112,27 @@ static TypeID compile_gtethan(Compiler *compiler, const AstNode *node)
 	if (!res.success) {
 		return UNIT_TYPE;
 	}
-	compiler_push_opcode(compiler, OpCode_GteI32);
+	if (res.inferred_type.builtin.kind == BuiltinTypeKind_Float) {
+		compiler_push_opcode(compiler, OpCode_GteF32);
+	} else {	 
+		compiler_push_opcode(compiler, OpCode_GteI32);
+	}
+	return type_id_new_builtin(BuiltinTypeKind_Bool);
+}
+
+// Compare two integers
+// (> <lhs> <rhs>)
+static TypeID compile_gthan(Compiler *compiler, const AstNode *node)
+{
+	CompileNumBinaryOpResult res = compile_num_binary_op(compiler, node);
+	if (!res.success) {
+		return UNIT_TYPE;
+	}
+	if (res.inferred_type.builtin.kind == BuiltinTypeKind_Float) {
+		compiler_push_opcode(compiler, OpCode_GtF32);
+	} else{
+		compiler_push_opcode(compiler, OpCode_GtI32);
+	}
 	return type_id_new_builtin(BuiltinTypeKind_Bool);
 }
 
@@ -1106,7 +1144,11 @@ static TypeID compile_eq(Compiler *compiler, const AstNode *node)
 	if (!res.success) {
 		return UNIT_TYPE;
 	}
-	compiler_push_opcode(compiler, OpCode_EqI32);
+	if (res.inferred_type.builtin.kind == BuiltinTypeKind_Float) {
+		compiler_push_opcode(compiler, OpCode_EqF32);
+	} else {
+		compiler_push_opcode(compiler, OpCode_EqI32);
+	}
 	return type_id_new_builtin(BuiltinTypeKind_Bool);
 }
 
@@ -1684,6 +1726,7 @@ const CompilerBuiltin compiler_expr_builtins[] = {
 	compile_ltethan,
 	compile_lthan,
 	compile_gtethan,
+	compile_gthan,
 	compile_eq,
 	compile_and,
 	compile_store,
@@ -1711,6 +1754,7 @@ const sv compiler_expr_builtins_str[] = {
 	SV_LIT("<="),
 	SV_LIT("<"),
 	SV_LIT(">="),
+	SV_LIT(">"),
 	SV_LIT("="),
 	SV_LIT("and"),
 	SV_LIT("_store"),
