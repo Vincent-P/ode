@@ -66,6 +66,4 @@ treb7uchet
 
 (define (update ()) ()
 	(let n 0)
-	(let update-msg "update ahahah!")
-	(log (_data update-msg) (_len update-msg))
 	(render))

@@ -30,11 +30,15 @@
 (define (update ()) ()
 	(render))
 
-
 == Current progress:
 - Builtins? or Opcodes for everything?
 - Missing feature: we can import global functions, but we can't import structs.
-- Implementing floats
+- Pong:
+    - need inputs from sokol_app, pass as host pointer again, easy
+    - cos/sin -> builtins?
+    - colision detection between ball and paddle
+    - move ball
+    - move paddles
 
 == Structs
 How to implement structs?

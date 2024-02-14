@@ -20,15 +20,25 @@
 (struct RenderList
 	(rects ([] Rect))
 	(rects-count u32))
-
 (define-foreign (get-render-list (* RenderList)) ())
 
 (struct GameState
 	(ball_x f32)
 	(ball_y f32)
-	(v_x f32))
-
+	(v_x f32)
+	(d_x f32)
+	(paddle-x f32)
+	(paddle-y f32)
+	(paddle-height f32)
+	(is-initialized i32))
 (define-foreign (get-game-state (* GameState)) ())
+
+(struct Input
+	(up i32)
+	(down i32))
+(define-foreign (get-input (* Input)) ())
+
+
 
 (define (push-rect ()) (rl (* RenderList) x f32 y f32 w f32 h f32)
 	(let rects (_load_field rl rects))
@@ -44,22 +54,58 @@
 		())
 	(_store_field rl rects-count (+ rects-count 1)))
 
+
 (define-global (render ()) ()
 	(let rl (get-render-list))
 	(let gs (get-game-state))
-	
+	(let input (get-input))
+
+	(let paddle-size-x 0.1)
+	(let paddle-size-y 0.3)
+
+	(let p_x (_load_field gs paddle-x))
+	(let p_y (_load_field gs paddle-y))
+	(if (_load_field input down)
+	    (if (> p_y -1.0)
+	    	(set p_y (- p_y 0.03))
+		())
+	    ())
+	(if (_load_field input up)
+	    (if (< p_y (- 1.0 paddle-size-y))
+	    	(set p_y (+ p_y 0.03))
+		())
+	    ())
+	(_store_field gs paddle-x p_x)
+	(_store_field gs paddle-y p_y)
+
 	(let b_x (_load_field gs ball_x))
 	(let b_y (_load_field gs ball_y))
-	(let v_x (_load_field gs v_x))
-	(if (> b_x (- 1.0 0.15))
-	    (set v_x (* v_x -1.0))
-	    (if (< b_x -1.0) (set v_x (* v_x -1.0)) ()))
-	(set b_x (+ b_x v_x))
+	(let d_x (_load_field gs d_x))
 
+	(_store_field gs v_x 0.02)
+
+	(let ball-is-inside-paddle/x (and (< p_x b_x) (< b_x (+ p_x paddle-size-x))))
+	(let ball-is-inside-paddle/y (and (< p_y b_y) (< b_y (+ p_y paddle-size-y))))
+	(let ball-is-inside-paddle (and ball-is-inside-paddle/x ball-is-inside-paddle/y))
+
+	(if (> b_x 1.0)
+	    (set d_x (* d_x -1.0))
+	    ())
+	(if (< b_x -1.0)
+	    (set d_x (* d_x -1.0))
+	    ())
+	    
+	(if ball-is-inside-paddle
+	    (set d_x (* d_x -1.0))
+	    ())
+	    
+    
+	(set b_x (+ b_x (* d_x (_load_field gs v_x))))
 	(_store_field gs ball_x b_x)
-	(_store_field gs v_x v_x)
+	(_store_field gs d_x d_x)
 
 	(push-rect rl (+ -0.75 0.5) (* 0.2 2.5) 0.33 0.25)
 	(push-rect rl -0.5 -0.2 0.25 0.25)
 	(push-rect rl 0.0 0.1 0.5 0.15)
+	(push-rect rl p_x p_y paddle-size-x paddle-size-y)
 	(push-rect rl b_x b_y 0.15 0.15))

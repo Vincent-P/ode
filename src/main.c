@@ -81,11 +81,22 @@ typedef struct RenderList
 	uint32_t rects_length;
 } RenderList;
 
+struct Input
+{
+	int up;
+	int down;
+};
+
 struct OdeHeap
 {
 	RenderList render_list;
-	uint8_t game_state[1024];
 	RenderRect rects[128];
+	union
+	{
+		struct Input input;
+		uint8_t input_bytes[1024];
+	};
+	uint8_t game_state[1024];
 };
 static struct OdeHeap ode_heap;
 
@@ -127,7 +138,7 @@ static void foreign_get_render_list(ExecutionContext *ctx, Value *stack, uint32_
 		cross_log(cross_stderr, SV("===HOST: get_render_list: expected 0 arguments.\n"));
 	}
 
-	ode_heap.render_list.rects.ptr = make_heap_pointer(ctx, sizeof(ode_heap.render_list) + sizeof(ode_heap.game_state)).ptr;
+	ode_heap.render_list.rects.ptr = make_heap_pointer(ctx, offsetof(struct OdeHeap, rects)).ptr;
 	
 	*stack = make_heap_pointer(ctx, 0);
 	*sp = *sp + 1;
@@ -136,10 +147,20 @@ static void foreign_get_render_list(ExecutionContext *ctx, Value *stack, uint32_
 static void foreign_get_game_state(ExecutionContext *ctx, Value *stack, uint32_t arg_count, uint32_t *sp)
 {
 	if (arg_count != 0) {
-		cross_log(cross_stderr, SV("===HOST: get_render_list: expected 0 arguments.\n"));
+		cross_log(cross_stderr, SV("===HOST: get-game-state: expected 0 arguments.\n"));
 	}
 
-	*stack = make_heap_pointer(ctx, sizeof(ode_heap.render_list));
+	*stack = make_heap_pointer(ctx, offsetof(struct OdeHeap, game_state));
+	*sp = *sp + 1;
+}
+
+static void foreign_get_input(ExecutionContext *ctx, Value *stack, uint32_t arg_count, uint32_t *sp)
+{
+	if (arg_count != 0) {
+		cross_log(cross_stderr, SV("===HOST: get-input: expected 0 arguments.\n"));
+	}
+
+	*stack = make_heap_pointer(ctx, offsetof(struct OdeHeap, input));
 	*sp = *sp + 1;
 }
 
@@ -204,6 +225,8 @@ static ForeignFn on_foreign(sv module_name, sv function_name)
 		return foreign_get_render_list;
 	} else if (sv_equals(function_name, sv_from_null_terminated("get-game-state"))) {
 		return foreign_get_game_state;
+	} else if (sv_equals(function_name, sv_from_null_terminated("get-input"))) {
+		return foreign_get_input;
 	}
 
 	return dummy_foreign_func;
@@ -407,6 +430,23 @@ static void init(void)
 	state.vm = vm_create(&state.persistent_arena, vm_config);
 }
 
+static void event(const sapp_event* event)
+{
+	if (event->type == SAPP_EVENTTYPE_KEY_DOWN) {
+		if (event->key_code == SAPP_KEYCODE_UP) {
+			ode_heap.input.up = 1;
+		} else if (event->key_code == SAPP_KEYCODE_DOWN) {
+			ode_heap.input.down = 1;
+		}
+	} else if (event->type == SAPP_EVENTTYPE_KEY_UP) {
+		if (event->key_code == SAPP_KEYCODE_UP) {
+			ode_heap.input.up = 0;
+		} else if (event->key_code == SAPP_KEYCODE_DOWN) {
+			ode_heap.input.down = 0;
+		}
+	}
+}
+
 static void frame(void)
 {
 	// Update ode VM
@@ -447,12 +487,9 @@ static void frame(void)
 		cross_log(cross_stdout, string_builder_get_string(&sb));
 	}
 
-	uint8_t tmp_state[sizeof(ode_heap.game_state)] = {0};
-	memcpy(tmp_state, ode_heap.game_state, sizeof(ode_heap.game_state));
-
-	ode_heap = (struct OdeHeap){0};
+	memset(ode_heap.rects, 0,  sizeof(ode_heap.rects));
+	ode_heap.render_list = (struct RenderList){0};
 	ode_heap.render_list.rects.length = ARRAY_LENGTH(ode_heap.rects);
-	memcpy(ode_heap.game_state, tmp_state, sizeof(ode_heap.game_state));
 	
 	vm_call(state.vm, state.modules_name_sv[0], sv_from_null_terminated("update"), state.persistent_arena);
 
@@ -561,7 +598,7 @@ int WinMainCRTStartup(void)
 		.init_cb = init,
 		.frame_cb = frame,
 		.cleanup_cb = cleanup,
-		.event_cb = NULL,
+		.event_cb = event,
 		.width = 640,
 		.height = 480,
 		.window_title = "Ode demo",
