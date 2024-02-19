@@ -437,6 +437,8 @@ static void event(const sapp_event* event)
 			ode_heap.input.up = 1;
 		} else if (event->key_code == SAPP_KEYCODE_DOWN) {
 			ode_heap.input.down = 1;
+		} else if (event->key_code == SAPP_KEYCODE_R) {
+			ode_heap = (struct OdeHeap){0};
 		}
 	} else if (event->type == SAPP_EVENTTYPE_KEY_UP) {
 		if (event->key_code == SAPP_KEYCODE_UP) {
