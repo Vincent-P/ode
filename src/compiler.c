@@ -814,6 +814,124 @@ static TypeID compile_if(Compiler *compiler, const AstNode *node)
 	return then_expr;
 }
 
+static TypeID compile_when(Compiler *compiler, const AstNode *node)
+{
+	// -- Parsing
+	const AstNode *when_node = ast_get_left_child(compiler->compunit, node);
+	// A when expression must have at least a condition
+	if (!ast_has_right_sibling(when_node)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedExpr);
+		compiler->compunit->error.span = node->span;
+		return UNIT_TYPE;
+	}
+	const AstNode *cond_node = ast_get_right_sibling(compiler->compunit, when_node);
+	// A when expression must have at least one expression after the condition
+	if (!ast_has_right_sibling(cond_node)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedExpr);
+		compiler->compunit->error.span = node->span;
+		return UNIT_TYPE;
+	}
+	const AstNode *expr_node = ast_get_right_sibling(compiler->compunit, cond_node);
+	
+	// Compile the condition first,
+	TypeID cond_expr = compile_expr(compiler, cond_node);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+	TypeID bool_type = type_id_new_builtin(BuiltinTypeKind_Bool);
+	if (!type_similar(cond_expr, bool_type)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
+		compiler->compunit->error.span = cond_node->span;
+		compiler->compunit->error.expected_type = type_id_new_builtin(BuiltinTypeKind_Bool);
+		compiler->compunit->error.got_type = cond_expr;
+		return UNIT_TYPE;
+	}
+
+	// If true, jump to the true branch (patch the jump adress later)
+	uint32_t *jump_to_true_branch = compiler_bytecode_conditional_jump(compiler, 0);
+
+	// "False" branch: jump over the true branch (patch the jump adress later)
+	uint32_t *jump_to_end = compiler_bytecode_jump(compiler, 0);
+
+	// Compile the true branch
+	const uint32_t then_branch_address = compiler->module.bytecode_length;
+	TypeID then_expr = compile_sexprs_return_last(compiler, expr_node);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+
+	const uint32_t end_address = compiler->module.bytecode_length;
+	*jump_to_true_branch = then_branch_address;
+	*jump_to_end = end_address;
+
+	bool expr_returns_value = !type_similar(UNIT_TYPE, then_expr);
+	if (expr_returns_value) {
+		// Pop the stack if the expr returns a value.
+		compiler_push_opcode(compiler, OpCode_Pop);
+	}
+
+	return UNIT_TYPE;
+}
+
+static TypeID compile_unless(Compiler *compiler, const AstNode *node)
+{
+	// -- Parsing
+	const AstNode *when_node = ast_get_left_child(compiler->compunit, node);
+	// A when expression must have at least a condition
+	if (!ast_has_right_sibling(when_node)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedExpr);
+		compiler->compunit->error.span = node->span;
+		return UNIT_TYPE;
+	}
+	const AstNode *cond_node = ast_get_right_sibling(compiler->compunit, when_node);
+	// A when expression must have at least one expression after the condition
+	if (!ast_has_right_sibling(cond_node)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedExpr);
+		compiler->compunit->error.span = node->span;
+		return UNIT_TYPE;
+	}
+	const AstNode *expr_node = ast_get_right_sibling(compiler->compunit, cond_node);
+	
+	// Compile the condition first,
+	TypeID cond_expr = compile_expr(compiler, cond_node);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+	TypeID bool_type = type_id_new_builtin(BuiltinTypeKind_Bool);
+	if (!type_similar(cond_expr, bool_type)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
+		compiler->compunit->error.span = cond_node->span;
+		compiler->compunit->error.expected_type = type_id_new_builtin(BuiltinTypeKind_Bool);
+		compiler->compunit->error.got_type = cond_expr;
+		return UNIT_TYPE;
+	}
+
+	// If true, jump to the over the branch (path the jump address later)
+	uint32_t *jump_to_end = compiler_bytecode_conditional_jump(compiler, 0);
+
+	// "False" branch: Execute the body (patch the jump address later)
+	uint32_t *jump_to_body = compiler_bytecode_jump(compiler, 0);
+
+	// Compile the true branch
+	const uint32_t body_address = compiler->module.bytecode_length;
+	TypeID body_expr = compile_sexprs_return_last(compiler, expr_node);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+
+	const uint32_t end_address = compiler->module.bytecode_length;
+	*jump_to_end = end_address;
+	*jump_to_body = body_address;
+
+	bool expr_returns_value = !type_similar(UNIT_TYPE, body_expr);
+	if (expr_returns_value) {
+		// Pop the stack if the expr returns a value.
+		compiler_push_opcode(compiler, OpCode_Pop);
+	}
+
+	return UNIT_TYPE;
+}
+
 static TypeID compile_loop(Compiler *compiler, const AstNode *node)
 {
 	const AstNode *loop_node = ast_get_left_child(compiler->compunit, node);
@@ -1715,6 +1833,8 @@ _Static_assert(ARRAY_LENGTH(compiler_top_builtins_str) == ARRAY_LENGTH(compiler_
 
 const CompilerBuiltin compiler_expr_builtins[] = {
 	compile_if,
+	compile_when,
+	compile_unless,
 	compile_loop,
 	compile_break,
 	compile_let,
@@ -1743,6 +1863,8 @@ const CompilerBuiltin compiler_expr_builtins[] = {
 };
 const sv compiler_expr_builtins_str[] = {
 	SV_LIT("if"),
+	SV_LIT("when"),
+	SV_LIT("unless"),
 	SV_LIT("loop"),
 	SV_LIT("break"),
 	SV_LIT("let"),
