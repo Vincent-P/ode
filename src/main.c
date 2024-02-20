@@ -205,6 +205,22 @@ static void logi_foreign_func(ExecutionContext *ctx, Value *stack, uint32_t arg_
 	}
 
 }
+static void logf_foreign_func(ExecutionContext *ctx, Value *stack, uint32_t arg_count, uint32_t *sp)
+{
+	cross_log(cross_stderr, SV("logf foreign func.\n"));
+
+	if (arg_count != 1) {
+		cross_log(cross_stderr, SV("===HOST: logf_foreign_func: expected 1 argument ===\n"));
+	}
+	else {
+		char logbuf[64] = {0};
+		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
+		string_builder_append_sv(&sb, SV("=== HOST: logf_foreign_func: "));
+		string_builder_append_f32(&sb, stack[0].f32);
+		string_builder_append_sv(&sb, SV(" ===\n"));
+		cross_log(cross_stdout, string_builder_get_string(&sb));
+	}
+}
 
 static ForeignFn on_foreign(sv module_name, sv function_name)
 {
@@ -221,6 +237,10 @@ static ForeignFn on_foreign(sv module_name, sv function_name)
 		return log_foreign_func;
 	} else if (sv_equals(function_name, sv_from_null_terminated("logi"))) {
 		return logi_foreign_func;
+	} else if (sv_equals(function_name, sv_from_null_terminated("logb"))) {
+		return logi_foreign_func;
+	} else if (sv_equals(function_name, sv_from_null_terminated("logf"))) {
+		return logf_foreign_func;
 	} else if (sv_equals(function_name, sv_from_null_terminated("get-render-list"))) {
 		return foreign_get_render_list;
 	} else if (sv_equals(function_name, sv_from_null_terminated("get-game-state"))) {
@@ -342,7 +362,7 @@ static void sokol_logger (
 	cross_log(cross_stderr, string_builder_get_string(&sb));
 
 	if (log_level <= 1) {
-		__debugbreak();
+		// __debugbreak();
 	}
 }
 
