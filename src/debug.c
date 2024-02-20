@@ -122,6 +122,7 @@ void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 		case OpCode_GteF32:
 		case OpCode_EqF32:
 		case OpCode_And:
+		case OpCode_Or:
 			break;
 		case OpCode_DebugLabel: {
 			const uint32_t *bytecode_u32 = (const uint32_t*)(bytecode + offset + 1);

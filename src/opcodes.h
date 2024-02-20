@@ -84,8 +84,10 @@ enum OpCode
 	OpCode_GteF32,
 	OpCode_EqF32,
 	// -- Logic
-	// Binary AND
+	// Binary AND (arg0, arg1)
 	OpCode_And,
+	// Binary OR (arg0, arg1)
+	OpCode_Or,
 	// Debug instruction with a string
 	OpCode_DebugLabel,
 	OpCode_Count,
@@ -140,6 +142,7 @@ const char *OpCode_str[] = {
 	"GteF32",
 	"EqF32",
 	"And",
+	"Or",
 	"DebugLabel",
 };
 _Static_assert(ARRAY_LENGTH(OpCode_str) == (uint8_t)(OpCode_Count));

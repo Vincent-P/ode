@@ -484,6 +484,7 @@ void call_function(
 		case OpCode_EqF32:  { BINARY_OP(result.i32 = operands[1].f32 == operands[0].f32); break; }
 			
 		case OpCode_And:    { BINARY_OP(result.i32 = operands[1].i32 & operands[0].i32); break; }
+		case OpCode_Or:    { BINARY_OP(result.i32 = operands[1].i32 | operands[0].i32); break; }
 											
 #undef BINARY_OP
 											

@@ -717,6 +717,11 @@ static TypeID compile_struct(Compiler *compiler, const AstNode *node)
 	}
 
 	// -- Create a new structure type
+	if (nodes.fields_length >= MAX_STRUCT_FIELDS) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		compiler->compunit->error.span = node->span;
+		return UNIT_TYPE;
+	}
 	TypeID fields_type[MAX_STRUCT_FIELDS] = {0};
 
 	TypeID struct_type_id = type_id_new_user_defined(compiler->module.types_length);
@@ -1306,6 +1311,42 @@ static TypeID compile_and(Compiler *compiler, const AstNode *node)
 	compiler_push_opcode(compiler, OpCode_And);
 	return expected_type;
 }
+// Perform a logical OR
+// (or <lhs> <rhs>)
+static TypeID compile_or(Compiler *compiler, const AstNode *node)
+{
+	const AstNode *nodes[2] = {0};
+	parse_nary_op(compiler->compunit, node, ARRAY_LENGTH(nodes), nodes);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+
+	TypeID lhs = compile_expr(compiler, nodes[0]);
+	TypeID rhs = compile_expr(compiler, nodes[1]);
+	TypeID expected_type = type_id_new_builtin(BuiltinTypeKind_Bool);
+	if (compiler->compunit->error.code != ErrorCode_Ok) {
+		return UNIT_TYPE;
+	}
+
+	if (!type_similar(lhs, expected_type)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
+		__debugbreak();
+		compiler->compunit->error.expected_type = expected_type;
+		compiler->compunit->error.got_type = lhs;
+		compiler->compunit->error.span = nodes[0]->span;
+		return UNIT_TYPE;
+	}
+	if (!type_similar(rhs, expected_type)) {
+		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
+		compiler->compunit->error.expected_type = expected_type;
+		compiler->compunit->error.got_type = rhs;
+		compiler->compunit->error.span = nodes[1]->span;
+		return UNIT_TYPE;
+	}
+
+	compiler_push_opcode(compiler, OpCode_Or);
+	return expected_type;
+}
 
 static TypeID compiler_load_pointer(Compiler *compiler, TypeID pointed_type)
 {
@@ -1321,7 +1362,6 @@ static TypeID compiler_load_pointer(Compiler *compiler, TypeID pointed_type)
 		opcode = OpCode_Load64;
 	} else {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
-		__debugbreak();
 		return UNIT_TYPE;
 	}
 	
@@ -1849,6 +1889,7 @@ const CompilerBuiltin compiler_expr_builtins[] = {
 	compile_gthan,
 	compile_eq,
 	compile_and,
+	compile_or,
 	compile_store,
 	compile_load,
 	compile_sizeof,
@@ -1879,6 +1920,7 @@ const sv compiler_expr_builtins_str[] = {
 	SV_LIT(">"),
 	SV_LIT("="),
 	SV_LIT("and"),
+	SV_LIT("or"),
 	SV_LIT("_store"),
 	SV_LIT("_load"),
 	SV_LIT("_sizeof"),
@@ -1947,7 +1989,6 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 		// typecheck
 		if (!type_similar(arg_type, found_function->arg_types[i_sig_arg_type])) {
 			INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-			__debugbreak();
 			compiler->compunit->error.span = arg_node->span;
 			compiler->compunit->error.expected_type = found_function->arg_types[i_sig_arg_type];
 			compiler->compunit->error.got_type = arg_type;
