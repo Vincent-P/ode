@@ -86,7 +86,7 @@ typedef struct CompilerModule
 	uint8_t constants[128];
 	uint32_t constants_length;
 	// bytecode for all the functions
-	uint8_t bytecode[1024];
+	uint8_t bytecode[BYTECODE_CAPACITY];
 	uint32_t bytecode_length;
 } CompilerModule;
 

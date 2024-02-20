@@ -7,7 +7,6 @@ typedef struct ExecutionContext ExecutionContext;
 enum Executor_Constants
 {
 	CONSTANT_LENGTH = 128,
-	BYTECODE_LENGTH = (32 << 10),
 	IMPORT_LENGTH = 64,
 };
 
@@ -75,7 +74,7 @@ typedef struct Module
 	// Constant memory
 	uint8_t constants[CONSTANT_LENGTH];
 	// Bytecode
-	uint8_t bytecode[BYTECODE_LENGTH];
+	uint8_t bytecode[BYTECODE_CAPACITY];
 	uint32_t bytecode_len;
 } Module;
 
