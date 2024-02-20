@@ -22,6 +22,8 @@ typedef enum ErrorCode
 	ErrorCode_ExpectedNumericType,
 	ErrorCode_Fatal,
 	ErrorCode_Assert,
+	ErrorCode_ModuleNotFound,
+	ErrorCode_FunctionNotFound,
 	ErrorCode_Count,
 } ErrorCode;
 
@@ -44,6 +46,8 @@ const char *ErrorCode_str[] = {
 	"ExpectedNumericType",
 	"Fatal",
 	"Assert",
+	"ModuleNotFound",
+	"FunctionNotFound",
 	"Count",
 };
 

@@ -339,8 +339,8 @@ static LoadModuleResult load_compiler_module(VM *vm, uint32_t i_compiler_module)
 	_Static_assert(sizeof(compiler_module->constants) == sizeof(runtime_module->constants));
 	memcpy(runtime_module->constants, compiler_module->constants, sizeof(compiler_module->constants));
 	// Copy bytecode
-	uint32_t bytecode_len = compiler_module->bytecode_length > BYTECODE_LENGTH
-				? BYTECODE_LENGTH
+	uint32_t bytecode_len = compiler_module->bytecode_length > BYTECODE_CAPACITY
+				? BYTECODE_CAPACITY
 				: compiler_module->bytecode_length;
 	memcpy(runtime_module->bytecode, compiler_module->bytecode, bytecode_len);
 	runtime_module->bytecode_len = bytecode_len;
@@ -420,11 +420,8 @@ Error vm_compile(VM *vm, sv module_name, sv code)
 	return result.error;
 }
 
-void vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
-{	
-#if VM_LOG > 0
-	char *log_buffer = (char*)arena_alloc(&temp_mem, 64);
-#endif
+Error vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
+{
 	// Find the function name in the compiler module
 	const uint32_t modules_len = vm->compiler_modules_length;
 	uint32_t i_module = 0;
@@ -434,14 +431,9 @@ void vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 		}
 	}
 	if (i_module >= modules_len) {
-#if VM_LOG > 0
-		StringBuilder sb = string_builder_from_buffer(log_buffer, 64);
-		string_builder_append_sv(&sb, SV("Compiler module \""));
-		string_builder_append_sv(&sb, module_name);
-		string_builder_append_sv(&sb, SV("\" not found\n"));
-		cross_log(cross_stderr, string_builder_get_string(&sb));
-#endif
-		return;
+		Error err = (struct Error){0};
+		INIT_ERROR(&err, ErrorCode_ModuleNotFound);
+		return err;
 	}
 	CompilerModule *module = vm->compiler_modules + i_module;
 	const uint32_t functions_len = module->functions_length;
@@ -454,14 +446,9 @@ void vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 		}
 	}
 	if (i_entrypoint >= functions_len) {
-#if VM_LOG > 0
-		StringBuilder sb = string_builder_from_buffer(log_buffer, 64);
-		string_builder_append_sv(&sb, SV("Function '"));
-		string_builder_append_sv(&sb, function_name);
-		string_builder_append_sv(&sb, SV("' not found\n"));
-		cross_log(cross_stderr, string_builder_get_string(&sb));
-#endif
-		return;
+		Error err = (struct Error){0};
+		INIT_ERROR(&err, ErrorCode_FunctionNotFound);
+		return err;
 	}
 
 	// Find the corresponding runtime module
@@ -473,14 +460,9 @@ void vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 		}
 	}
 	if (i_runtime_module >= runtime_modules_len) {
-#if VM_LOG > 0
-		StringBuilder sb = string_builder_from_buffer(log_buffer, 64);
-		string_builder_append_sv(&sb, SV("Runtime module \""));
-		string_builder_append_sv(&sb, module_name);
-		string_builder_append_sv(&sb, SV("\" not found\n"));
-		cross_log(cross_stderr, string_builder_get_string(&sb));
-#endif
-		return;
+		Error err = (struct Error){0};
+		INIT_ERROR(&err, ErrorCode_ModuleNotFound);
+		return err;
 	}
 	
 	ExecutionContext *exec = (ExecutionContext*)(arena_alloc(&temp_mem, sizeof(ExecutionContext)));
@@ -488,4 +470,5 @@ void vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 	exec->modules_len = vm->runtime_modules_length;
 	exec->heap = vm->config.heap;
 	call_function(exec, i_runtime_module, entrypoint_address, NULL, 0);
+	return (struct Error){0};
 }
