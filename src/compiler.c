@@ -2069,6 +2069,11 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 		}
 	}
 
+	// As of now, functions that return () still push 0 on the stack. This way the executor always pop when returning from a function.
+	if (type_similar(found_function->return_type, UNIT_TYPE)) {
+		compiler_push_opcode(compiler, OpCode_Pop);
+	}
+
 	return found_function->return_type;
 }
 
