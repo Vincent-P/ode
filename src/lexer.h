@@ -1,5 +1,5 @@
 #pragma once
-#include "core.h"
+#include "core/core.h"
 
 typedef struct CompilationUnit CompilationUnit;
 
@@ -33,8 +33,23 @@ struct Token
 {
 	TokenKind kind;
 	span span;
-	uint32_t data;
+	union
+	{
+		uint32_t u32;
+		int32_t i32;
+		float f32;
+		StringId sid;
+	} data;
 };
 typedef struct Token Token;
 
-void lexer_scan(CompilationUnit *compunit);
+
+struct LexerResult
+{
+	Token *tokens;
+	uint32_t token_count;
+	bool success;
+	span error_span;
+};
+typedef struct LexerResult LexerResult;
+static LexerResult lexer_scan(Arena *arena, StringPool *string_pool, sv input);

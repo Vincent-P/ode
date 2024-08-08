@@ -1,6 +1,5 @@
 #pragma once
-#include "core.h"
-#include "arena.h"
+#include "core/core.h"
 #include "error.h"
 #include "compiler.h"
 #include "executor.h"
@@ -29,7 +28,7 @@ typedef struct VM
 } VM;
 
 VM *vm_create(Arena *arena, VMConfig config);
-Error vm_compile(VM* vm, sv module_name, sv code);
+Error vm_compile(Arena temp_mem, VM* vm, sv module_name, sv code);
 // compile and try to execute "main" function
 Error vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem);
 void vm_destroy(VM *vm);

@@ -1,5 +1,5 @@
 #pragma once
-#include "core.h"
+#include "core/core.h"
 #include "constants.h"
 #include "error.h"
 #include "parser.h"
@@ -11,17 +11,11 @@ typedef struct CompilationUnit
 	sv input;
 	Error error;
 	uint32_t nodes_length;
-	uint32_t tokens_length;
 	// AST
 	AstNode nodes[4096];
-	// Tokens
-	Token tokens[4096];
-	uint32_t token_unsigned_numbers[128]; // data for numbers
-	int32_t token_signed_numbers[128]; // data for numbers
-	float token_float_numbers[128]; // data for numbers
-	uint32_t token_strings_offset[128]; // offset into the string buffer
-	uint32_t token_strings_length[128]; // length of the string
-	char token_string_buffer[128]; // buffer for strings
+	StringPool string_pool;
+	const Token *tokens;
+	uint32_t token_count;
 } CompilationUnit;
 
 typedef struct LexicalScope

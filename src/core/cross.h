@@ -1,5 +1,5 @@
 #pragma once
-#include "core.h"
+#include "./core.h"
 
 void cross_init(void);
 

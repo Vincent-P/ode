@@ -25,7 +25,7 @@ const AstNode *ast_get_right_sibling(const CompilationUnit *compunit, const AstN
 const Token *ast_get_token(const CompilationUnit *compunit, const AstNode *node)
 {
 	uint32_t token_index = node->atom_token_index;
-	if (token_index >= compunit->tokens_length) {
+	if (token_index >= compunit->token_count) {
 		__debugbreak();
 	}
 	return compunit->tokens + token_index;
@@ -36,13 +36,13 @@ const Token *ast_get_token(const CompilationUnit *compunit, const AstNode *node)
 
 static Token parser_current_token(Parser *parser)
 {
-	if (parser->i_current_token < parser->compunit->tokens_length) {
+	if (parser->i_current_token < parser->compunit->token_count) {
 		return parser->compunit->tokens[parser->i_current_token];
 	} else {
 		parser->compunit->error.code = ErrorCode_ExpectedTokenGotEof;
 		parser->compunit->error.span = (span){0};
-		if (parser->compunit->tokens_length > 0) {
-			const Token *last_token = parser->compunit->tokens + (parser->compunit->tokens_length - 1);
+		if (parser->compunit->token_count > 0) {
+			const Token *last_token = parser->compunit->tokens + (parser->compunit->token_count - 1);
 			parser->compunit->error.span = last_token->span;
 		}
 		return (Token){0};
@@ -55,11 +55,11 @@ static Token parser_expect_token(Parser *parser, TokenKind expect_kind)
 		return (Token){0};
 	}
 
-	if (parser->i_current_token >= parser->compunit->tokens_length) {
+	if (parser->i_current_token >= parser->compunit->token_count) {
 		parser->compunit->error.code = ErrorCode_ExpectedTokenGotEof;
 		parser->compunit->error.span = (span){0};
-		if (parser->compunit->tokens_length > 0) {
-			const Token *last_token = parser->compunit->tokens + (parser->compunit->tokens_length - 1);
+		if (parser->compunit->token_count > 0) {
+			const Token *last_token = parser->compunit->tokens + (parser->compunit->token_count - 1);
 			parser->compunit->error.span = last_token->span;
 		}
 		return (Token){0};
@@ -193,7 +193,7 @@ void parse_module(Parser *parser)
 	AstNode *root_node = parser->compunit->nodes + root_node_index;
 
 	AstNode *current_child = NULL;
-	while (parser->i_current_token < parser->compunit->tokens_length) {
+	while (parser->i_current_token < parser->compunit->token_count) {
 		uint32_t expr_node_index = parse_s_expression(parser);
 		root_node->child_count += 1;
 		if (current_child == NULL) {

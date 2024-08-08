@@ -436,7 +436,7 @@ static TypeID compile_atom(Compiler *compiler, const Token *token)
 	} else if (token->kind == TokenKind_UnsignedNumber) {
 		// An integer constant
 		// <number>
-		uint32_t token_number = (uint32_t)compiler->compunit->token_unsigned_numbers[token->data];
+		uint32_t token_number = token->data.u32;
 		compiler_bytecode_push_u32(compiler, token_number);
 		// Try to reduce the number size as much as possible.
 		TypeID type_id = type_id_new_builtin(BuiltinTypeKind_Unsigned);
@@ -456,7 +456,7 @@ static TypeID compile_atom(Compiler *compiler, const Token *token)
 	} else if (token->kind == TokenKind_SignedNumber) {
 		// An integer constant
 		// (-)<number>
-		int32_t token_number = compiler->compunit->token_signed_numbers[token->data];
+		int32_t token_number = token->data.i32;
 		compiler_bytecode_push_i32(compiler, token_number);
 		// Try to reduce the number size as much as possible.
 		TypeID type_id = type_id_new_builtin(BuiltinTypeKind_Signed);
@@ -476,20 +476,14 @@ static TypeID compile_atom(Compiler *compiler, const Token *token)
 	} else if (token->kind == TokenKind_FloatingNumber) {
 		// An floating point constant
 		// <number>.<number>
-		float token_number = compiler->compunit->token_float_numbers[token->data];
+		float token_number = token->data.f32;
 		compiler_bytecode_push_f32(compiler, token_number);
 		TypeID type_id = type_id_new_builtin(BuiltinTypeKind_Float);
 		return type_id;
 	} else if (token->kind == TokenKind_StringLiteral) {
 		// A string literal
 		// "str"
-		uint32_t string_index = token->data;
-		uint32_t string_offset = compiler->compunit->token_strings_offset[string_index];
-		uint32_t string_length = compiler->compunit->token_strings_length[string_index];
-		sv literal = {
-			.chars = compiler->compunit->token_string_buffer + string_offset,
-			.length = string_length,
-		};
+		sv literal = string_pool_get(&compiler->compunit->string_pool, token->data.sid);
 		compiler_bytecode_push_str(compiler, literal);
 		TypeID new_type_id = type_id_pointer_from(type_id_new_unsigned(NumberWidth_8));
 		new_type_id.slice.builtin_kind = BuiltinTypeKind_Slice;

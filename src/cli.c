@@ -1,6 +1,8 @@
 // Compatibility crap
 #include <stdint.h>
+#if !defined(NULL)
 #define NULL 0
+#endif
 #define wchar_t uint16_t
 // CRT stub
 void *memset(void *dest, int c, size_t count);
@@ -24,11 +26,10 @@ enum Core_Constants
 #include "compiler.c"
 #include "vm.c"
 #include "executor.c"
-#include "cross.c"
+#include "core/cross.c"
 #endif
 
-#include "cross.h"
-#include "arena.h"
+#include "core/cross.h"
 #include "vm.h"
 
 #define CLI_LOG 2
@@ -355,7 +356,7 @@ static void frame(void)
 			cross_log(cross_stderr, string_builder_get_string(&sb));
 #endif
 
-			Error error = vm_compile(state.vm, state.modules_name_sv[i_module], file_content.content);
+			Error error = vm_compile(state.persistent_arena, state.vm, state.modules_name_sv[i_module], file_content.content);
 			if (error.code != ErrorCode_Ok) {
 				on_error(state.vm, error);
 			}

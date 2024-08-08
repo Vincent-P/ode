@@ -1,5 +1,5 @@
 #include "vm.h"
-#include "arena.h"
+#include "core/core.h"
 #include "compiler.h"
 #include "debug.h"
 #include "executor.h"
@@ -7,7 +7,7 @@
 #include "opcodes.h"
 #include "parser.h"
 
-#define VM_LOG 1
+#define VM_LOG 2
 
 VM *vm_create(Arena *arena, VMConfig config)
 {
@@ -40,10 +40,10 @@ typedef struct CompileLoadLinkResult
 	uint32_t i_runtime_module;
 } CompileLoadLinkResult;
 
-CompileLoadLinkResult compile_load_link_code(VM *vm, sv module_name, sv code);
+CompileLoadLinkResult compile_load_link_code(Arena temp_mem, VM *vm, sv module_name, sv code);
 
 // Parse code, compile module.
-static CompilationResult compile_code(VM *vm, sv module_name, sv code)
+static CompilationResult compile_code(Arena temp_mem, VM *vm, sv module_name, sv code)
 {
 #if VM_LOG > 0
 	char logbuf[128] = {0};
@@ -52,23 +52,35 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 
 	CompilationUnit compunit = {0};
 	compunit.input = code;
+
+	const uint32_t MAX_INTERNED_CHARS = 1024;
+	compunit.string_pool.string_buffer_capacity = MAX_INTERNED_CHARS;
+	compunit.string_pool.string_buffer = arena_alloc(&temp_mem, MAX_INTERNED_CHARS);
+
+	const uint32_t MAX_INTERNED_STRINGS = 256;
+	compunit.string_pool.capacity = MAX_INTERNED_STRINGS;
+	compunit.string_pool.keys = arena_alloc(&temp_mem, MAX_INTERNED_STRINGS * sizeof(*compunit.string_pool.keys));
+	compunit.string_pool.sv_offset = arena_alloc(&temp_mem, MAX_INTERNED_STRINGS * sizeof(*compunit.string_pool.sv_offset));
+	compunit.string_pool.sv_length = arena_alloc(&temp_mem, MAX_INTERNED_STRINGS * sizeof(*compunit.string_pool.sv_length));
 	
 	// -- Lex tokens
-	lexer_scan(&compunit);
-	if (compunit.error.code != ErrorCode_Ok) {
+	LexerResult lexer_result = lexer_scan(&temp_mem, &compunit.string_pool, code);
+	compunit.tokens = lexer_result.tokens;
+	compunit.token_count = lexer_result.token_count;
+
+	if (lexer_result.success == false) {
 #if VM_LOG > 0
 		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 		// <file>:<line>:0: error Lexer[] returned <errcode>
 		string_builder_append_sv(&sb, compunit.error.file);
 		string_builder_append_char(&sb, ':');
-		string_builder_append_u64(&sb, (uint64_t)(compunit.error.line));
-		string_builder_append_sv(&sb, SV(":0: error: Lexer[] returned "));
-		string_builder_append_sv(&sb, SV(ErrorCode_str[(uint32_t)(compunit.error.code)]));
-		string_builder_append_char(&sb, '\n');
+		string_builder_append_u64(&sb, (uint64_t)(0));
+		string_builder_append_sv(&sb, SV(":0: error: Lexer[]\n"));
 		// Error at: '<errorstr>'
-		build_error_at(code, compunit.error.span, &sb);
+		build_error_at(code, lexer_result.error_span, &sb);
 		cross_log(cross_stderr, string_builder_get_string(&sb));
 #endif	
+		__debugbreak();
 		result.error = compunit.error;
 		return result;
 	}
@@ -86,7 +98,7 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 		string_builder_append_char(&sb, ':');
 		string_builder_append_u64(&sb, (uint64_t)(compunit.error.line));
 		string_builder_append_sv(&sb, SV(":0: error: Parser[token_length: "));
-		string_builder_append_u64(&sb, (uint64_t)(compunit.tokens_length));
+		string_builder_append_u64(&sb, (uint64_t)(compunit.token_count));
 		string_builder_append_sv(&sb, SV(", i_current_token: "));
 		string_builder_append_u64(&sb, (uint64_t)(parser.i_current_token));
 		string_builder_append_sv(&sb, SV("] returned "));
@@ -95,9 +107,9 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 		cross_log(cross_stderr, string_builder_get_string(&sb));
 		build_error_at(code, compunit.error.span, &sb);
 		cross_log(cross_stderr, string_builder_get_string(&sb));
-		if (compunit.tokens_length > 0) {
+		if (compunit.token_count > 0) {
 			uint32_t i_last_token =
-				parser.i_current_token < compunit.tokens_length ? parser.i_current_token : compunit.tokens_length - 1;
+				parser.i_current_token < compunit.token_count ? parser.i_current_token : compunit.token_count - 1;
 			const Token *last_token = compunit.tokens + i_last_token;
 			sv last_token_str = sv_substr(compunit.input, last_token->span);
 			const char *token_kind_str = TokenKind_str[(uint32_t)(last_token->kind)];
@@ -160,7 +172,7 @@ static CompilationResult compile_code(VM *vm, sv module_name, sv code)
 			return result;
 		}
 
-		CompileLoadLinkResult dep_result = compile_load_link_code(vm, dep_module_name, dep_input);
+		CompileLoadLinkResult dep_result = compile_load_link_code(temp_mem, vm, dep_module_name, dep_input);
 		if (dep_result.error.code != ErrorCode_Ok) {
 			result.error = dep_result.error;
 			return result;
@@ -390,10 +402,10 @@ static LoadModuleResult load_compiler_module(VM *vm, uint32_t i_compiler_module)
 	return result;
 }
 
-CompileLoadLinkResult compile_load_link_code(VM *vm, sv module_name, sv code)
+CompileLoadLinkResult compile_load_link_code(Arena temp_mem, VM *vm, sv module_name, sv code)
 {
 	CompileLoadLinkResult result = {0};
-	CompilationResult comp_result = compile_code(vm, module_name, code);
+	CompilationResult comp_result = compile_code(temp_mem, vm, module_name, code);
 	if (comp_result.error.code != ErrorCode_Ok) {
 		result.error = comp_result.error;
 		return result;
@@ -414,9 +426,9 @@ CompileLoadLinkResult compile_load_link_code(VM *vm, sv module_name, sv code)
 	return result;
 }
 
-Error vm_compile(VM *vm, sv module_name, sv code)
+Error vm_compile(Arena temp_mem, VM *vm, sv module_name, sv code)
 {
-	CompileLoadLinkResult result = compile_load_link_code(vm, module_name, code);
+	CompileLoadLinkResult result = compile_load_link_code(temp_mem, vm, module_name, code);
 	return result.error;
 }
 

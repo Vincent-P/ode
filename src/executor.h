@@ -1,6 +1,6 @@
 #pragma once
 #include <stdint.h>
-#include "core.h"
+#include "core/core.h"
 
 typedef struct ExecutionContext ExecutionContext;
 

@@ -1,6 +1,6 @@
 #include "executor.h"
 #include "opcodes.h"
-#include "cross.h"
+#include "core/cross.h"
 
 static const char* PointerType_str[] = {
 	"PointerType_Host",
@@ -115,8 +115,8 @@ void call_function(
 			break;
 		}
 		OpCode op = (OpCode)bytecode_read_u8(ctx, mp, &ip);
-		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 #if 0
+		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 		string_builder_append_sv(&sb, SV("[TRACE] "));
 		string_builder_append_sv(&sb, SV(OpCode_str[(uint8_t)(op)]));
 		string_builder_append_char(&sb, '\n');

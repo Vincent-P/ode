@@ -1,7 +1,7 @@
 #include "debug.h"
 #include "parser.h"
 #include "opcodes.h"
-#include "cross.h"
+#include "core/cross.h"
 
 void print_bytecode(const uint8_t *bytecode, uint32_t bytecode_length)
 {

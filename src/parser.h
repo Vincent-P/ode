@@ -1,5 +1,5 @@
 #pragma once
-#include "core.h"
+#include "core/core.h"
 #include "constants.h"
 #include "lexer.h"
 #include "type_id.h"

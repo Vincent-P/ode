@@ -26,21 +26,10 @@ static bool is_whitespace(char c)
 	return c == ' ' || c == '\n' || c == '\r' || c == '\t';
 }
 
-void lexer_scan(CompilationUnit *compunit)
-{
-	if (compunit->error.code != ErrorCode_Ok) {
-		return;
-	}
+static LexerResult lexer_scan(Arena *arena, StringPool *string_pool, sv input)
+{	
+	LexerResult result = {0};
 
-	Error *error = &compunit->error;
-	sv input = compunit->input;
-
-	uint32_t token_signed_number_size = 0;
-	uint32_t token_unsigned_number_size = 0;
-	uint32_t token_float_number_size = 0;
-	uint32_t token_string_size = 0; // Number of string token
-	uint32_t string_buffer_offset = 0; // Current offset into the string buffer
-	
 	uint32_t input_offset = 0;
 	while (true) {
 		// Eat all whitespace
@@ -52,7 +41,6 @@ void lexer_scan(CompilationUnit *compunit)
 
 		// End of input
 		if (input_offset >= input.length) {
-			error->code = ErrorCode_Ok;
 			break;
 		}
 
@@ -84,7 +72,6 @@ void lexer_scan(CompilationUnit *compunit)
 			// floating point
 			if (token_length < input.length && next_char == '.') {
 				float parsed_float = (float)parsed_number;
-				token.kind = TokenKind_FloatingNumber;
 				float divisor = 1.0f;
 				uint32_t parsed_decimals = 0;
 				token_length += 1;
@@ -98,24 +85,14 @@ void lexer_scan(CompilationUnit *compunit)
 				}
 				parsed_float = parsed_float + ((float)parsed_decimals * divisor);
 				parsed_float = -parsed_float;
-				// Add the number literal to the compilation unit data
-				if (token_float_number_size >= ARRAY_LENGTH(compunit->token_float_numbers)) {
-					__debugbreak();
-				}
-				token.data = token_float_number_size;
-				compunit->token_float_numbers[token.data] = parsed_float;
-				token_float_number_size += 1;
+
+				token.kind = TokenKind_FloatingNumber;
+				token.data.f32 = parsed_float;
 			} else {
 				token.kind = TokenKind_SignedNumber;
-				// Add the number literal to the compilation unit data
-				if (token_signed_number_size >= ARRAY_LENGTH(compunit->token_signed_numbers)) {
-					__debugbreak();
-				}
-				token.data = token_signed_number_size;
-				compunit->token_signed_numbers[token.data] = -(int32_t)(uint32_t)parsed_number;
-				token_signed_number_size += 1;
+				token.data.i32 = -(int32_t)(uint32_t)parsed_number;
 			}
-		} else if (is_number(first_char)) {		
+		} else if (is_number(first_char)) {
 			// positive number
 			uint64_t parsed_number = (unsigned char)first_char - (unsigned char)'0';
 			char next_char = input.chars[input_offset + token_length];
@@ -129,7 +106,6 @@ void lexer_scan(CompilationUnit *compunit)
 			if (token_length < input.length && next_char == '.') {
 				float parsed_float = (float)parsed_number;
 	
-				token.kind = TokenKind_FloatingNumber;
 
 				float divisor = 1.0f;
 				uint32_t parsed_decimals = 0;
@@ -144,74 +120,56 @@ void lexer_scan(CompilationUnit *compunit)
 				}
 				parsed_float = parsed_float + ((float)parsed_decimals * divisor);
 
-				// Add the number literal to the compilation unit data
-				if (token_float_number_size >= ARRAY_LENGTH(compunit->token_float_numbers)) {
-					__debugbreak();
-				}
-				token.data = token_float_number_size;
-				compunit->token_float_numbers[token.data] = parsed_float;
-				token_float_number_size += 1;
+				token.kind = TokenKind_FloatingNumber;
+				token.data.f32 = parsed_float;
 			} else {
 				// It does not have a floating point delimiter, it is a positive number
 				token.kind = TokenKind_UnsignedNumber;
-				// Add the number literal to the compilation unit data
-				if (token_unsigned_number_size >= ARRAY_LENGTH(compunit->token_unsigned_numbers)) {
-					__debugbreak();
-				}
-				token.data = token_unsigned_number_size;
-				compunit->token_unsigned_numbers[token.data] = (uint32_t)parsed_number;
-				token_unsigned_number_size += 1;
+				token.data.u32 = (uint32_t)parsed_number;
 			}
 		} else if (is_identifier_first_char(first_char)) {
 			while (token_length < input.length && is_identifier_char(input.chars[input_offset + token_length])) {
 				token_length += 1;
 			}
 			token.kind = TokenKind_Identifier;
-		} else if (first_char == '"') {
 
-			if (token_string_size >= ARRAY_LENGTH(compunit->token_strings_offset)) {
-				// maximum string count reached.
-				__debugbreak();
-			}
+			sv identifier_str = {input.chars + token.span.start, token_length};
+			token.data.sid = string_pool_intern(string_pool, identifier_str);
+		} else if (first_char == '"') {
 
 			// Write the string literal to the string buffer
 			uint32_t escaped_string_size = 0;
-			compunit->token_strings_offset[token_string_size] = string_buffer_offset;
-
+			sv string_str = {0};
+			string_str.chars = input.chars + input_offset + token_length;
 			while (token_length < input.length && input.chars[input_offset + token_length] != '"') {
-
-				// TODO: Handle escape sequences
-				if (string_buffer_offset + escaped_string_size >= ARRAY_LENGTH(compunit->token_string_buffer)) {
-					// Crash if we overflow the string buffer
-					__debugbreak();
-				}
-				compunit->token_string_buffer[string_buffer_offset + escaped_string_size] = input.chars[input_offset + token_length];
 				escaped_string_size += 1;
-				
 				token_length += 1;
 			}
-			compunit->token_strings_length[token_string_size] = escaped_string_size;
-			
-			// TODO: Handle string to eof error
-			if (token_length >= input.length) {
-				__debugbreak();
-			}
+			string_str.length = escaped_string_size;
+
+			ASSERT(token_length < input.length); // TODO: Handle string to eof error
 			// Eat the ending double-quote
 			token_length += 1;
-			token.data = token_string_size;
+
 			token.kind = TokenKind_StringLiteral;
-			token_string_size += 1;
+			token.data.sid = string_pool_intern(string_pool, string_str);
 		} else {
-	    		INIT_ERROR(error, ErrorCode_LexerUnknownToken);
-			error->span = (span){input_offset, input_offset + 1};
+			result.error_span = (span){input_offset, input_offset + 1};
 			break;
 		}
+
 		token.span.end = token.span.start + token_length;
 		input_offset += token_length;
 
-		// Add the token to our list
-		uint32_t i_token = compunit->tokens_length;
-		compunit->tokens[i_token] = token;
-		compunit->tokens_length += 1;
+		// Append to output
+		void *out_token = arena_alloc(arena, sizeof(Token));
+		memcpy(out_token, &token, sizeof(Token));
+		result.token_count += 1;
+		if (result.tokens == NULL) {
+			result.tokens = out_token;
+		}
 	}
+
+	result.success = true;
+	return result;
 }

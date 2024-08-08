@@ -8,7 +8,7 @@
 		(+ (fib_rec (- n 1)) (fib_rec (- n 2)))))
 
 (define-foreign (log ()) (chars (* u8) len u32))
-(define-foreign (logi ()) (n u32))
+(define-foreign (logi ()) (n i32))
 (define-foreign (logb ()) (n bool))
 (define-foreign (logf ()) (n f32))
 
@@ -128,6 +128,6 @@
 		(when (> (+ cursor/x 0.07) 1.0)
 		      (set cursor/x (+ -1.0 0.03))
 		      (set cursor/y (+ cursor/y 0.1)))
-		(push-rect rl cursor/x cursor/y 0.01 0.01)
+		(push-rect rl cursor/x cursor/y 0.02 0.02)
 		(set i (+ i 1)))
 )
