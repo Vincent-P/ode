@@ -53,7 +53,6 @@ inline bool ast_is_atom(const AstNode *node)
 {
 	return node->atom_token_index != INVALID_NODE_INDEX;
 }
-
 	
 const AstNode *ast_get_node(const CompilationUnit *compunit, uint32_t node_index);
 const AstNode *ast_get_left_child(const CompilationUnit *compunit, const AstNode *node);

@@ -13,6 +13,17 @@ VM *vm_create(Arena *arena, VMConfig config)
 {
 	VM *vm = (VM*)arena_alloc(arena, sizeof(VM));
 	vm->config = config;
+
+	const uint32_t MAX_INTERNED_CHARS = 1024;
+	vm->identifiers_pool.string_buffer_capacity = MAX_INTERNED_CHARS;
+	vm->identifiers_pool.string_buffer = arena_alloc(arena, MAX_INTERNED_CHARS);
+
+	const uint32_t MAX_INTERNED_STRINGS = 256;
+	vm->identifiers_pool.capacity = MAX_INTERNED_STRINGS;
+	vm->identifiers_pool.keys = arena_alloc(arena, MAX_INTERNED_STRINGS * sizeof(*vm->identifiers_pool.keys));
+	vm->identifiers_pool.sv_offset = arena_alloc(arena, MAX_INTERNED_STRINGS * sizeof(*vm->identifiers_pool.sv_offset));
+	vm->identifiers_pool.sv_length = arena_alloc(arena, MAX_INTERNED_STRINGS * sizeof(*vm->identifiers_pool.sv_length));
+	
 	return vm;
 }
 
@@ -49,6 +60,9 @@ static CompilationResult compile_code(Arena temp_mem, VM *vm, sv module_name, sv
 	char logbuf[128] = {0};
 #endif	
 	CompilationResult result = {0};
+
+
+	StringId module_id = string_pool_intern(&vm->identifiers_pool, module_name);
 
 	CompilationUnit compunit = {0};
 	compunit.input = code;
@@ -184,7 +198,7 @@ static CompilationResult compile_code(Arena temp_mem, VM *vm, sv module_name, sv
 	Compiler compiler = {0};
 	compiler.vm = vm;
 	compiler.compunit = &compunit;
-	compiler.module.name = module_name;
+	compiler.module.name = module_id;
 	compiler.module.imports = dep_module_indices;
 	compiler.module.imports_length = require_paths_length;
 	compile_module(&compiler);
@@ -217,6 +231,7 @@ static CompilationResult compile_code(Arena temp_mem, VM *vm, sv module_name, sv
 		result.error = compunit.error;
 		return result;
 	}
+
 #if VM_LOG > 1
 	cross_log(cross_stderr, SV("\nCompilation success:\n"));
 	for (uint32_t i_import = 0; i_import < compiler.module.imported_functions_length; ++i_import)
@@ -224,8 +239,8 @@ static CompilationResult compile_code(Arena temp_mem, VM *vm, sv module_name, sv
 		uint32_t i_imported_module = compiler.module.imported_module_indices[i_import];
 		uint32_t i_imported_function = compiler.module.imported_function_indices[i_import];
 		CompilerModule *imported_module = compiler.vm->compiler_modules + i_imported_module;
-		sv imported_module_name = imported_module->name;
-		sv imported_function_name = imported_module->functions[i_imported_function].name;
+		sv imported_module_name = string_pool_get(&vm->identifiers_pool, imported_module->name);
+		sv imported_function_name = string_pool_get(&vm->identifiers_pool, imported_module->functions[i_imported_function].name);
 
 		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 		string_builder_append_sv(&sb, SV("imported function: "));
@@ -241,7 +256,7 @@ static CompilationResult compile_code(Arena temp_mem, VM *vm, sv module_name, sv
 	// -- Copy the new module to the VM
 	uint32_t i_module = 0;
 	for (; i_module < vm->compiler_modules_length; ++i_module) {
-		if (sv_equals(vm->compiler_modules[i_module].name, module_name)) {
+		if (vm->compiler_modules[i_module].name.id == module_id.id) {
 			break;
 		}
 	}
@@ -282,7 +297,7 @@ static void link_runtime_module(VM *vm, uint32_t i_runtime_module)
 			// Try to link our imports with other modules export by name
 			for (uint32_t i_export = 0; i_export < other_module_export_length; ++i_export) {
 				for (uint32_t i_import = 0; i_import < our_import_length; ++i_import) {
-					if (sv_equals(runtime_module->import_names[i_import], other_module->export_names[i_export])) {
+					if (runtime_module->import_names[i_import].id == other_module->export_names[i_export].id) {
 						if (runtime_module->import_addresses[i_import] != 0) {
 							// Import already resolved?
 							// Multiple symbols!
@@ -296,12 +311,12 @@ static void link_runtime_module(VM *vm, uint32_t i_runtime_module)
 
 			// We also want to try to fix our export on other modules, if they depend on us
 			for (uint32_t i_import = 0; i_import < other_module_import_length; ++i_import) {
-				if (sv_equals(other_module->import_module_names[i_import], runtime_module->name)) {
+				if (other_module->import_module_names[i_import].id == runtime_module->name.id) {
 					// Reset other module import to 0
 					other_module->import_addresses[i_import] = 0;
 				
 					for (uint32_t i_export = 0; i_export < our_export_length; ++i_export) {	
-						if (sv_equals(other_module->import_names[i_import], runtime_module->export_names[i_export])) {
+						if (other_module->import_names[i_import].id == runtime_module->export_names[i_export].id) {
 							other_module->import_module[i_import] = i_runtime_module;
 							other_module->import_addresses[i_import] = runtime_module->export_addresses[i_export];
 							break;
@@ -331,7 +346,7 @@ static LoadModuleResult load_compiler_module(VM *vm, uint32_t i_compiler_module)
 	uint32_t i_runtime_module = 0;
 	for (; i_runtime_module < runtime_modules_length; ++i_runtime_module) {
 		Module *runtime_module = vm->runtime_modules + i_runtime_module;
-		if (sv_equals(compiler_module->name, runtime_module->name)) {
+		if (compiler_module->name.id == runtime_module->name.id) {
 			break;
 		}
 	}
@@ -384,14 +399,14 @@ static LoadModuleResult load_compiler_module(VM *vm, uint32_t i_compiler_module)
 	runtime_module->export_length = export_length;
 	// Fill foreign function data
 	for (f = 0; f < compiler_module->foreign_functions_length; ++f) {
-		sv foreign_module_name = compiler_module->foreign_functions_module_name[f];
-		sv foreign_function_name = compiler_module->foreign_functions_name[f];
+		sv foreign_module_name = string_pool_get(&vm->identifiers_pool, compiler_module->foreign_functions_module_name[f]);
+		sv foreign_function_name = string_pool_get(&vm->identifiers_pool, compiler_module->foreign_functions_name[f]);
 		ForeignFn callback = vm->config.foreign_callback(foreign_module_name, foreign_function_name);
 		if (callback == NULL) {
 			__debugbreak();
 		}
-		runtime_module->foreign_function_module_names[f] = foreign_module_name;
-		runtime_module->foreign_function_names[f] = foreign_function_name;
+		runtime_module->foreign_function_module_names[f] = compiler_module->foreign_functions_module_name[f];
+		runtime_module->foreign_function_names[f] = compiler_module->foreign_functions_name[f];
 		runtime_module->foreign_function_callback[f] = callback;
 	}
 	runtime_module->foreign_function_length = compiler_module->foreign_functions_length;
@@ -434,11 +449,14 @@ Error vm_compile(Arena temp_mem, VM *vm, sv module_name, sv code)
 
 Error vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 {
+	StringId module_id = string_pool_intern(&vm->identifiers_pool, module_name);
+	StringId function_id = string_pool_intern(&vm->identifiers_pool, function_name);
+
 	// Find the function name in the compiler module
 	const uint32_t modules_len = vm->compiler_modules_length;
 	uint32_t i_module = 0;
 	for (; i_module < modules_len; ++i_module) {
-		if (sv_equals(vm->compiler_modules[i_module].name, module_name)) {
+		if (vm->compiler_modules[i_module].name.id == module_id.id) {
 			break;
 		}
 	}
@@ -452,7 +470,7 @@ Error vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 	uint32_t i_entrypoint = 0;
 	uint32_t entrypoint_address = 0;
 	for (; i_entrypoint < functions_len; ++i_entrypoint) {
-		if (sv_equals(module->functions[i_entrypoint].name, function_name)) {
+		if (module->functions[i_entrypoint].name.id == function_id.id) {
 			entrypoint_address = module->functions[i_entrypoint].address;
 			break;
 		}
@@ -467,7 +485,7 @@ Error vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 	const uint32_t runtime_modules_len = vm->runtime_modules_length;
 	uint32_t i_runtime_module = 0;
 	for (; i_runtime_module < runtime_modules_len; ++i_runtime_module) {
-		if (sv_equals(vm->runtime_modules[i_runtime_module].name, module_name)) {
+		if (vm->runtime_modules[i_runtime_module].name.id == module_id.id) {
 			break;
 		}
 	}

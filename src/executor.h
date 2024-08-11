@@ -55,20 +55,20 @@ typedef void(*ForeignFn)(ExecutionContext*,Value*, uint32_t, uint32_t*);
 
 typedef struct Module
 {
-	sv name;
+	StringId name;
 	// Imported functions
-	sv import_module_names[IMPORT_LENGTH]; // module name
-	sv import_names[IMPORT_LENGTH]; // function name
+	StringId import_module_names[IMPORT_LENGTH]; // module name
+	StringId import_names[IMPORT_LENGTH]; // function name
 	uint32_t import_module[IMPORT_LENGTH]; // runtime module index
 	uint64_t import_addresses[IMPORT_LENGTH]; // function address in module
 	uint32_t import_length;
 	// Exported functions
-	sv export_names[IMPORT_LENGTH]; // function name
+	StringId export_names[IMPORT_LENGTH]; // function name
 	uint32_t export_addresses[IMPORT_LENGTH]; // function address
 	uint32_t export_length;
 	// Foreign functions
-	sv foreign_function_module_names[IMPORT_LENGTH];
-	sv foreign_function_names[IMPORT_LENGTH];
+	StringId foreign_function_module_names[IMPORT_LENGTH];
+	StringId foreign_function_names[IMPORT_LENGTH];
 	ForeignFn foreign_function_callback[IMPORT_LENGTH];
 	uint32_t foreign_function_length;
 	// Constant memory

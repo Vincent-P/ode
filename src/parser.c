@@ -213,7 +213,7 @@ TypeID parse_type(CompilationUnit *compunit, CompilerModule *module, const AstNo
 	if (ast_is_atom(node)) {
 		// The type is just an identifier, find the corresponding builtin type or named type
 		const Token *identifier = ast_get_token(compunit, node);
-		sv identifier_str = sv_substr(compunit->input, identifier->span);
+		sv identifier_str = string_pool_get(&compunit->string_pool, identifier->data.sid);;
 
 		// Search builtin types
 		const TypeID builtin_types[] = {
@@ -282,7 +282,7 @@ TypeID parse_type(CompilationUnit *compunit, CompilerModule *module, const AstNo
 		}
 
 		const Token *token = ast_get_token(compunit, child0);
-		const sv token_str = sv_substr(compunit->input, token->span);
+		const sv token_str = string_pool_get(&compunit->string_pool, token->data.sid);
 		// (* <type>)
 		if (sv_equals(token_str, sv_from_null_terminated("*"))) {
 			TypeID inner_type = parse_type(compunit, module, child1);

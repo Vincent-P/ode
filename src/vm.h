@@ -25,6 +25,8 @@ typedef struct VM
 	uint32_t compiler_modules_length;
 	Module runtime_modules[8];
 	uint32_t runtime_modules_length;
+
+	StringPool identifiers_pool;
 } VM;
 
 VM *vm_create(Arena *arena, VMConfig config);

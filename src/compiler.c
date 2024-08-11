@@ -212,13 +212,45 @@ static void compiler_bytecode_debug_label(Compiler *compiler, sv label)
 
 
 // compiler functions
-static void compiler_lookup_function(Compiler *compiler, sv function_name, uint32_t *out_module, uint32_t *out_function)
+static void compiler_lookup_function_str(Compiler *compiler, sv function_name, uint32_t *out_module, uint32_t *out_function)
 {
 	CompilerModule *current_module = &compiler->module;
 	// Search local functions
 	for (uint32_t i_function = 0; i_function < current_module->functions_length; ++i_function) {
 		Function *function = current_module->functions + i_function;
-		if (sv_equals(function->name, function_name)) {
+		sv local_function_name = string_pool_get(&compiler->vm->identifiers_pool, function->name);
+		if (sv_equals(local_function_name, function_name)) {
+			*out_module = ~(uint32_t)(0);
+			*out_function = i_function;
+			return;
+		}
+	}
+	// Search imports
+	for (uint32_t i_import = 0; i_import < current_module->imports_length; ++i_import) {
+		uint32_t i_imported_module = current_module->imports[i_import];
+		CompilerModule *imported_module = compiler->vm->compiler_modules + i_imported_module;
+		for (uint32_t i_function = 0; i_function < imported_module->functions_length; ++i_function) {
+			Function *function = imported_module->functions + i_function;
+			sv imported_function_name = string_pool_get(&compiler->vm->identifiers_pool, function->name);
+			bool is_importable = function->type == FunctionType_Global || function->type == FunctionType_Foreign;
+			if (is_importable && sv_equals(imported_function_name, function_name)) {
+				*out_module = i_import;
+				*out_function = i_function;
+				return;
+			}
+		}
+	}
+	*out_module = ~0u;
+	*out_function = ~0u;
+}
+
+static void compiler_lookup_function_id(Compiler *compiler, StringId function_id, uint32_t *out_module, uint32_t *out_function)
+{
+	CompilerModule *current_module = &compiler->module;
+	// Search local functions
+	for (uint32_t i_function = 0; i_function < current_module->functions_length; ++i_function) {
+		Function *function = current_module->functions + i_function;
+		if (function->name.id == function_id.id) {
 			*out_module = ~(uint32_t)(0);
 			*out_function = i_function;
 			return;
@@ -231,7 +263,7 @@ static void compiler_lookup_function(Compiler *compiler, sv function_name, uint3
 		for (uint32_t i_function = 0; i_function < imported_module->functions_length; ++i_function) {
 			Function *function = imported_module->functions + i_function;
 			bool is_importable = function->type == FunctionType_Global || function->type == FunctionType_Foreign;
-			if (is_importable && sv_equals(function->name, function_name)) {
+			if (is_importable && function->name.id == function_id.id) {
 				*out_module = i_import;
 				*out_function = i_function;
 				return;
@@ -337,7 +369,7 @@ static bool compiler_push_variable(Compiler *compiler, const Token *identifier_t
 	uint32_t i_new_variable = current_scope->variables_length;
 	current_scope->variables_length += 1;
 
-	sv name_str = sv_substr(compiler->compunit->input, identifier_token->span);
+	sv name_str = string_pool_get(&compiler->compunit->string_pool, identifier_token->data.sid);
 
 	current_scope->variables_name[i_new_variable] = name_str;
 	current_scope->variables_type[i_new_variable] = type;
@@ -363,7 +395,7 @@ static bool compiler_push_arg(Compiler *compiler, const Token *identifier_token,
 	uint32_t i_new_arg = current_scope->args_length;
 	current_scope->args_length += 1;
 
-	sv name_str = sv_substr(compiler->compunit->input, identifier_token->span);
+	sv name_str = string_pool_get(&compiler->compunit->string_pool, identifier_token->data.sid);
 
 	current_scope->args_name[i_new_arg] = name_str;
 	current_scope->args_type[i_new_arg] = type;
@@ -379,7 +411,7 @@ static bool compiler_lookup_variable(Compiler *compiler, const Token *identifier
 		return false;
 	}
 
-	sv tofind_name = sv_substr(compiler->compunit->input, identifier_token->span);
+	sv tofind_name = string_pool_get(&compiler->compunit->string_pool, identifier_token->data.sid);
 
 	for (uint32_t i_scope = compiler->scopes_length - 1; i_scope < compiler->scopes_length; --i_scope) {
 		LexicalScope *scope = compiler->scopes + i_scope;
@@ -542,7 +574,8 @@ static TypeID compile_function_defininition(Compiler *compiler, const AstNode *n
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
-	sv function_name = sv_substr(compiler->compunit->input, define_node.function_name_token->span);
+	sv function_name = string_pool_get(&compiler->compunit->string_pool, define_node.function_name_token->data.sid);
+	StringId function_id = string_pool_intern(&compiler->vm->identifiers_pool, function_name);
 	TypeID return_type = parse_type(compiler->compunit, &compiler->module, define_node.return_type_node);
 	TypeID arg_types[MAX_ARGUMENTS] = {0};
 	for (uint32_t i_arg = 0; i_arg < define_node.args_length; ++i_arg) {
@@ -551,7 +584,7 @@ static TypeID compile_function_defininition(Compiler *compiler, const AstNode *n
 	// Look for duplicated symbols
 	uint32_t i_found_module = 0;
 	uint32_t i_found_function = 0;
-	compiler_lookup_function(compiler, function_name, &i_found_module, &i_found_function);
+	compiler_lookup_function_id(compiler, function_id, &i_found_module, &i_found_function);
 	if (i_found_module < compiler->vm->compiler_modules_length || i_found_module < compiler->module.functions_length) {
 		// Actually it should be possible to recompile a function if signature has not changed.
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_DuplicateSymbol);
@@ -564,7 +597,7 @@ static TypeID compile_function_defininition(Compiler *compiler, const AstNode *n
 		return UNIT_TYPE;
 	}
 	Function *function = current_module->functions + current_module->functions_length;
-	function->name = function_name;
+	function->name = function_id;
 	function->address = current_module->bytecode_length;
 	function->type = function_type;
 	function->return_type = return_type;
@@ -629,13 +662,14 @@ static TypeID compile_define_foreign(Compiler *compiler, const AstNode *node)
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
-	sv function_name_token_str = sv_substr(compiler->compunit->input, nodes.function_name_token->span);
+	sv function_name_token_str = string_pool_get(&compiler->compunit->string_pool, nodes.function_name_token->data.sid);
+	StringId function_id = string_pool_intern(&compiler->vm->identifiers_pool, function_name_token_str);\
 
 	// -- Type checking
 	CompilerModule *current_module = &compiler->module;
 	uint32_t i_found_module = 0;
 	uint32_t i_found_function = 0;
-	compiler_lookup_function(compiler, function_name_token_str, &i_found_module, &i_found_function);
+	compiler_lookup_function_id(compiler, function_id, &i_found_module, &i_found_function);
 	if (i_found_module < compiler->vm->compiler_modules_length || i_found_module < compiler->module.functions_length) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_DuplicateSymbol);
 		compiler->compunit->error.span = node->span;
@@ -655,13 +689,14 @@ static TypeID compile_define_foreign(Compiler *compiler, const AstNode *node)
 		compiler->compunit->error.span = node->span;
 		return UNIT_TYPE;
 	}
+
 	current_module->foreign_functions_module_name[foreign_functions_length] = current_module->name;
-	current_module->foreign_functions_name[foreign_functions_length] = function_name_token_str;
+	current_module->foreign_functions_name[foreign_functions_length] = function_id;
 	current_module->foreign_functions_length += 1;
 
 	// Create a new function symbol
 	Function *function = current_module->functions + current_module->functions_length;
-	function->name = function_name_token_str;
+	function->name = function_id;
 	function->address = foreign_functions_length;
 	function->type = FunctionType_Foreign;
 	// parse return type
@@ -690,7 +725,7 @@ static TypeID compile_struct(Compiler *compiler, const AstNode *node)
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
-	sv struct_name_token_str = sv_substr(compiler->compunit->input, nodes.struct_name_token->span);
+	sv struct_name_token_str = string_pool_get(&compiler->compunit->string_pool, nodes.struct_name_token->data.sid);
 
 	// -- Type checking
 	// Check if the type is already defined
@@ -734,7 +769,7 @@ static TypeID compile_struct(Compiler *compiler, const AstNode *node)
 		}
 
 		struct_type->field_types[i_field] = field_type;
-		struct_type->field_names[i_field] = sv_substr(compiler->compunit->input, nodes.field_identifiers[i_field].span);
+		struct_type->field_names[i_field] = string_pool_get(&compiler->compunit->string_pool, nodes.field_identifiers[i_field].data.sid);
 		struct_type->field_offsets[i_field] = struct_size;
 
 		struct_size += type_get_size(&compiler->module, field_type);
@@ -1551,7 +1586,7 @@ static TypeID compile_field(Compiler *compiler, const AstNode *node)
 		compiler->compunit->error.span = nodes[1]->span;
 		return UNIT_TYPE;
 	}
-	sv field_identifier_str = sv_substr(compiler->compunit->input, field_token->span);
+	sv field_identifier_str = string_pool_get(&compiler->compunit->string_pool, field_token->data.sid);
 	// -- Find field offset
 	if (struct_type.user_defined.index >= compiler->module.types_length) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
@@ -1624,7 +1659,7 @@ static TypeID compile_store_field(Compiler *compiler, const AstNode *node)
 		compiler->compunit->error.span = nodes[1]->span;
 		return UNIT_TYPE;
 	}
-	sv field_identifier_str = sv_substr(compiler->compunit->input, field_token->span);
+	sv field_identifier_str = string_pool_get(&compiler->compunit->string_pool, field_token->data.sid);
 	// -- Find field offset
 	if (struct_type.user_defined.index >= compiler->module.types_length) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
@@ -1707,7 +1742,7 @@ static TypeID compile_load_field(Compiler *compiler, const AstNode *node)
 		compiler->compunit->error.span = nodes[1]->span;
 		return UNIT_TYPE;
 	}
-	sv field_identifier_str = sv_substr(compiler->compunit->input, field_token->span);
+	sv field_identifier_str = string_pool_get(&compiler->compunit->string_pool, field_token->data.sid);
 
 	// -- Find field offset
 	if (struct_type.user_defined.index >= compiler->module.types_length) {
@@ -1755,7 +1790,7 @@ static TypeID compile_field_offset(Compiler *compiler, const AstNode *node)
 		compiler->compunit->error.span = nodes[1]->span;
 		return UNIT_TYPE;
 	}
-	sv field_identifier_str = sv_substr(compiler->compunit->input, field_token->span);
+	sv field_identifier_str = string_pool_get(&compiler->compunit->string_pool, field_token->data.sid);
 
 	// -- Find field offset
 	if (expr_type.user_defined.index >= compiler->module.types_length) {
@@ -1935,7 +1970,7 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 	// Get the function name
 	const AstNode *identifier_node = ast_get_left_child(compiler->compunit, function_node);
 	const Token *identifier = ast_get_token(compiler->compunit, identifier_node);
-	sv identifier_str = sv_substr(compiler->compunit->input, identifier->span);
+	sv identifier_str = string_pool_get(&compiler->compunit->string_pool, identifier->data.sid);
 
 	// Dispatch to the correct builtin compile function (define, iadd, etc)
 	const uint32_t compiler_builtin_length = ARRAY_LENGTH(compiler_expr_builtins);
@@ -1948,7 +1983,7 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 	// If the identifier is not a builtin, generate a function call
 	uint32_t i_found_module = 0;
 	uint32_t i_found_function = 0;
-	compiler_lookup_function(compiler, identifier_str, &i_found_module, &i_found_function);
+	compiler_lookup_function_str(compiler, identifier_str, &i_found_module, &i_found_function);
 	bool is_external = i_found_module < compiler->vm->compiler_modules_length;
 	if (!is_external && i_found_function >= compiler->module.functions_length) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_UnknownSymbol);
@@ -2013,8 +2048,7 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 			uint32_t f = 0;
 			for (; f < current_module->foreign_functions_length; ++f)
 			{
-				if (sv_equals(current_module->foreign_functions_name[f],
-					      found_function->name))
+				if (current_module->foreign_functions_name[f].id == found_function->name.id)
 				{
 					break;
 				}
@@ -2098,7 +2132,7 @@ void compile_module(Compiler *compiler)
 		}
 
 		// Find the compiler builtin for this S-expression
-		sv identifier_str = sv_substr(compiler->compunit->input, atom_token->span);
+		sv identifier_str = string_pool_get(&compiler->compunit->string_pool, atom_token->data.sid);
 		uint32_t i_builtin = 0;
 		for (; i_builtin < ARRAY_LENGTH(compiler_top_builtins); ++i_builtin) {
 			if (sv_equals(identifier_str, compiler_top_builtins_str[i_builtin])) {
@@ -2143,7 +2177,7 @@ void compiler_scan_requires(CompilationUnit *compunit, const Token **out_tokens,
 		}
 
 		// Find a require clause
-		sv identifier_str = sv_substr(compunit->input, atom_token->span);
+		sv identifier_str = string_pool_get(&compunit->string_pool, atom_token->data.sid);
 		sv require = sv_from_null_terminated("require");
 		if (sv_equals(identifier_str, require)) {
 			// Check that there is only one argument

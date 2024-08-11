@@ -163,7 +163,7 @@ typedef struct StringPool StringPool;
 
 struct StringId
 {
-	uint32_t index;
+	uint32_t id;
 };
 typedef struct StringId StringId;
 
@@ -211,11 +211,12 @@ static StringId string_pool_intern(StringPool *pool, sv value)
 	return (StringId){index};
 }
 
-static sv string_pool_get(StringPool *pool, StringId id)
+static sv string_pool_get(StringPool *pool, StringId s)
 {
-	ASSERT(id.index < pool->capacity);
+	ASSERT(s.id < pool->capacity);
 	sv result;
-	result.chars = pool->string_buffer + pool->sv_offset[id.index];
-	result.length = pool->sv_length[id.index];
+	result.chars = pool->string_buffer + pool->sv_offset[s.id];
+	result.length = pool->sv_length[s.id];
+	ASSERT(result.length > 0);
 	return result;
 }
