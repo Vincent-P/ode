@@ -96,7 +96,13 @@ typedef struct Compiler
 	CompilerModule module;
 } Compiler;
 	
-void compiler_scan_requires(CompilationUnit *compunit, const Token **out_tokens, uint32_t out_tokens_max_length, uint32_t *out_tokens_written);
+typedef struct ScanDepsResult
+{
+	StringId *names;
+	uint32_t count;
+	bool success;
+} ScanDepsResult;
+ScanDepsResult compiler_scan_dependencies(Arena *memory, CompilationUnit *compunit);
 void compile_module(Compiler *compiler);
 
 

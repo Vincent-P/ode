@@ -6,6 +6,8 @@
 #define ASSERT(c)  while (!(c)) __builtin_unreachable()
 #endif
 
+typedef unsigned char byte;
+
 #include "./span.h"
 #include "./string.h"
 #include "./arena.h"

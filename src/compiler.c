@@ -2153,42 +2153,42 @@ void compile_module(Compiler *compiler)
 	}
 }
 
-void compiler_scan_requires(CompilationUnit *compunit, const Token **out_tokens, uint32_t out_tokens_max_length, uint32_t *out_tokens_written)
+ScanDepsResult compiler_scan_dependencies(Arena *out_memory, CompilationUnit *compunit)
 {
-	uint32_t tokens_written = 0;
+	StringId REQUIRE_ID = string_pool_intern(&compunit->string_pool, SV("require"));
+
+	ScanDepsResult result = {0};
 	const AstNode *root_node = compunit->nodes;
 
 	uint32_t i_root_expr = root_node->left_child_index;
 	while (ast_is_valid(i_root_expr)) {
 		const AstNode *root_expr = ast_get_node(compunit, i_root_expr);
 
-		// Validate that a root S-expression starts with a token
+		// Validate that a root S-expression starts with an identifier
 		const AstNode *first_sexpr_member = ast_get_left_child(compunit, root_expr);
 		bool is_an_atom = ast_has_left_child(root_expr) && ast_is_atom(first_sexpr_member);
 		if (!is_an_atom) {
 			INIT_ERROR(&compunit->error, ErrorCode_ExpectedIdentifier);
-			return;
+			return result;
 		}
 		const Token *atom_token = compunit->tokens + first_sexpr_member->atom_token_index;
 		const bool is_an_identifier = atom_token->kind == TokenKind_Identifier;
 		if (!is_an_identifier) {
 			INIT_ERROR(&compunit->error, ErrorCode_ExpectedIdentifier);
-			return;
+			return result;
 		}
 
 		// Find a require clause
-		sv identifier_str = string_pool_get(&compunit->string_pool, atom_token->data.sid);
-		sv require = sv_from_null_terminated("require");
-		if (sv_equals(identifier_str, require)) {
+		if (atom_token->data.sid.id == REQUIRE_ID.id) {
 			// Check that there is only one argument
 			if (root_expr->child_count < 2) {
 				INIT_ERROR(&compunit->error, ErrorCode_ExpectedExpr);
 				compunit->error.span = root_expr->span;
-				return;
+				return result;
 			} else if (root_expr->child_count > 2) {
 				INIT_ERROR(&compunit->error, ErrorCode_UnexpectedExpression);
 				compunit->error.span = root_expr->span;
-				return;
+				return result;
 			}
 
 			const AstNode *require_path_node = ast_get_right_sibling(compunit, first_sexpr_member);
@@ -2198,25 +2198,30 @@ void compiler_scan_requires(CompilationUnit *compunit, const Token **out_tokens,
 			if (!is_an_atom) {
 				INIT_ERROR(&compunit->error, ErrorCode_ExpectedString);
 				compunit->error.span = require_path_node->span;
-				return;
+				return result;
 			}
 			const Token *require_path_token = compunit->tokens + require_path_node->atom_token_index;
 			if (require_path_token->kind != TokenKind_StringLiteral) {
 				INIT_ERROR(&compunit->error, ErrorCode_ExpectedString);
 				compunit->error.span = require_path_node->span;
-				return;
+				return result;
 			}
 
 			// Process the require path
-			if (tokens_written < out_tokens_max_length) {
-				out_tokens[tokens_written] = require_path_token;
-				tokens_written += 1;
+			StringId dependency_id = require_path_token->data.sid;
+			// IMPORTANT: we are only allocating this id in the arena, so they will all be contigous.
+			StringId *output_dependency_id = arena_alloc(out_memory, sizeof(StringId));
+			if (result.names == NULL) {
+				result.names = output_dependency_id;
 			}
+			*output_dependency_id = dependency_id;
+			result.count += 1;
 		}
 
 		// Go to the next root expression
 		i_root_expr = root_expr->right_sibling_index;
 	}
 
-	*out_tokens_written = tokens_written;
+	result.success = true;
+	return result;
 }

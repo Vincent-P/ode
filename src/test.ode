@@ -1,4 +1,5 @@
 (require "testlib")
+(require "un")
 
 (struct Point
 	(x i32)

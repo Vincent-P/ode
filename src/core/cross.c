@@ -19,10 +19,10 @@ void cross_init(void)
 	cross_stderr = (uint64_t)(GetStdHandle(STD_ERROR_HANDLE));
 }
 
-uint64_t cross_get_file_last_write(const char *path, size_t path_length)
+uint64_t cross_get_file_last_write(sv filepath)
 {
 	wchar_t wide_path[256] = {0};
-	MultiByteToWideChar(CP_UTF8, MB_PRECOMPOSED, path, (int)path_length, &wide_path[0], 256);
+	MultiByteToWideChar(CP_UTF8, MB_PRECOMPOSED, filepath.chars, (int)filepath.length, &wide_path[0], 256);
 
 	HANDLE file =
 		CreateFileW(wide_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -41,11 +41,11 @@ uint64_t cross_get_file_last_write(const char *path, size_t path_length)
 	return time.QuadPart;
 }
 
-ReadFileResult cross_read_entire_file(const char* filepath)
+ReadFileResult cross_read_entire_file(sv filepath)
 {
 	ReadFileResult result = {0};
 	// Open file
-        HANDLE file = CreateFileA(filepath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+        HANDLE file = CreateFileA(filepath.chars, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
         if (file == INVALID_HANDLE_VALUE) {
 		result.success = false;
                 return result;
@@ -73,12 +73,8 @@ ReadFileResult cross_read_entire_file(const char* filepath)
 void cross_log(uint64_t handle, sv message)
 {
 	WriteFile((HANDLE)handle, message.chars, message.length, NULL, NULL);
-	if (message.length > 0) {
+	if (message.length > 0 && message.chars[message.length] == 0) {
 		// Make sure that we have a NULL terminator because OutputDebugString does not take a length
-		char *chars = (char*)message.chars;
-		if (chars[message.length] != 0) {
-			chars[message.length] = 0;
-		}
 		OutputDebugStringA(message.chars);
 	}
 }

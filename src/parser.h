@@ -33,6 +33,13 @@ const uint32_t INVALID_NODE_INDEX = ~0u;
 
 void parse_module(Parser *parser);
 
+
+
+
+
+
+
+
 // Helpers for AstNode
 inline bool ast_has_right_sibling(const AstNode *node)
 {

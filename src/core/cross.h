@@ -4,14 +4,14 @@
 void cross_init(void);
 
 // -- io
-uint64_t cross_get_file_last_write(const char *path, size_t path_length);
+uint64_t cross_get_file_last_write(sv filepath);
 
 typedef struct ReadFileResult
 {
 	sv content;
 	bool success;
 } ReadFileResult;
-ReadFileResult cross_read_entire_file(const char* filepath);
+ReadFileResult cross_read_entire_file(sv filepath);
 	
 extern uint64_t cross_stdout;
 extern uint64_t cross_stderr;

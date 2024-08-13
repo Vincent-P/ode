@@ -20,10 +20,11 @@ typedef struct VMConfig
 
 typedef struct VM
 {
+	Arena memory;
 	VMConfig config;
 	CompilerModule compiler_modules[8];
-	uint32_t compiler_modules_length;
 	Module runtime_modules[8];
+	uint32_t compiler_modules_length;
 	uint32_t runtime_modules_length;
 
 	StringPool identifiers_pool;

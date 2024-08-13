@@ -8,21 +8,27 @@
 #include "parser.h"
 
 #define VM_LOG 2
+#define VM_MEMORY_SIZE (1u << 20)
 
-VM *vm_create(Arena *arena, VMConfig config)
+VM *vm_create(Arena *memory, VMConfig config)
 {
-	VM *vm = (VM*)arena_alloc(arena, sizeof(VM));
+	Arena vm_memory;
+	vm_memory.begin = arena_alloc(memory, VM_MEMORY_SIZE);
+	vm_memory.end = vm_memory.begin + VM_MEMORY_SIZE;
+
+	VM *vm = (VM*)arena_alloc(&vm_memory, sizeof(VM));
+	vm->memory = vm_memory;
 	vm->config = config;
 
-	const uint32_t MAX_INTERNED_CHARS = 1024;
+	const uint32_t MAX_INTERNED_CHARS = 64;
 	vm->identifiers_pool.string_buffer_capacity = MAX_INTERNED_CHARS;
-	vm->identifiers_pool.string_buffer = arena_alloc(arena, MAX_INTERNED_CHARS);
+	vm->identifiers_pool.string_buffer = arena_alloc(&vm_memory, MAX_INTERNED_CHARS);
 
-	const uint32_t MAX_INTERNED_STRINGS = 256;
+	const uint32_t MAX_INTERNED_STRINGS = 16;
 	vm->identifiers_pool.capacity = MAX_INTERNED_STRINGS;
-	vm->identifiers_pool.keys = arena_alloc(arena, MAX_INTERNED_STRINGS * sizeof(*vm->identifiers_pool.keys));
-	vm->identifiers_pool.sv_offset = arena_alloc(arena, MAX_INTERNED_STRINGS * sizeof(*vm->identifiers_pool.sv_offset));
-	vm->identifiers_pool.sv_length = arena_alloc(arena, MAX_INTERNED_STRINGS * sizeof(*vm->identifiers_pool.sv_length));
+	vm->identifiers_pool.keys = arena_alloc(&vm_memory, MAX_INTERNED_STRINGS * sizeof(*vm->identifiers_pool.keys));
+	vm->identifiers_pool.sv_offset = arena_alloc(&vm_memory, MAX_INTERNED_STRINGS * sizeof(*vm->identifiers_pool.sv_offset));
+	vm->identifiers_pool.sv_length = arena_alloc(&vm_memory, MAX_INTERNED_STRINGS * sizeof(*vm->identifiers_pool.sv_length));
 	
 	return vm;
 }
@@ -53,6 +59,85 @@ typedef struct CompileLoadLinkResult
 
 CompileLoadLinkResult compile_load_link_code(Arena temp_mem, VM *vm, sv module_name, sv code);
 
+typedef struct ParseModuleResult
+{
+	enum Result
+	{
+		ParseModule_LexerError,
+		ParseModule_ParserError,
+		ParseModule_LoadingError,
+		ParseModule_Ok
+	};
+
+	uint32_t result;
+	StringId *dependencies;
+	uint32_t dependency_count;
+} ParseModuleResult;
+
+static sv vm_get_identifier(VM *vm, StringId id)
+{
+		return string_pool_get(&vm->identifiers_pool, id);
+}
+
+static ParseModuleResult vm_parse_module(Arena *memory, VM *vm, sv module_name)
+{
+	ParseModuleResult result = {0};
+
+	sv code = {0};
+	ASSERT(vm->config.load_module != NULL);
+	bool loading_success = vm->config.load_module(module_name, &code);
+	if (!loading_success) {
+		result.result = ParseModule_LoadingError;
+		return result;
+	}
+
+	// Allocate temporary compilation unit
+	CompilationUnit *compunit = arena_alloc(memory, sizeof(CompilationUnit));
+	compunit->input = code;
+	const uint32_t MAX_INTERNED_CHARS = 1024;
+	compunit->string_pool.string_buffer_capacity = MAX_INTERNED_CHARS;
+	compunit->string_pool.string_buffer = arena_alloc(memory, MAX_INTERNED_CHARS);
+	const uint32_t MAX_INTERNED_STRINGS = 256;
+	compunit->string_pool.capacity = MAX_INTERNED_STRINGS;
+	compunit->string_pool.keys = arena_alloc(memory, MAX_INTERNED_STRINGS * sizeof(*compunit->string_pool.keys));
+	compunit->string_pool.sv_offset = arena_alloc(memory, MAX_INTERNED_STRINGS * sizeof(*compunit->string_pool.sv_offset));
+	compunit->string_pool.sv_length = arena_alloc(memory, MAX_INTERNED_STRINGS * sizeof(*compunit->string_pool.sv_length));
+	// Lex tokens
+	LexerResult lexer_result = lexer_scan(memory, &compunit->string_pool, code);
+	compunit->tokens = lexer_result.tokens;
+	compunit->token_count = lexer_result.token_count;
+	if (lexer_result.success == false) {
+		result.result = ParseModule_LexerError;
+		return result;
+	}
+	// Parse tree
+	Parser parser = {0};
+	parser.compunit = compunit;
+	parse_module(&parser);
+	if (compunit->error.code != ErrorCode_Ok) {
+		result.result = ParseModule_ParserError;
+		return result;
+	}
+
+	// -- Compile dependencies first
+	ScanDepsResult dependencies = compiler_scan_dependencies(memory, compunit);
+	if (compunit->error.code != ErrorCode_Ok) {
+		result.result = ParseModule_ParserError;
+		return result;
+	}
+
+	result.result = ParseModule_Ok;
+	result.dependencies = arena_alloc_n(memory, sizeof(StringId), dependencies.count);
+	result.dependency_count = dependencies.count;
+	for (uint32_t i_dep = 0; i_dep < dependencies.count; ++i_dep) {
+		// Move module names from the compunit string  pool to the vm identifier pool
+		sv dep_module_name = string_pool_get(&compunit->string_pool, dependencies.names[i_dep]);
+		result.dependencies[i_dep] = string_pool_intern(&vm->identifiers_pool, dep_module_name);
+	}
+
+	return result;
+}
+
 // Parse code, compile module.
 static CompilationResult compile_code(Arena temp_mem, VM *vm, sv module_name, sv code)
 {
@@ -63,6 +148,8 @@ static CompilationResult compile_code(Arena temp_mem, VM *vm, sv module_name, sv
 
 
 	StringId module_id = string_pool_intern(&vm->identifiers_pool, module_name);
+
+	Arena vm_temp_mem = vm->memory;
 
 	CompilationUnit compunit = {0};
 	compunit.input = code;
@@ -147,36 +234,15 @@ static CompilationResult compile_code(Arena temp_mem, VM *vm, sv module_name, sv
 	}
 
 	// -- Compile dependencies first
-	const Token *require_paths[16] = {0};
 	uint32_t dep_module_indices[16] = {0};
-	uint32_t require_paths_length = 0;
-	compiler_scan_requires(&compunit, require_paths, 16, &require_paths_length);
-	if (require_paths_length == 16) {
-		INIT_ERROR(&compunit.error, ErrorCode_Fatal);
-#if VM_LOG > 0
-		cross_log(cross_stderr, SV("Too much requires!\n"));
-#endif
-	}
+	ScanDepsResult dependencies = compiler_scan_dependencies(&vm_temp_mem, &compunit);
 	if (compunit.error.code != ErrorCode_Ok) {
-#if VM_LOG > 0
-		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
-		Error err = compunit.error;
-		string_builder_append_sv(&sb, err.file);
-		string_builder_append_char(&sb, ':');
-		string_builder_append_u64(&sb, (uint64_t)(err.line));
-		string_builder_append_sv(&sb, SV(":0: error: scan_requires[] returned "));
-		string_builder_append_sv(&sb, SV(ErrorCode_str[(uint32_t)(err.code)]));
-		string_builder_append_char(&sb, '\n');
-		cross_log(cross_stderr, string_builder_get_string(&sb));
-#endif
 		result.error = compunit.error;
 		return result;
 	}
-	for (uint32_t i_dep = 0; i_dep < require_paths_length; ++i_dep) {
-		sv dep_module_name = sv_substr(code, require_paths[i_dep]->span);
-		// HACK: Because string literals are substring of the code (and not properly interned), we have double quotes
-		dep_module_name.chars += 1;
-		dep_module_name.length -= 2;
+	ASSERT(dependencies.count < ARRAY_LENGTH(dep_module_indices));
+	for (uint32_t i_dep = 0; i_dep < dependencies.count; ++i_dep) {
+		sv dep_module_name = string_pool_get(&compunit.string_pool, dependencies.names[i_dep]);
 		sv dep_input = {0};
 		// Get the code from the load_module callback
 		bool loading_success = vm->config.load_module(dep_module_name, &dep_input);
@@ -195,12 +261,12 @@ static CompilationResult compile_code(Arena temp_mem, VM *vm, sv module_name, sv
 	}
 	
 	// -- Compile the parse tree into bytecode
-	Compiler compiler = {0};
+	Compiler compiler = {0};	
 	compiler.vm = vm;
 	compiler.compunit = &compunit;
 	compiler.module.name = module_id;
 	compiler.module.imports = dep_module_indices;
-	compiler.module.imports_length = require_paths_length;
+	compiler.module.imports_length = dependencies.count;
 	compile_module(&compiler);
 	if (compunit.error.code != ErrorCode_Ok) {
 #if VM_LOG > 0
@@ -449,6 +515,7 @@ Error vm_compile(Arena temp_mem, VM *vm, sv module_name, sv code)
 
 Error vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 {
+	Error err = (struct Error){0};
 	StringId module_id = string_pool_intern(&vm->identifiers_pool, module_name);
 	StringId function_id = string_pool_intern(&vm->identifiers_pool, function_name);
 
@@ -461,7 +528,6 @@ Error vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 		}
 	}
 	if (i_module >= modules_len) {
-		Error err = (struct Error){0};
 		INIT_ERROR(&err, ErrorCode_ModuleNotFound);
 		return err;
 	}
@@ -476,7 +542,6 @@ Error vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 		}
 	}
 	if (i_entrypoint >= functions_len) {
-		Error err = (struct Error){0};
 		INIT_ERROR(&err, ErrorCode_FunctionNotFound);
 		return err;
 	}
@@ -490,7 +555,6 @@ Error vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 		}
 	}
 	if (i_runtime_module >= runtime_modules_len) {
-		Error err = (struct Error){0};
 		INIT_ERROR(&err, ErrorCode_ModuleNotFound);
 		return err;
 	}
@@ -500,5 +564,5 @@ Error vm_call(VM *vm, sv module_name, sv function_name, Arena temp_mem)
 	exec->modules_len = vm->runtime_modules_length;
 	exec->heap = vm->config.heap;
 	call_function(exec, i_runtime_module, entrypoint_address, NULL, 0);
-	return (struct Error){0};
+	return err;
 }
