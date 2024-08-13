@@ -48,3 +48,11 @@ But:
 It doesn't align with what I have in mind for ode. I would like to have modules that only export table of data (struct type + array of objects).
 How to implement that? Local module memory? In a sense it should work the same way as "constants" memory... So should it be possible to include constants?
 "Global" variables where struct are allowed by value?
+
+
+-- side quest: asset cooker
+traditional compiler architecture?
+call with one file:
+	- compile file alone
+	OR
+	- list dependencies in dep file
