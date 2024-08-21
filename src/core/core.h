@@ -11,3 +11,4 @@ typedef unsigned char byte;
 #include "./span.h"
 #include "./string.h"
 #include "./arena.h"
+#include "./array.h"

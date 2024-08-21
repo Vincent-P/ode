@@ -12,6 +12,8 @@ typedef struct ReadFileResult
 	bool success;
 } ReadFileResult;
 ReadFileResult cross_read_entire_file(sv filepath);
+
+bool cross_write_entire_file(sv filepath, byte *content, uint32_t content_size);
 	
 extern uint64_t cross_stdout;
 extern uint64_t cross_stderr;

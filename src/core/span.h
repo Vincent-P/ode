@@ -9,7 +9,7 @@ struct span
 };
 typedef struct span span;
 
-inline span span_extend(span a, span b)
+static span span_extend(span a, span b)
 {
 	return (span){
 		a.start < b.start ? a.start : b.start,
@@ -17,7 +17,7 @@ inline span span_extend(span a, span b)
 	};
 }
 
-inline uint32_t span_length(span s)
+static uint32_t span_length(span s)
 {
 	if (s.start <= s.end) {
 		return s.end - s.start;

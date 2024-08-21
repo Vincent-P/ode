@@ -9,13 +9,11 @@ typedef struct VM VM;
 typedef struct CompilationUnit
 {
 	sv input;
-	Error error;
-	uint32_t nodes_length;
-	// AST
-	AstNode nodes[4096];
-	StringPool string_pool;
 	const Token *tokens;
-	uint32_t token_count;
+	const AstNode *nodes;
+
+	Error error;
+	StringPool string_pool;
 } CompilationUnit;
 
 typedef struct LexicalScope

@@ -7,7 +7,7 @@
 #include "opcodes.h"
 #include "parser.h"
 
-#define VM_LOG 2
+#define VM_LOG 0
 #define VM_MEMORY_SIZE (1u << 20)
 
 VM *vm_create(Arena *memory, VMConfig config)
@@ -105,19 +105,17 @@ static ParseModuleResult vm_parse_module(Arena *memory, VM *vm, sv module_name)
 	// Lex tokens
 	LexerResult lexer_result = lexer_scan(memory, &compunit->string_pool, code);
 	compunit->tokens = lexer_result.tokens;
-	compunit->token_count = lexer_result.token_count;
 	if (lexer_result.success == false) {
 		result.result = ParseModule_LexerError;
 		return result;
 	}
 	// Parse tree
-	Parser parser = {0};
-	parser.compunit = compunit;
-	parse_module(&parser);
-	if (compunit->error.code != ErrorCode_Ok) {
+	ParserResult parser_result = parse_module(memory, lexer_result.tokens);
+	if (parser_result.success == false) {
 		result.result = ParseModule_ParserError;
-		return result;
+		return result;		
 	}
+	compunit->nodes = parser_result.nodes;
 
 	// -- Compile dependencies first
 	ScanDepsResult dependencies = compiler_scan_dependencies(memory, compunit);
@@ -167,7 +165,6 @@ static CompilationResult compile_code(Arena temp_mem, VM *vm, sv module_name, sv
 	// -- Lex tokens
 	LexerResult lexer_result = lexer_scan(&temp_mem, &compunit.string_pool, code);
 	compunit.tokens = lexer_result.tokens;
-	compunit.token_count = lexer_result.token_count;
 
 	if (lexer_result.success == false) {
 #if VM_LOG > 0
@@ -188,18 +185,18 @@ static CompilationResult compile_code(Arena temp_mem, VM *vm, sv module_name, sv
 
 	
 	// -- Parse tokens into a parse tree
-	Parser parser = {0};
-	parser.compunit = &compunit;
-	parse_module(&parser);
-	if (compunit.error.code != ErrorCode_Ok) {
+	ParserResult parser_result = parse_module(&temp_mem, lexer_result.tokens);
+	compunit.nodes = parser_result.nodes;
+	if (parser_result.success == false) {
 #if VM_LOG > 0
+		uint32_t token_count = array_count(compunit.tokens);
 		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 		// <file>:<line>:0: error Parser[] returned <errcode>
 		string_builder_append_sv(&sb, compunit.error.file);
 		string_builder_append_char(&sb, ':');
 		string_builder_append_u64(&sb, (uint64_t)(compunit.error.line));
 		string_builder_append_sv(&sb, SV(":0: error: Parser[token_length: "));
-		string_builder_append_u64(&sb, (uint64_t)(compunit.token_count));
+		string_builder_append_u64(&sb, (uint64_t)(token_count));
 		string_builder_append_sv(&sb, SV(", i_current_token: "));
 		string_builder_append_u64(&sb, (uint64_t)(parser.i_current_token));
 		string_builder_append_sv(&sb, SV("] returned "));
@@ -208,9 +205,8 @@ static CompilationResult compile_code(Arena temp_mem, VM *vm, sv module_name, sv
 		cross_log(cross_stderr, string_builder_get_string(&sb));
 		build_error_at(code, compunit.error.span, &sb);
 		cross_log(cross_stderr, string_builder_get_string(&sb));
-		if (compunit.token_count > 0) {
-			uint32_t i_last_token =
-				parser.i_current_token < compunit.token_count ? parser.i_current_token : compunit.token_count - 1;
+		if (token_count > 0) {
+			uint32_t i_last_token = parser.i_current_token < token_count ? parser.i_current_token : token_count - 1;
 			const Token *last_token = compunit.tokens + i_last_token;
 			sv last_token_str = sv_substr(compunit.input, last_token->span);
 			const char *token_kind_str = TokenKind_str[(uint32_t)(last_token->kind)];

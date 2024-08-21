@@ -2,209 +2,186 @@
 #include "compiler.h"
 #include "lexer.h"
 
-// Ast nodes
+struct ParserInput
+{
+	AstNode *nodes;
+	const Token *tokens;
+};
+typedef struct ParserInput ParserInput;
 
-const AstNode *ast_get_node(const CompilationUnit *compunit, uint32_t node_index)
+struct ParserContext
 {
-	if (node_index >= compunit->nodes_length) {
-		__debugbreak();
-	}
-	return compunit->nodes + node_index;
-}
-	
-const AstNode *ast_get_left_child(const CompilationUnit *compunit, const AstNode *node)
-{
-	return ast_get_node(compunit, node->left_child_index);
-}
-	
-const AstNode *ast_get_right_sibling(const CompilationUnit *compunit, const AstNode *node)
-{
-	return ast_get_node(compunit, node->right_sibling_index);
-}
-	
-const Token *ast_get_token(const CompilationUnit *compunit, const AstNode *node)
-{
-	uint32_t token_index = node->atom_token_index;
-	if (token_index >= compunit->token_count) {
-		__debugbreak();
-	}
-	return compunit->tokens + token_index;
-}
+	uint32_t i_current_token;
+	Token current_token;
+	Arena *memory;
+};
+typedef struct ParserContext ParserContext;
 
+struct NodeResult
+{
+	AstNode *node;
+	uint32_t node_id;
+	bool ok;
+};
+typedef struct NodeResult NodeResult;
 
 // LISP parsing
-
-static Token parser_current_token(Parser *parser)
+static void parser_eat_token(ParserInput input, ParserContext *context)
 {
-	if (parser->i_current_token < parser->compunit->token_count) {
-		return parser->compunit->tokens[parser->i_current_token];
-	} else {
-		parser->compunit->error.code = ErrorCode_ExpectedTokenGotEof;
-		parser->compunit->error.span = (span){0};
-		if (parser->compunit->token_count > 0) {
-			const Token *last_token = parser->compunit->tokens + (parser->compunit->token_count - 1);
-			parser->compunit->error.span = last_token->span;
-		}
-		return (Token){0};
-	}
+	context->i_current_token += 1;
+	context->current_token = array_check(input.tokens, context->i_current_token);
 }
 
-static Token parser_expect_token(Parser *parser, TokenKind expect_kind)
+static NodeResult parser_push_ast_node_atom(ParserInput input, ParserContext *context, uint32_t token_index)
 {
-	if (parser->compunit->error.code != ErrorCode_Ok) {
-		return (Token){0};
-	}
-
-	if (parser->i_current_token >= parser->compunit->token_count) {
-		parser->compunit->error.code = ErrorCode_ExpectedTokenGotEof;
-		parser->compunit->error.span = (span){0};
-		if (parser->compunit->token_count > 0) {
-			const Token *last_token = parser->compunit->tokens + (parser->compunit->token_count - 1);
-			parser->compunit->error.span = last_token->span;
-		}
-		return (Token){0};
-	}
-
-	Token token = parser->compunit->tokens[parser->i_current_token];
-
-	if (token.kind == expect_kind) {
-		parser->i_current_token += 1;
-		parser->compunit->error.code = ErrorCode_Ok;
-	} else {
-		INIT_ERROR(&parser->compunit->error, ErrorCode_UnexpectedToken);
-		parser->compunit->error.span = token.span;
-		parser->expected_token_kind = expect_kind;
-	}
-	return token;
-}
-
-static uint32_t parser_push_ast_node_atom(Parser *parser, uint32_t token_index)
-{
-	AstNode new_node = {0};
+	AstNode new_node = (AstNode){0};
 	new_node.atom_token_index = token_index;
 	new_node.left_child_index = INVALID_NODE_INDEX;
 	new_node.right_sibling_index = INVALID_NODE_INDEX;
 
-	uint32_t i_node = parser->compunit->nodes_length;
-	parser->compunit->nodes[i_node] = new_node;
-	parser->compunit->nodes_length += 1;
-	return i_node;
+	NodeResult result = (NodeResult){0};
+	result.node_id = array_count(input.nodes);
+	result.node = array_push_addr(context->memory, input.nodes, new_node);
+	result.ok = true;
+	return result;
 }
 
-static uint32_t parser_push_ast_node_sexpr(Parser *parser, uint32_t first_child_index)
+static NodeResult parser_push_ast_node_sexpr(ParserInput input, ParserContext *context, uint32_t first_child_index)
 {
-	AstNode new_node = {0};
+	AstNode new_node = (AstNode){0};
 	new_node.atom_token_index = INVALID_NODE_INDEX;
 	new_node.right_sibling_index = INVALID_NODE_INDEX;
 	new_node.left_child_index = first_child_index;
 	if (new_node.left_child_index != INVALID_NODE_INDEX) {
 		new_node.child_count = 1;
 	}
-	uint32_t i_node = parser->compunit->nodes_length;
-	parser->compunit->nodes[i_node] = new_node;
-	parser->compunit->nodes_length += 1;
-	return i_node;
+
+	NodeResult result = (NodeResult){0};
+	result.node_id = array_count(input.nodes);
+	result.node = array_push_addr(context->memory, input.nodes, new_node);
+	result.ok = true;
+	return result;
 }
 
 // number | identifier
-static uint32_t parse_atom(Parser *parser)
+static NodeResult parse_atom(ParserInput input, ParserContext *context)
 {
-	Token current_token = parser_current_token(parser);
+	NodeResult result = (NodeResult){0};
+	Token current_token = context->current_token;
 
 	bool is_a_valid_atom = current_token.kind == TokenKind_UnsignedNumber
 			       || current_token.kind == TokenKind_SignedNumber
 			       || current_token.kind == TokenKind_FloatingNumber
 			       || current_token.kind == TokenKind_Identifier
 	                       || current_token.kind == TokenKind_StringLiteral;
-	if (is_a_valid_atom) {
-		uint32_t new_node_index = parser_push_ast_node_atom(parser, parser->i_current_token);
-		AstNode *new_node = parser->compunit->nodes + new_node_index;
-		if (new_node_index < parser->compunit->nodes_length) {
-			new_node->span = current_token.span;
-			parser->i_current_token += 1;
-		}
-		return new_node_index;
-	} else {
+	if (!is_a_valid_atom) {
+		return result;
+#if 0
 		INIT_ERROR(&parser->compunit->error, ErrorCode_UnexpectedToken);
 		parser->compunit->error.span = current_token.span;
 		parser->expected_token_kind = TokenKind_UnsignedNumber;
 		return parser->compunit->nodes_length;
+#endif
 	}
+
+	result = parser_push_ast_node_atom(input, context, context->i_current_token);
+	result.node->span = current_token.span;
+	parser_eat_token(input, context);
+	return result;
 }
 
 // sexpr | atom
-static uint32_t parse_expression(Parser *parser);
+static NodeResult parse_expression(ParserInput input, ParserContext *context);
 
 // () | (identifier exp*)
-static uint32_t parse_s_expression(Parser *parser)
+static NodeResult parse_s_expression(ParserInput input, ParserContext *context)
 {
-	Token left_paren_token = parser_expect_token(parser, TokenKind_LeftParen);
-	(void)(left_paren_token);
+	if (context->current_token.kind != TokenKind_LeftParen) {
+		return (NodeResult){0};
+	}
+	Token left_paren_token = context->current_token;
+	parser_eat_token(input, context); // eat left paren
 
-	Token peek_token = parser_current_token(parser);
 	// 0  - Empty list
-	if (peek_token.kind == TokenKind_RightParen) {
-		parser->i_current_token += 1;
-		return parser_push_ast_node_sexpr(parser, INVALID_NODE_INDEX);
+	if (context->current_token.kind == TokenKind_RightParen) {
+		parser_eat_token(input, context);
+		return parser_push_ast_node_sexpr(input, context, INVALID_NODE_INDEX);
 	}
 
 	// 1  - First symbol is something to evaluate (function, variable or builtin)
-	const uint32_t first_expr_node_index = parse_expression(parser);
-	const uint32_t sexpr_node_index = parser_push_ast_node_sexpr(parser, first_expr_node_index);
+	NodeResult first_expr_node = parse_expression(input, context);
+	NodeResult result = parser_push_ast_node_sexpr(input, context, first_expr_node.node_id);
 
 	// 2+ - arguments to evaluate the first symbol
-	peek_token = parser_current_token(parser);
-	AstNode *current_child = parser->compunit->nodes + first_expr_node_index;
-	while (peek_token.kind != TokenKind_RightParen && peek_token.kind != TokenKind_Invalid
-		   && parser->compunit->error.code == ErrorCode_Ok) {
-		const uint32_t new_expr_node_index = parse_expression(parser);
-		current_child->right_sibling_index = new_expr_node_index;
+	AstNode *current_child = first_expr_node.node;
+	while (context->current_token.kind != TokenKind_RightParen && context->current_token.kind != TokenKind_Invalid) {
+		const NodeResult new_expr_node = parse_expression(input, context);
+		current_child->right_sibling_index = new_expr_node.node_id;
+		result.node->child_count += 1;
 
-		AstNode *const sexpr_node = parser->compunit->nodes + sexpr_node_index;
-		sexpr_node->child_count += 1;
-
-		current_child = parser->compunit->nodes + new_expr_node_index;
-		peek_token = parser_current_token(parser);
+		current_child = new_expr_node.node;
 	}
 
-	Token right_paren_token = parser_expect_token(parser, TokenKind_RightParen);
+	if (context->current_token.kind != TokenKind_RightParen) {
+		return (NodeResult){0};
+	}
+	Token right_paren_token = context->current_token;
+	parser_eat_token(input, context); // eat right paren
 
-	AstNode *sexpr_node = parser->compunit->nodes + sexpr_node_index;
-	sexpr_node->span = span_extend(left_paren_token.span, right_paren_token.span);
-
-	return sexpr_node_index;
+	result.node->span = span_extend(left_paren_token.span, right_paren_token.span);
+	result.ok = true;
+	return result;
 }
 
 // sexpr | atom
-static uint32_t parse_expression(Parser *parser)
+static NodeResult parse_expression(ParserInput input, ParserContext *context)
 {
-	Token i_current_token = parser_current_token(parser);
-	if (i_current_token.kind == TokenKind_LeftParen) {
-		return parse_s_expression(parser);
+	if (context->current_token.kind == TokenKind_LeftParen) {
+		return parse_s_expression(input, context);
 	} else {
-		return parse_atom(parser);
+		return parse_atom(input, context);
 	}
 }
 
 // sexpr*
-void parse_module(Parser *parser)
+ParserResult parse_module(Arena *memory, const Token *tokens)
 {
-	uint32_t root_node_index = parser_push_ast_node_sexpr(parser, INVALID_NODE_INDEX);
-	AstNode *root_node = parser->compunit->nodes + root_node_index;
+	ParserResult result = (ParserResult){0};
+
+	uint32_t token_count = array_count(tokens);
+	ASSERT(token_count > 0);
+
+	ParserInput input = (ParserInput){0};
+	input.nodes = array_init(memory);
+	input.tokens = tokens;
+
+	ParserContext context = (ParserContext){0};
+	context.i_current_token = 0;
+	context.current_token = input.tokens[0];
+
+	NodeResult root = parser_push_ast_node_sexpr(input, &context, INVALID_NODE_INDEX);
+	if (root.ok == false) {
+		return result;
+	}
 
 	AstNode *current_child = NULL;
-	while (parser->i_current_token < parser->compunit->token_count) {
-		uint32_t expr_node_index = parse_s_expression(parser);
-		root_node->child_count += 1;
-		if (current_child == NULL) {
-			root_node->left_child_index = expr_node_index;
-		} else {
-			current_child->right_sibling_index = expr_node_index;
+	while (context.i_current_token < token_count) {
+		NodeResult expr = parse_s_expression(input, &context);
+		if (root.ok == false) {
+			return result;
 		}
-		current_child = parser->compunit->nodes + expr_node_index;
-		if (parser->compunit->error.code != ErrorCode_Ok)
-			break;
+
+		root.node->child_count += 1;
+		if (current_child == NULL) {
+			root.node->left_child_index = expr.node_id;
+		} else {
+			current_child->right_sibling_index = expr.node_id;
+		}
+		current_child = expr.node;
 	}
+
+	result.nodes = input.nodes;
+	return result;
 }
 
 // Typed nodes parsing
@@ -212,8 +189,8 @@ TypeID parse_type(CompilationUnit *compunit, CompilerModule *module, const AstNo
 {
 	if (ast_is_atom(node)) {
 		// The type is just an identifier, find the corresponding builtin type or named type
-		const Token *identifier = ast_get_token(compunit, node);
-		sv identifier_str = string_pool_get(&compunit->string_pool, identifier->data.sid);;
+		const Token identifier = ast_get_token(compunit->tokens, node);
+		sv identifier_str = string_pool_get(&compunit->string_pool, identifier.data.sid);;
 
 		// Search builtin types
 		const TypeID builtin_types[] = {
@@ -259,7 +236,7 @@ TypeID parse_type(CompilationUnit *compunit, CompilerModule *module, const AstNo
 			return UNIT_TYPE;
 		}
 
-		const AstNode *child0 = ast_get_left_child(compunit, node);
+		const AstNode *child0 = ast_get_left_child(compunit->nodes, node);
 		// The type is a S-expr, either it is a unit type () or a form starting with a TOKEN
 		if (!ast_is_atom(child0)) {
 			INIT_ERROR(&compunit->error, ErrorCode_ExpectedIdentifier);
@@ -272,17 +249,17 @@ TypeID parse_type(CompilationUnit *compunit, CompilerModule *module, const AstNo
 			compunit->error.span = node->span;
 			return UNIT_TYPE;
 		}
-		const AstNode *child1 = ast_get_right_sibling(compunit, child0);
+		const AstNode *child1 = ast_get_right_sibling(compunit->nodes, child0);
 		// Assert that there is only one argument
 		if (ast_has_right_sibling(child1)) {
-			const AstNode *child2 = ast_get_right_sibling(compunit, child1);
+			const AstNode *child2 = ast_get_right_sibling(compunit->nodes, child1);
 			INIT_ERROR(&compunit->error, ErrorCode_UnexpectedExpression);
 			compunit->error.span = child2->span;
 			return UNIT_TYPE;
 		}
 
-		const Token *token = ast_get_token(compunit, child0);
-		const sv token_str = string_pool_get(&compunit->string_pool, token->data.sid);
+		const Token token = ast_get_token(compunit->tokens, child0);
+		const sv token_str = string_pool_get(&compunit->string_pool, token.data.sid);
 		// (* <type>)
 		if (sv_equals(token_str, sv_from_null_terminated("*"))) {
 			TypeID inner_type = parse_type(compunit, module, child1);
@@ -297,7 +274,7 @@ TypeID parse_type(CompilationUnit *compunit, CompilerModule *module, const AstNo
 
 		// We haven't found any builtin
 		INIT_ERROR(&compunit->error, ErrorCode_UnknownSymbol);
-		compunit->error.span = token->span;
+		compunit->error.span = token.span;
 		return UNIT_TYPE;
 	}
 }
@@ -312,9 +289,9 @@ void parse_define_sig(CompilationUnit *compunit, const AstNode *node, DefineNode
 		return;
 	}
 
-	const AstNode *define_token_node = ast_get_left_child(compunit, node);
-	const AstNode *name_type_node = ast_get_right_sibling(compunit, define_token_node);
-	const AstNode *arglist_node = ast_get_right_sibling(compunit, name_type_node);
+	const AstNode *define_token_node = ast_get_left_child(compunit->nodes, node);
+	const AstNode *name_type_node = ast_get_right_sibling(compunit->nodes, define_token_node);
+	const AstNode *arglist_node = ast_get_right_sibling(compunit->nodes, name_type_node);
 
 	// Get the function name node
 	if (name_type_node->child_count != 2) {
@@ -323,38 +300,38 @@ void parse_define_sig(CompilationUnit *compunit, const AstNode *node, DefineNode
 		return;
 	}
 
-	const AstNode *function_name_node = ast_get_left_child(compunit, name_type_node);
+	const AstNode *function_name_node = ast_get_left_child(compunit->nodes, name_type_node);
 	if (!ast_is_atom(function_name_node)) {
 		INIT_ERROR(&compunit->error, ErrorCode_ExpectedIdentifier);
 		compunit->error.span = node->span;
 		return;
 	}
 
-	output->function_name_token = ast_get_token(compunit, function_name_node);
-	output->return_type_node = ast_get_right_sibling(compunit, function_name_node);
+	output->function_name_token = ast_get_token(compunit->tokens, function_name_node);
+	output->return_type_node = ast_get_right_sibling(compunit->nodes, function_name_node);
 	output->arglist_node = arglist_node;
 
 	// Arguments are laid out as (name1 type1 name2 type2 ...)
 	uint32_t i_arg_node = arglist_node->left_child_index;
 	uint32_t args_length = 0;
 	while (ast_is_valid(i_arg_node)) {
-		const AstNode *arg_name_node = ast_get_node(compunit, i_arg_node);
-		const Token *arg_name = ast_get_token(compunit, arg_name_node);
-		const bool arg_is_an_identifier = ast_is_atom(arg_name_node) && arg_name->kind == TokenKind_Identifier;
+		const AstNode *arg_name_node = ast_get_node(compunit->nodes, i_arg_node);
+		const Token arg_name = ast_get_token(compunit->tokens, arg_name_node);
+		const bool arg_is_an_identifier = ast_is_atom(arg_name_node) && arg_name.kind == TokenKind_Identifier;
 		if (!arg_is_an_identifier) {
 			INIT_ERROR(&compunit->error, ErrorCode_ExpectedIdentifier);
 			compunit->error.span = arglist_node->span;
 			return;
 		}
 
-		const AstNode *arg_type_node = ast_get_right_sibling(compunit, arg_name_node);
+		const AstNode *arg_type_node = ast_get_right_sibling(compunit->nodes, arg_name_node);
 		if (!ast_has_right_sibling(arg_name_node)) {
 			INIT_ERROR(&compunit->error, ErrorCode_ExpectedExpr);
 			compunit->error.span = arglist_node->span;
 			return;
 		}
 
-		output->arg_identifiers[args_length] = *arg_name;
+		output->arg_identifiers[args_length] = arg_name;
 		output->arg_nodes[args_length] = arg_type_node;
 		args_length += 1;
 		i_arg_node = arg_type_node->right_sibling_index;
@@ -369,22 +346,22 @@ void parse_define_body(CompilationUnit *compunit, const AstNode *node, DefineNod
 		compunit->error.span = node->span;
 		return;
 	}
-	output->body_node = ast_get_right_sibling(compunit, output->arglist_node);
+	output->body_node = ast_get_right_sibling(compunit->nodes, output->arglist_node);
 }
 
 // (struct <name> (<field name> <field type>)+)
 void parse_struct(CompilationUnit *compunit, const AstNode *node, StructNode *output)
 {
-	const AstNode *struct_token_node = ast_get_left_child(compunit, node);
+	const AstNode *struct_token_node = ast_get_left_child(compunit->nodes, node);
 
 	// Get struct name node
-	const AstNode *struct_name_node = ast_get_right_sibling(compunit, struct_token_node);
+	const AstNode *struct_name_node = ast_get_right_sibling(compunit->nodes, struct_token_node);
 	if (!ast_has_right_sibling(struct_token_node) || !ast_is_atom(struct_name_node)) {
 		INIT_ERROR(&compunit->error, ErrorCode_ExpectedIdentifier);
 		compunit->error.span = node->span;
 		return;
 	}
-	output->struct_name_token = ast_get_token(compunit, struct_name_node);
+	output->struct_name_token = ast_get_token(compunit->tokens, struct_name_node);
 
 	// Get fields
 	// Get the first field (a struct MUST have at least one field)
@@ -396,17 +373,17 @@ void parse_struct(CompilationUnit *compunit, const AstNode *node, StructNode *ou
 	uint32_t fields_length = 0;
 	uint32_t i_field_node = struct_name_node->right_sibling_index;
 	while (ast_is_valid(i_field_node)) {
-		const AstNode *field_node = ast_get_node(compunit, i_field_node);
+		const AstNode *field_node = ast_get_node(compunit->nodes, i_field_node);
 		// Get the field name
-		const AstNode *field_identifier_node = ast_get_left_child(compunit, field_node);
+		const AstNode *field_identifier_node = ast_get_left_child(compunit->nodes, field_node);
 		if (!ast_has_left_child(field_node)) {
 			INIT_ERROR(&compunit->error, ErrorCode_ExpectedIdentifier);
 			compunit->error.span = field_node->span;
 			return;
 		}
-		const Token *field_identifier_token = ast_get_token(compunit, field_identifier_node);
+		const Token field_identifier_token = ast_get_token(compunit->tokens, field_identifier_node);
 		const bool is_an_identifier_token_node =
-			ast_is_atom(field_identifier_node) && field_identifier_token->kind == TokenKind_Identifier;
+			ast_is_atom(field_identifier_node) && field_identifier_token.kind == TokenKind_Identifier;
 		if (!is_an_identifier_token_node) {
 			INIT_ERROR(&compunit->error, ErrorCode_ExpectedIdentifier);
 			compunit->error.span = field_identifier_node->span;
@@ -418,14 +395,14 @@ void parse_struct(CompilationUnit *compunit, const AstNode *node, StructNode *ou
 			compunit->error.span = field_node->span;
 			return;
 		}
-		const AstNode *field_type_node = ast_get_right_sibling(compunit, field_identifier_node);
+		const AstNode *field_type_node = ast_get_right_sibling(compunit->nodes, field_identifier_node);
 		if (fields_length > MAX_STRUCT_FIELDS) {
 			INIT_ERROR(&compunit->error, ErrorCode_Fatal);
 			compunit->error.span = field_identifier_node->span;
 			return;
 		}
 
-		output->field_identifiers[fields_length] = *field_identifier_token;
+		output->field_identifiers[fields_length] = field_identifier_token;
 		output->field_type_nodes[fields_length] = field_type_node;
 		fields_length += 1;
 
@@ -447,10 +424,10 @@ void parse_if(CompilationUnit *compunit, const AstNode *node, IfNode *output)
 		return;
 	}
 
-	const AstNode *if_token_node = ast_get_left_child(compunit, node);
-	output->cond_expr_node = ast_get_right_sibling(compunit, if_token_node);
-	output->then_expr_node = ast_get_right_sibling(compunit, output->cond_expr_node);
-	output->else_expr_node = ast_get_right_sibling(compunit, output->then_expr_node);
+	const AstNode *if_token_node = ast_get_left_child(compunit->nodes, node);
+	output->cond_expr_node = ast_get_right_sibling(compunit->nodes, if_token_node);
+	output->then_expr_node = ast_get_right_sibling(compunit->nodes, output->cond_expr_node);
+	output->else_expr_node = ast_get_right_sibling(compunit->nodes, output->then_expr_node);
 }
 
 // (let <name> <value expr>)
@@ -466,10 +443,10 @@ void parse_let(CompilationUnit *compunit, const AstNode *node, LetNode *output)
 		return;
 	}
 
-	const AstNode *let_token_node = ast_get_left_child(compunit, node);
-	const AstNode *name_node = ast_get_right_sibling(compunit, let_token_node);
-	output->name_token = ast_get_token(compunit, name_node);
-	output->value_node = ast_get_right_sibling(compunit, name_node);
+	const AstNode *let_token_node = ast_get_left_child(compunit->nodes, node);
+	const AstNode *name_node = ast_get_right_sibling(compunit->nodes, let_token_node);
+	output->name_token = ast_get_token(compunit->tokens, name_node);
+	output->value_node = ast_get_right_sibling(compunit->nodes, name_node);
 }
 
 // (field <expr> <member identifier>)
@@ -485,12 +462,12 @@ void parse_field(CompilationUnit *compunit, const AstNode *node, FieldNode *outp
 		return;
 	}
 
-	const AstNode *field_token_node = ast_get_left_child(compunit, node);
-	const AstNode *expr_node = ast_get_right_sibling(compunit, field_token_node);
-	const AstNode *field_identifier_node = ast_get_right_sibling(compunit, expr_node);
+	const AstNode *field_token_node = ast_get_left_child(compunit->nodes, node);
+	const AstNode *expr_node = ast_get_right_sibling(compunit->nodes, field_token_node);
+	const AstNode *field_identifier_node = ast_get_right_sibling(compunit->nodes, expr_node);
 
-	const Token *field_identifier_token = ast_get_token(compunit, field_identifier_node);
-	if (!ast_is_atom(field_identifier_node) || field_identifier_token->kind != TokenKind_Identifier) {
+	const Token field_identifier_token = ast_get_token(compunit->tokens, field_identifier_node);
+	if (!ast_is_atom(field_identifier_node) || field_identifier_token.kind != TokenKind_Identifier) {
 		INIT_ERROR(&compunit->error, ErrorCode_ExpectedIdentifier);
 		compunit->error.span = field_identifier_node->span;
 		return;
@@ -513,10 +490,10 @@ void parse_ptr_offset(CompilationUnit *compunit, const AstNode *node, PtrOffsetN
 		return;
 	}
 
-	const AstNode *ptr_offset_token_node = ast_get_left_child(compunit, node);
-	const AstNode *return_type_node = ast_get_right_sibling(compunit, ptr_offset_token_node);
-	const AstNode *base_pointer_node = ast_get_right_sibling(compunit, return_type_node);
-	const AstNode *offset_node = ast_get_right_sibling(compunit, base_pointer_node);
+	const AstNode *ptr_offset_token_node = ast_get_left_child(compunit->nodes, node);
+	const AstNode *return_type_node = ast_get_right_sibling(compunit->nodes, ptr_offset_token_node);
+	const AstNode *base_pointer_node = ast_get_right_sibling(compunit->nodes, return_type_node);
+	const AstNode *offset_node = ast_get_right_sibling(compunit->nodes, base_pointer_node);
 
 	output->return_type_node = return_type_node;
 	output->base_pointer_node = base_pointer_node;
@@ -537,9 +514,9 @@ void parse_nary_op(CompilationUnit *compunit, const AstNode *node, uint32_t n, c
 		return;
 	}
 	
-	const AstNode *current_node = ast_get_left_child(compunit, node);
+	const AstNode *current_node = ast_get_left_child(compunit->nodes, node);
 	for (uint32_t i = 0; i < n; ++i) {
-		current_node = ast_get_right_sibling(compunit, current_node);
+		current_node = ast_get_right_sibling(compunit->nodes, current_node);
 		out_nodes[i] = current_node;
 	}
 }

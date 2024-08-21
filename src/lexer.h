@@ -47,7 +47,6 @@ typedef struct Token Token;
 struct LexerResult
 {
 	Token *tokens;
-	uint32_t token_count;
 	bool success;
 	span error_span;
 };

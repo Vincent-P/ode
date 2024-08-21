@@ -18,59 +18,67 @@ typedef struct AstNode
 	uint32_t right_sibling_index;
 } AstNode;
 
-typedef struct Parser
+struct ParserResult
 {
-	// input
-	CompilationUnit* compunit;
-	// parsing data
-	uint32_t i_current_token;
-	// error handling
-	TokenKind expected_token_kind;
-} Parser;
+	AstNode *nodes;
+	bool success;
+	span error_span;
+};
+typedef struct ParserResult ParserResult;
 
 // Invalid index used for both atom_token_index and node indices
 const uint32_t INVALID_NODE_INDEX = ~0u;
 
-void parse_module(Parser *parser);
-
-
-
-
-
-
+ParserResult parse_module(Arena *memory, const Token *tokens);
 
 
 // Helpers for AstNode
-inline bool ast_has_right_sibling(const AstNode *node)
+
+static bool ast_has_right_sibling(const AstNode *node)
 {
 	return node->right_sibling_index != INVALID_NODE_INDEX;
 }
 	
-inline bool ast_has_left_child(const AstNode *node)
+static bool ast_has_left_child(const AstNode *node)
 {
 	return node->left_child_index != INVALID_NODE_INDEX;
 }
 	
-inline bool ast_is_valid(uint32_t node_index)
+static bool ast_is_valid(uint32_t node_index)
 {
 	return node_index != INVALID_NODE_INDEX;
 }
 	
-inline bool ast_is_atom(const AstNode *node)
+static bool ast_is_atom(const AstNode *node)
 {
 	return node->atom_token_index != INVALID_NODE_INDEX;
 }
+
+static const AstNode *ast_get_node(const AstNode *nodes, uint32_t node_index)
+{
+	return array_check_addr(nodes, node_index);
+}
 	
-const AstNode *ast_get_node(const CompilationUnit *compunit, uint32_t node_index);
-const AstNode *ast_get_left_child(const CompilationUnit *compunit, const AstNode *node);
-const AstNode *ast_get_right_sibling(const CompilationUnit *compunit, const AstNode *node);
-const Token *ast_get_token(const CompilationUnit *compunit, const AstNode *node);
+static const AstNode *ast_get_left_child(const AstNode *nodes, const AstNode *node)
+{
+	return ast_get_node(nodes, node->left_child_index);
+}
+	
+static const AstNode *ast_get_right_sibling(const AstNode *nodes, const AstNode *node)
+{
+	return ast_get_node(nodes, node->right_sibling_index);
+}
+	
+static Token ast_get_token(const Token *tokens, const AstNode *node)
+{
+	return array_check(tokens, node->atom_token_index);
+}
 
 // Typed nodes
 
 typedef struct DefineNode
 {
-	const Token *function_name_token;
+	Token function_name_token;
 	Token arg_identifiers[MAX_ARGUMENTS];
 	const AstNode *arg_nodes[MAX_ARGUMENTS];
 	const AstNode *return_type_node;
@@ -82,7 +90,7 @@ typedef struct DefineNode
 
 typedef struct StructNode
 {
-	const Token *struct_name_token;
+	Token struct_name_token;
 	Token field_identifiers[MAX_STRUCT_FIELDS];
 	const AstNode *field_type_nodes[MAX_STRUCT_FIELDS];
 	uint32_t fields_length;
@@ -97,7 +105,7 @@ typedef struct IfNode
 
 typedef struct LetNode
 {
-	const Token *name_token;
+	Token name_token;
 	const AstNode *value_node;
 } LetNode;
 
@@ -115,7 +123,7 @@ typedef struct UnaryOpNode
 typedef struct FieldNode
 {
 	const AstNode *expr_node;
-	const Token *field_token;
+	Token field_token;
 } FieldNode;
 
 typedef struct PtrOffsetNodes

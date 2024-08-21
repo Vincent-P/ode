@@ -29,6 +29,7 @@ static bool is_whitespace(char c)
 static LexerResult lexer_scan(Arena *arena, StringPool *string_pool, sv input)
 {	
 	LexerResult result = {0};
+	result.tokens = array_init(arena);
 
 	uint32_t input_offset = 0;
 	while (true) {
@@ -162,12 +163,7 @@ static LexerResult lexer_scan(Arena *arena, StringPool *string_pool, sv input)
 		input_offset += token_length;
 
 		// Append to output
-		void *out_token = arena_alloc(arena, sizeof(Token));
-		memcpy(out_token, &token, sizeof(Token));
-		result.token_count += 1;
-		if (result.tokens == NULL) {
-			result.tokens = out_token;
-		}
+		array_push(arena, result.tokens, token);
 	}
 
 	result.success = true;

@@ -352,7 +352,7 @@ static uint32_t compiler_last_loop_end_ip(Compiler *compiler)
 	return compiler->loop_end_ips[compiler->loop_end_ips_length-1];
 }
 
-static bool compiler_push_variable(Compiler *compiler, const Token *identifier_token, TypeID type, uint32_t *i_variable_out)
+static bool compiler_push_variable(Compiler *compiler, Token identifier_token, TypeID type, uint32_t *i_variable_out)
 {
 	if (compiler->scopes_length >= ARRAY_LENGTH(compiler->scopes)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
@@ -369,7 +369,7 @@ static bool compiler_push_variable(Compiler *compiler, const Token *identifier_t
 	uint32_t i_new_variable = current_scope->variables_length;
 	current_scope->variables_length += 1;
 
-	sv name_str = string_pool_get(&compiler->compunit->string_pool, identifier_token->data.sid);
+	sv name_str = string_pool_get(&compiler->compunit->string_pool, identifier_token.data.sid);
 
 	current_scope->variables_name[i_new_variable] = name_str;
 	current_scope->variables_type[i_new_variable] = type;
@@ -378,7 +378,7 @@ static bool compiler_push_variable(Compiler *compiler, const Token *identifier_t
 	return true;
 }
 
-static bool compiler_push_arg(Compiler *compiler, const Token *identifier_token, TypeID type, uint32_t *i_arg_out)
+static bool compiler_push_arg(Compiler *compiler, Token identifier_token, TypeID type, uint32_t *i_arg_out)
 {
 	if (compiler->scopes_length >= ARRAY_LENGTH(compiler->scopes)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
@@ -395,7 +395,7 @@ static bool compiler_push_arg(Compiler *compiler, const Token *identifier_token,
 	uint32_t i_new_arg = current_scope->args_length;
 	current_scope->args_length += 1;
 
-	sv name_str = string_pool_get(&compiler->compunit->string_pool, identifier_token->data.sid);
+	sv name_str = string_pool_get(&compiler->compunit->string_pool, identifier_token.data.sid);
 
 	current_scope->args_name[i_new_arg] = name_str;
 	current_scope->args_type[i_new_arg] = type;
@@ -404,14 +404,14 @@ static bool compiler_push_arg(Compiler *compiler, const Token *identifier_token,
 	return true;
 }
 
-static bool compiler_lookup_variable(Compiler *compiler, const Token *identifier_token, TypeID *type_out, uint32_t *i_variable_out, bool *is_variable)
+static bool compiler_lookup_variable(Compiler *compiler, Token identifier_token, TypeID *type_out, uint32_t *i_variable_out, bool *is_variable)
 {
 	if (compiler->scopes_length == 0) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
 		return false;
 	}
 
-	sv tofind_name = string_pool_get(&compiler->compunit->string_pool, identifier_token->data.sid);
+	sv tofind_name = string_pool_get(&compiler->compunit->string_pool, identifier_token.data.sid);
 
 	for (uint32_t i_scope = compiler->scopes_length - 1; i_scope < compiler->scopes_length; --i_scope) {
 		LexicalScope *scope = compiler->scopes + i_scope;
@@ -446,9 +446,9 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *node);
 
 //
 
-static TypeID compile_atom(Compiler *compiler, const Token *token)
+static TypeID compile_atom(Compiler *compiler, Token token)
 {
-	if (token->kind == TokenKind_Identifier) {
+	if (token.kind == TokenKind_Identifier) {
 		// Refer a declared variable
 		// <identifier>
 		TypeID ty = UNIT_TYPE;
@@ -456,7 +456,7 @@ static TypeID compile_atom(Compiler *compiler, const Token *token)
 		bool is_variable = true;
 		if (!compiler_lookup_variable(compiler, token, &ty, &i_variable, &is_variable)) {
 			INIT_ERROR(&compiler->compunit->error, ErrorCode_UnknownSymbol);
-			compiler->compunit->error.span = token->span;
+			compiler->compunit->error.span = token.span;
 			return UNIT_TYPE;
 		}
 		if (is_variable) {
@@ -465,10 +465,10 @@ static TypeID compile_atom(Compiler *compiler, const Token *token)
 			compiler_bytecode_load_arg(compiler, (uint8_t)(i_variable));
 		}
 		return ty;
-	} else if (token->kind == TokenKind_UnsignedNumber) {
+	} else if (token.kind == TokenKind_UnsignedNumber) {
 		// An integer constant
 		// <number>
-		uint32_t token_number = token->data.u32;
+		uint32_t token_number = token.data.u32;
 		compiler_bytecode_push_u32(compiler, token_number);
 		// Try to reduce the number size as much as possible.
 		TypeID type_id = type_id_new_builtin(BuiltinTypeKind_Unsigned);
@@ -485,10 +485,10 @@ static TypeID compile_atom(Compiler *compiler, const Token *token)
 			// u64
 		}
 		return type_id;
-	} else if (token->kind == TokenKind_SignedNumber) {
+	} else if (token.kind == TokenKind_SignedNumber) {
 		// An integer constant
 		// (-)<number>
-		int32_t token_number = token->data.i32;
+		int32_t token_number = token.data.i32;
 		compiler_bytecode_push_i32(compiler, token_number);
 		// Try to reduce the number size as much as possible.
 		TypeID type_id = type_id_new_builtin(BuiltinTypeKind_Signed);
@@ -505,17 +505,17 @@ static TypeID compile_atom(Compiler *compiler, const Token *token)
 			// i64
 		}
 		return type_id;
-	} else if (token->kind == TokenKind_FloatingNumber) {
+	} else if (token.kind == TokenKind_FloatingNumber) {
 		// An floating point constant
 		// <number>.<number>
-		float token_number = token->data.f32;
+		float token_number = token.data.f32;
 		compiler_bytecode_push_f32(compiler, token_number);
 		TypeID type_id = type_id_new_builtin(BuiltinTypeKind_Float);
 		return type_id;
-	} else if (token->kind == TokenKind_StringLiteral) {
+	} else if (token.kind == TokenKind_StringLiteral) {
 		// A string literal
 		// "str"
-		sv literal = string_pool_get(&compiler->compunit->string_pool, token->data.sid);
+		sv literal = string_pool_get(&compiler->compunit->string_pool, token.data.sid);
 		compiler_bytecode_push_str(compiler, literal);
 		TypeID new_type_id = type_id_pointer_from(type_id_new_unsigned(NumberWidth_8));
 		new_type_id.slice.builtin_kind = BuiltinTypeKind_Slice;
@@ -534,7 +534,7 @@ static TypeID compile_expr(Compiler *compiler, const AstNode *node)
 	}
 
 	if (ast_is_atom(node)) {
-		const Token *token = ast_get_token(compiler->compunit, node);
+		const Token token = ast_get_token(compiler->compunit->tokens, node);
 		TypeID return_type = compile_atom(compiler, token);
 		return return_type;
 	} else if (ast_has_left_child(node)) {
@@ -554,7 +554,7 @@ static TypeID compile_sexprs_return_last(Compiler *compiler, const AstNode *node
 
 	uint32_t i_next_expr_node = first_expr_node->right_sibling_index;
 	while (ast_is_valid(i_next_expr_node)) {
-		const AstNode *next_expr_node = ast_get_node(compiler->compunit, i_next_expr_node);
+		const AstNode *next_expr_node = ast_get_node(compiler->compunit->nodes, i_next_expr_node);
 		return_type = compile_expr(compiler, next_expr_node);
 		i_next_expr_node = next_expr_node->right_sibling_index;
 	}
@@ -574,7 +574,7 @@ static TypeID compile_function_defininition(Compiler *compiler, const AstNode *n
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
-	sv function_name = string_pool_get(&compiler->compunit->string_pool, define_node.function_name_token->data.sid);
+	sv function_name = string_pool_get(&compiler->compunit->string_pool, define_node.function_name_token.data.sid);
 	StringId function_id = string_pool_intern(&compiler->vm->identifiers_pool, function_name);
 	TypeID return_type = parse_type(compiler->compunit, &compiler->module, define_node.return_type_node);
 	TypeID arg_types[MAX_ARGUMENTS] = {0};
@@ -612,7 +612,7 @@ static TypeID compile_function_defininition(Compiler *compiler, const AstNode *n
 		function->arg_types[function->arg_count] = arg_types[i_arg];
 		function->arg_count += 1;
 		uint32_t i_variable = 0;
-		if (!compiler_push_arg(compiler, &define_node.arg_identifiers[i_arg], arg_type, &i_variable)) {
+		if (!compiler_push_arg(compiler, define_node.arg_identifiers[i_arg], arg_type, &i_variable)) {
 			return UNIT_TYPE;
 		}
 	}
@@ -662,7 +662,7 @@ static TypeID compile_define_foreign(Compiler *compiler, const AstNode *node)
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
-	sv function_name_token_str = string_pool_get(&compiler->compunit->string_pool, nodes.function_name_token->data.sid);
+	sv function_name_token_str = string_pool_get(&compiler->compunit->string_pool, nodes.function_name_token.data.sid);
 	StringId function_id = string_pool_intern(&compiler->vm->identifiers_pool, function_name_token_str);\
 
 	// -- Type checking
@@ -725,7 +725,7 @@ static TypeID compile_struct(Compiler *compiler, const AstNode *node)
 	if (compiler->compunit->error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
-	sv struct_name_token_str = string_pool_get(&compiler->compunit->string_pool, nodes.struct_name_token->data.sid);
+	sv struct_name_token_str = string_pool_get(&compiler->compunit->string_pool, nodes.struct_name_token.data.sid);
 
 	// -- Type checking
 	// Check if the type is already defined
@@ -851,21 +851,21 @@ static TypeID compile_if(Compiler *compiler, const AstNode *node)
 static TypeID compile_when(Compiler *compiler, const AstNode *node)
 {
 	// -- Parsing
-	const AstNode *when_node = ast_get_left_child(compiler->compunit, node);
+	const AstNode *when_node = ast_get_left_child(compiler->compunit->nodes, node);
 	// A when expression must have at least a condition
 	if (!ast_has_right_sibling(when_node)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedExpr);
 		compiler->compunit->error.span = node->span;
 		return UNIT_TYPE;
 	}
-	const AstNode *cond_node = ast_get_right_sibling(compiler->compunit, when_node);
+	const AstNode *cond_node = ast_get_right_sibling(compiler->compunit->nodes, when_node);
 	// A when expression must have at least one expression after the condition
 	if (!ast_has_right_sibling(cond_node)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedExpr);
 		compiler->compunit->error.span = node->span;
 		return UNIT_TYPE;
 	}
-	const AstNode *expr_node = ast_get_right_sibling(compiler->compunit, cond_node);
+	const AstNode *expr_node = ast_get_right_sibling(compiler->compunit->nodes, cond_node);
 	
 	// Compile the condition first,
 	TypeID cond_expr = compile_expr(compiler, cond_node);
@@ -910,21 +910,21 @@ static TypeID compile_when(Compiler *compiler, const AstNode *node)
 static TypeID compile_unless(Compiler *compiler, const AstNode *node)
 {
 	// -- Parsing
-	const AstNode *when_node = ast_get_left_child(compiler->compunit, node);
+	const AstNode *when_node = ast_get_left_child(compiler->compunit->nodes, node);
 	// A when expression must have at least a condition
 	if (!ast_has_right_sibling(when_node)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedExpr);
 		compiler->compunit->error.span = node->span;
 		return UNIT_TYPE;
 	}
-	const AstNode *cond_node = ast_get_right_sibling(compiler->compunit, when_node);
+	const AstNode *cond_node = ast_get_right_sibling(compiler->compunit->nodes, when_node);
 	// A when expression must have at least one expression after the condition
 	if (!ast_has_right_sibling(cond_node)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedExpr);
 		compiler->compunit->error.span = node->span;
 		return UNIT_TYPE;
 	}
-	const AstNode *expr_node = ast_get_right_sibling(compiler->compunit, cond_node);
+	const AstNode *expr_node = ast_get_right_sibling(compiler->compunit->nodes, cond_node);
 	
 	// Compile the condition first,
 	TypeID cond_expr = compile_expr(compiler, cond_node);
@@ -968,7 +968,7 @@ static TypeID compile_unless(Compiler *compiler, const AstNode *node)
 
 static TypeID compile_loop(Compiler *compiler, const AstNode *node)
 {
-	const AstNode *loop_node = ast_get_left_child(compiler->compunit, node);
+	const AstNode *loop_node = ast_get_left_child(compiler->compunit->nodes, node);
 	// A loop expression must have at least one expr
 	if (!ast_has_right_sibling(loop_node)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedExpr);
@@ -986,7 +986,7 @@ static TypeID compile_loop(Compiler *compiler, const AstNode *node)
 	uint32_t loop_begin_ip = compiler->module.bytecode_length;
 	compiler_push_opcode(compiler, OpCode_Nop);
 	// Compile exprs
-	const AstNode *first_sexpr = ast_get_right_sibling(compiler->compunit, loop_node);
+	const AstNode *first_sexpr = ast_get_right_sibling(compiler->compunit->nodes, loop_node);
 	/*TypeID last_expr_type =*/ compile_sexprs_return_last(compiler, first_sexpr);
 	// Jump to the beginning of the loop
 	compiler_bytecode_jump(compiler, loop_begin_ip);
@@ -1003,7 +1003,7 @@ static TypeID compile_loop(Compiler *compiler, const AstNode *node)
 
 static TypeID compile_break(Compiler *compiler, const AstNode *node)
 {
-	const AstNode *break_node = ast_get_left_child(compiler->compunit, node);
+	const AstNode *break_node = ast_get_left_child(compiler->compunit->nodes, node);
 	// A break expression DOES NOT have any children
 	if (ast_has_right_sibling(break_node)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_UnexpectedExpression);
@@ -1049,7 +1049,7 @@ static TypeID compile_set(Compiler *compiler, const AstNode *node)
 	bool is_variable = true;
 	if (!compiler_lookup_variable(compiler, nodes.name_token, &variable_type, &i_variable, &is_variable)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_UnknownSymbol);
-		compiler->compunit->error.span = nodes.name_token->span;
+		compiler->compunit->error.span = nodes.name_token.span;
 		return UNIT_TYPE;
 	}
 
@@ -1078,7 +1078,7 @@ static TypeID compile_set(Compiler *compiler, const AstNode *node)
 // (begin <expr1> <expr2> ...)
 static TypeID compile_begin(Compiler *compiler, const AstNode *node)
 {
-	const AstNode *begin_node = ast_get_left_child(compiler->compunit, node);
+	const AstNode *begin_node = ast_get_left_child(compiler->compunit->nodes, node);
 	// A begin expression must have at least one expr
 	if (!ast_has_right_sibling(begin_node)) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedExpr);
@@ -1086,7 +1086,7 @@ static TypeID compile_begin(Compiler *compiler, const AstNode *node)
 		return UNIT_TYPE;
 	}
 
-	const AstNode *first_sexpr = ast_get_right_sibling(compiler->compunit, begin_node);
+	const AstNode *first_sexpr = ast_get_right_sibling(compiler->compunit->nodes, begin_node);
 	return compile_sexprs_return_last(compiler, first_sexpr);
 }
 
@@ -1579,14 +1579,14 @@ static TypeID compile_field(Compiler *compiler, const AstNode *node)
 		return UNIT_TYPE;
 	}
 
-	const Token *field_token = compiler->compunit->tokens + nodes[1]->atom_token_index;
-	const bool is_an_identifier = ast_is_atom(nodes[1]) && field_token->kind == TokenKind_Identifier;
+	Token field_token = array_check(compiler->compunit->tokens, nodes[1]->atom_token_index);
+	const bool is_an_identifier = ast_is_atom(nodes[1]) && field_token.kind == TokenKind_Identifier;
 	if (!is_an_identifier) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedIdentifier);
 		compiler->compunit->error.span = nodes[1]->span;
 		return UNIT_TYPE;
 	}
-	sv field_identifier_str = string_pool_get(&compiler->compunit->string_pool, field_token->data.sid);
+	sv field_identifier_str = string_pool_get(&compiler->compunit->string_pool, field_token.data.sid);
 	// -- Find field offset
 	if (struct_type.user_defined.index >= compiler->module.types_length) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
@@ -1602,7 +1602,7 @@ static TypeID compile_field(Compiler *compiler, const AstNode *node)
 	if (i_field >= type->field_count) {
 		// The field was not found in the struct.
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_UnknownSymbol);
-		compiler->compunit->error.span = field_token->span;
+		compiler->compunit->error.span = field_token.span;
 		return UNIT_TYPE;
 	}
 
@@ -1652,14 +1652,14 @@ static TypeID compile_store_field(Compiler *compiler, const AstNode *node)
 	uint32_t *field_offset_to_fix = compiler_bytecode_push_u32(compiler, 0);
 	compiler_push_opcode(compiler, OpCode_AddU32);
 
-	const Token *field_token = compiler->compunit->tokens + nodes[1]->atom_token_index;
-	const bool is_an_identifier = ast_is_atom(nodes[1]) && field_token->kind == TokenKind_Identifier;
+	Token field_token = array_check(compiler->compunit->tokens, nodes[1]->atom_token_index);
+	const bool is_an_identifier = ast_is_atom(nodes[1]) && field_token.kind == TokenKind_Identifier;
 	if (!is_an_identifier) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedIdentifier);
 		compiler->compunit->error.span = nodes[1]->span;
 		return UNIT_TYPE;
 	}
-	sv field_identifier_str = string_pool_get(&compiler->compunit->string_pool, field_token->data.sid);
+	sv field_identifier_str = string_pool_get(&compiler->compunit->string_pool, field_token.data.sid);
 	// -- Find field offset
 	if (struct_type.user_defined.index >= compiler->module.types_length) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
@@ -1675,7 +1675,7 @@ static TypeID compile_store_field(Compiler *compiler, const AstNode *node)
 	if (i_field >= type->field_count) {
 		// The field was not found in the struct.
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_UnknownSymbol);
-		compiler->compunit->error.span = field_token->span;
+		compiler->compunit->error.span = field_token.span;
 		return UNIT_TYPE;
 	}
 
@@ -1735,14 +1735,14 @@ static TypeID compile_load_field(Compiler *compiler, const AstNode *node)
 	uint32_t *field_offset_to_fix = compiler_bytecode_push_u32(compiler, 0);
 	compiler_push_opcode(compiler, OpCode_AddU32);			
 
-	const Token *field_token = compiler->compunit->tokens + nodes[1]->atom_token_index;
-	const bool is_an_identifier = ast_is_atom(nodes[1]) && field_token->kind == TokenKind_Identifier;
+	Token field_token = array_check(compiler->compunit->tokens, nodes[1]->atom_token_index);
+	const bool is_an_identifier = ast_is_atom(nodes[1]) && field_token.kind == TokenKind_Identifier;
 	if (!is_an_identifier) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedIdentifier);
 		compiler->compunit->error.span = nodes[1]->span;
 		return UNIT_TYPE;
 	}
-	sv field_identifier_str = string_pool_get(&compiler->compunit->string_pool, field_token->data.sid);
+	sv field_identifier_str = string_pool_get(&compiler->compunit->string_pool, field_token.data.sid);
 
 	// -- Find field offset
 	if (struct_type.user_defined.index >= compiler->module.types_length) {
@@ -1760,7 +1760,7 @@ static TypeID compile_load_field(Compiler *compiler, const AstNode *node)
 
 	// The field was not found in the struct.
 	INIT_ERROR(&compiler->compunit->error, ErrorCode_UnknownSymbol);
-	compiler->compunit->error.span = field_token->span;
+	compiler->compunit->error.span = field_token.span;
 	return UNIT_TYPE;
 }
  
@@ -1783,14 +1783,14 @@ static TypeID compile_field_offset(Compiler *compiler, const AstNode *node)
 	}
 
 	bool is_an_identifier = ast_is_atom(nodes[1]);
-	const Token *field_token = compiler->compunit->tokens + nodes[1]->atom_token_index;
-	is_an_identifier = is_an_identifier && field_token->kind == TokenKind_Identifier;
+	Token field_token = array_check(compiler->compunit->tokens, nodes[1]->atom_token_index);
+	is_an_identifier = is_an_identifier && field_token.kind == TokenKind_Identifier;
 	if (!is_an_identifier) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedIdentifier);
 		compiler->compunit->error.span = nodes[1]->span;
 		return UNIT_TYPE;
 	}
-	sv field_identifier_str = string_pool_get(&compiler->compunit->string_pool, field_token->data.sid);
+	sv field_identifier_str = string_pool_get(&compiler->compunit->string_pool, field_token.data.sid);
 
 	// -- Find field offset
 	if (expr_type.user_defined.index >= compiler->module.types_length) {
@@ -1808,7 +1808,7 @@ static TypeID compile_field_offset(Compiler *compiler, const AstNode *node)
 	}
 
 	INIT_ERROR(&compiler->compunit->error, ErrorCode_UnknownSymbol);
-	compiler->compunit->error.span = field_token->span;
+	compiler->compunit->error.span = field_token.span;
 	return UNIT_TYPE;
 }
 
@@ -1968,9 +1968,9 @@ _Static_assert(ARRAY_LENGTH(compiler_expr_builtins_str) == ARRAY_LENGTH(compiler
 static TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 {
 	// Get the function name
-	const AstNode *identifier_node = ast_get_left_child(compiler->compunit, function_node);
-	const Token *identifier = ast_get_token(compiler->compunit, identifier_node);
-	sv identifier_str = string_pool_get(&compiler->compunit->string_pool, identifier->data.sid);
+	const AstNode *identifier_node = ast_get_left_child(compiler->compunit->nodes, function_node);
+	const Token identifier = ast_get_token(compiler->compunit->tokens, identifier_node);
+	sv identifier_str = string_pool_get(&compiler->compunit->string_pool, identifier.data.sid);
 
 	// Dispatch to the correct builtin compile function (define, iadd, etc)
 	const uint32_t compiler_builtin_length = ARRAY_LENGTH(compiler_expr_builtins);
@@ -1987,7 +1987,7 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 	bool is_external = i_found_module < compiler->vm->compiler_modules_length;
 	if (!is_external && i_found_function >= compiler->module.functions_length) {
 		INIT_ERROR(&compiler->compunit->error, ErrorCode_UnknownSymbol);
-		compiler->compunit->error.span = identifier->span;
+		compiler->compunit->error.span = identifier.span;
 		return UNIT_TYPE;
 	}
 	Function *found_function = NULL;
@@ -2001,7 +2001,7 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 	uint32_t i_sig_arg_type = 0;
 	uint32_t i_arg_node = identifier_node->right_sibling_index;
 	while (ast_is_valid(i_arg_node)) {
-		const AstNode *arg_node = ast_get_node(compiler->compunit, i_arg_node);
+		const AstNode *arg_node = ast_get_node(compiler->compunit->nodes, i_arg_node);
 		// There is an expr but the signature has ended
 		if (i_sig_arg_type >= found_function->arg_count) {
 			INIT_ERROR(&compiler->compunit->error, ErrorCode_UnexpectedExpression);
@@ -2115,24 +2115,24 @@ void compile_module(Compiler *compiler)
 	// Compile every S-expression at root level
 	uint32_t i_root_expr = root_node->left_child_index;
 	while (ast_is_valid(i_root_expr)) {
-		const AstNode *root_expr = ast_get_node(compiler->compunit, i_root_expr);
+		const AstNode *root_expr = ast_get_node(compiler->compunit->nodes, i_root_expr);
 
 		// Validate that a root S-expression starts with a token
-		const AstNode *first_sexpr_member = ast_get_left_child(compiler->compunit, root_expr);
+		const AstNode *first_sexpr_member = ast_get_left_child(compiler->compunit->nodes, root_expr);
 		const bool is_an_atom = ast_has_left_child(root_expr) && ast_is_atom(first_sexpr_member);
 		if (!is_an_atom) {
 			INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedIdentifier);
 			return;
 		}
-		const Token *atom_token = compiler->compunit->tokens + first_sexpr_member->atom_token_index;
-		const bool is_an_identifier = atom_token->kind == TokenKind_Identifier;
+		Token atom_token = array_check(compiler->compunit->tokens, first_sexpr_member->atom_token_index);
+		const bool is_an_identifier = atom_token.kind == TokenKind_Identifier;
 		if (!is_an_identifier) {
 			INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedIdentifier);
 			return;
 		}
 
 		// Find the compiler builtin for this S-expression
-		sv identifier_str = string_pool_get(&compiler->compunit->string_pool, atom_token->data.sid);
+		sv identifier_str = string_pool_get(&compiler->compunit->string_pool, atom_token.data.sid);
 		uint32_t i_builtin = 0;
 		for (; i_builtin < ARRAY_LENGTH(compiler_top_builtins); ++i_builtin) {
 			if (sv_equals(identifier_str, compiler_top_builtins_str[i_builtin])) {
@@ -2162,24 +2162,24 @@ ScanDepsResult compiler_scan_dependencies(Arena *out_memory, CompilationUnit *co
 
 	uint32_t i_root_expr = root_node->left_child_index;
 	while (ast_is_valid(i_root_expr)) {
-		const AstNode *root_expr = ast_get_node(compunit, i_root_expr);
+		const AstNode *root_expr = ast_get_node(compunit->nodes, i_root_expr);
 
 		// Validate that a root S-expression starts with an identifier
-		const AstNode *first_sexpr_member = ast_get_left_child(compunit, root_expr);
+		const AstNode *first_sexpr_member = ast_get_left_child(compunit->nodes, root_expr);
 		bool is_an_atom = ast_has_left_child(root_expr) && ast_is_atom(first_sexpr_member);
 		if (!is_an_atom) {
 			INIT_ERROR(&compunit->error, ErrorCode_ExpectedIdentifier);
 			return result;
 		}
-		const Token *atom_token = compunit->tokens + first_sexpr_member->atom_token_index;
-		const bool is_an_identifier = atom_token->kind == TokenKind_Identifier;
+		Token atom_token = array_check(compunit->tokens, first_sexpr_member->atom_token_index);
+		const bool is_an_identifier = atom_token.kind == TokenKind_Identifier;
 		if (!is_an_identifier) {
 			INIT_ERROR(&compunit->error, ErrorCode_ExpectedIdentifier);
 			return result;
 		}
 
 		// Find a require clause
-		if (atom_token->data.sid.id == REQUIRE_ID.id) {
+		if (atom_token.data.sid.id == REQUIRE_ID.id) {
 			// Check that there is only one argument
 			if (root_expr->child_count < 2) {
 				INIT_ERROR(&compunit->error, ErrorCode_ExpectedExpr);
@@ -2191,7 +2191,7 @@ ScanDepsResult compiler_scan_dependencies(Arena *out_memory, CompilationUnit *co
 				return result;
 			}
 
-			const AstNode *require_path_node = ast_get_right_sibling(compunit, first_sexpr_member);
+			const AstNode *require_path_node = ast_get_right_sibling(compunit->nodes, first_sexpr_member);
 
 			// Check that the argument is a string
 			is_an_atom = ast_is_atom(require_path_node);
@@ -2200,15 +2200,15 @@ ScanDepsResult compiler_scan_dependencies(Arena *out_memory, CompilationUnit *co
 				compunit->error.span = require_path_node->span;
 				return result;
 			}
-			const Token *require_path_token = compunit->tokens + require_path_node->atom_token_index;
-			if (require_path_token->kind != TokenKind_StringLiteral) {
+			Token require_path_token = array_check(compunit->tokens, require_path_node->atom_token_index);
+			if (require_path_token.kind != TokenKind_StringLiteral) {
 				INIT_ERROR(&compunit->error, ErrorCode_ExpectedString);
 				compunit->error.span = require_path_node->span;
 				return result;
 			}
 
 			// Process the require path
-			StringId dependency_id = require_path_token->data.sid;
+			StringId dependency_id = require_path_token.data.sid;
 			// IMPORTANT: we are only allocating this id in the arena, so they will all be contigous.
 			StringId *output_dependency_id = arena_alloc(out_memory, sizeof(StringId));
 			if (result.names == NULL) {

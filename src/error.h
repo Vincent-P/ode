@@ -67,7 +67,7 @@ typedef struct Error
 	uint32_t i_function;
 } Error;
 
-inline void error_trigger(Error *error, ErrorCode code, sv condition_str, sv file, int line)
+static void error_trigger(Error *error, ErrorCode code, sv condition_str, sv file, int line)
 {
 	// Don't hide errors
 	if (error->code != ErrorCode_Ok) {

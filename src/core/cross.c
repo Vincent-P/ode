@@ -70,6 +70,26 @@ ReadFileResult cross_read_entire_file(sv filepath)
 	return result;
 }
 
+
+bool cross_write_entire_file(sv filepath, byte *content, uint32_t content_size)
+{
+	// Open file
+    HANDLE file = CreateFileA(filepath.chars, GENERIC_WRITE, FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+	// Read file
+	DWORD bytes_written = 0;
+	BOOL success = WriteFile(file, content, content_size, &bytes_written, NULL);
+	if (!success) {
+		CloseHandle(file);
+		return false;
+	}
+
+	CloseHandle(file);
+	return true;
+}
+
 void cross_log(uint64_t handle, sv message)
 {
 	WriteFile((HANDLE)handle, message.chars, message.length, NULL, NULL);

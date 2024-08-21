@@ -61,27 +61,27 @@ _Static_assert(sizeof(BuiltinTypeID) == sizeof(uint32_t), "is a uint32_t");
 _Static_assert(sizeof(UserDefinedTypeID) == sizeof(uint32_t), "is a uint32_t");
 _Static_assert(sizeof(TypeID) == sizeof(uint32_t), "is a uint32_t");
 
-inline bool type_id_is_pointer(TypeID id)
+static bool type_id_is_pointer(TypeID id)
 {
 	return id.builtin.is_user_defined == 0 && id.builtin.kind == BuiltinTypeKind_Pointer;
 }
 
-inline bool type_id_is_slice(TypeID id)
+static bool type_id_is_slice(TypeID id)
 {
 	return id.builtin.is_user_defined == 0 && id.builtin.kind == BuiltinTypeKind_Slice;
 }
 	
-inline bool type_id_is_builtin(TypeID id)
+static bool type_id_is_builtin(TypeID id)
 {
 	return id.builtin.is_user_defined == 0 && id.builtin.kind != BuiltinTypeKind_Pointer && id.builtin.kind != BuiltinTypeKind_Slice;
 }
 	
-inline bool type_id_is_user_defined(TypeID id)
+static bool type_id_is_user_defined(TypeID id)
 {
 	return id.builtin.is_user_defined == 1;
 }
 	
-inline TypeID type_id_new_builtin(BuiltinTypeKind kind)
+static TypeID type_id_new_builtin(BuiltinTypeKind kind)
 {
 	TypeID id = {0};
 	id.builtin.is_user_defined = 0;
@@ -90,7 +90,7 @@ inline TypeID type_id_new_builtin(BuiltinTypeKind kind)
 	return id;
 }
 
-inline TypeID type_id_new_signed(NumberWidth width)
+static TypeID type_id_new_signed(NumberWidth width)
 {
 	TypeID id = {0};
 	id.builtin.is_user_defined = 0;
@@ -100,7 +100,7 @@ inline TypeID type_id_new_signed(NumberWidth width)
 	return id;
 }
 
-inline TypeID type_id_new_unsigned(NumberWidth width)
+static TypeID type_id_new_unsigned(NumberWidth width)
 {
 	TypeID id = {0};
 	id.builtin.is_user_defined = 0;
@@ -112,7 +112,7 @@ inline TypeID type_id_new_unsigned(NumberWidth width)
 
 const TypeID UNIT_TYPE = {.builtin.kind = BuiltinTypeKind_Unit};
 
-inline TypeID type_id_new_user_defined(uint32_t index)
+static TypeID type_id_new_user_defined(uint32_t index)
 {
 	TypeID id = {0};
 	id.user_defined.is_user_defined = 1;
@@ -120,7 +120,7 @@ inline TypeID type_id_new_user_defined(uint32_t index)
 	return id;
 }
 
-inline TypeID type_id_pointer_from(TypeID inner_type)
+static TypeID type_id_pointer_from(TypeID inner_type)
 {
 	if (type_id_is_pointer(inner_type)) {
 		inner_type.pointer.indirection_count += 1;
@@ -145,7 +145,7 @@ inline TypeID type_id_pointer_from(TypeID inner_type)
 	return UNIT_TYPE;
 }
 
-inline TypeID type_id_deref_pointer(TypeID pointer_type)
+static TypeID type_id_deref_pointer(TypeID pointer_type)
 {
 	if (pointer_type.pointer.indirection_count > 1) {
 		TypeID pointed_type = pointer_type;
@@ -187,7 +187,7 @@ literal type:
 - otherwise: check bits length, check half length
 */
 
-inline bool type_similar(TypeID operand_id, TypeID expected_id)
+static bool type_similar(TypeID operand_id, TypeID expected_id)
 {
 	// Primitive types automatic conversions
 	if (type_id_is_builtin(operand_id) && type_id_is_builtin(expected_id)) {
