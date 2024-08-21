@@ -4045,38 +4045,38 @@ SOKOL_GFX_API_DECL sg_gl_pass_info sg_gl_query_pass_info(sg_pass pass);
 } // extern "C"
 
 // reference-based equivalents for c++
-inline void sg_setup(const sg_desc& desc) { return sg_setup(&desc); }
+static void sg_setup(const sg_desc& desc) { return sg_setup(&desc); }
 
-inline sg_buffer sg_make_buffer(const sg_buffer_desc& desc) { return sg_make_buffer(&desc); }
-inline sg_image sg_make_image(const sg_image_desc& desc) { return sg_make_image(&desc); }
-inline sg_sampler sg_make_sampler(const sg_sampler_desc& desc) { return sg_make_sampler(&desc); }
-inline sg_shader sg_make_shader(const sg_shader_desc& desc) { return sg_make_shader(&desc); }
-inline sg_pipeline sg_make_pipeline(const sg_pipeline_desc& desc) { return sg_make_pipeline(&desc); }
-inline sg_pass sg_make_pass(const sg_pass_desc& desc) { return sg_make_pass(&desc); }
-inline void sg_update_image(sg_image img, const sg_image_data& data) { return sg_update_image(img, &data); }
+static sg_buffer sg_make_buffer(const sg_buffer_desc& desc) { return sg_make_buffer(&desc); }
+static sg_image sg_make_image(const sg_image_desc& desc) { return sg_make_image(&desc); }
+static sg_sampler sg_make_sampler(const sg_sampler_desc& desc) { return sg_make_sampler(&desc); }
+static sg_shader sg_make_shader(const sg_shader_desc& desc) { return sg_make_shader(&desc); }
+static sg_pipeline sg_make_pipeline(const sg_pipeline_desc& desc) { return sg_make_pipeline(&desc); }
+static sg_pass sg_make_pass(const sg_pass_desc& desc) { return sg_make_pass(&desc); }
+static void sg_update_image(sg_image img, const sg_image_data& data) { return sg_update_image(img, &data); }
 
-inline void sg_begin_default_pass(const sg_pass_action& pass_action, int width, int height) { return sg_begin_default_pass(&pass_action, width, height); }
-inline void sg_begin_default_passf(const sg_pass_action& pass_action, float width, float height) { return sg_begin_default_passf(&pass_action, width, height); }
-inline void sg_begin_pass(sg_pass pass, const sg_pass_action& pass_action) { return sg_begin_pass(pass, &pass_action); }
-inline void sg_apply_bindings(const sg_bindings& bindings) { return sg_apply_bindings(&bindings); }
-inline void sg_apply_uniforms(sg_shader_stage stage, int ub_index, const sg_range& data) { return sg_apply_uniforms(stage, ub_index, &data); }
+static void sg_begin_default_pass(const sg_pass_action& pass_action, int width, int height) { return sg_begin_default_pass(&pass_action, width, height); }
+static void sg_begin_default_passf(const sg_pass_action& pass_action, float width, float height) { return sg_begin_default_passf(&pass_action, width, height); }
+static void sg_begin_pass(sg_pass pass, const sg_pass_action& pass_action) { return sg_begin_pass(pass, &pass_action); }
+static void sg_apply_bindings(const sg_bindings& bindings) { return sg_apply_bindings(&bindings); }
+static void sg_apply_uniforms(sg_shader_stage stage, int ub_index, const sg_range& data) { return sg_apply_uniforms(stage, ub_index, &data); }
 
-inline sg_buffer_desc sg_query_buffer_defaults(const sg_buffer_desc& desc) { return sg_query_buffer_defaults(&desc); }
-inline sg_image_desc sg_query_image_defaults(const sg_image_desc& desc) { return sg_query_image_defaults(&desc); }
-inline sg_sampler_desc sg_query_sampler_defaults(const sg_sampler_desc& desc) { return sg_query_sampler_defaults(&desc); }
-inline sg_shader_desc sg_query_shader_defaults(const sg_shader_desc& desc) { return sg_query_shader_defaults(&desc); }
-inline sg_pipeline_desc sg_query_pipeline_defaults(const sg_pipeline_desc& desc) { return sg_query_pipeline_defaults(&desc); }
-inline sg_pass_desc sg_query_pass_defaults(const sg_pass_desc& desc) { return sg_query_pass_defaults(&desc); }
+static sg_buffer_desc sg_query_buffer_defaults(const sg_buffer_desc& desc) { return sg_query_buffer_defaults(&desc); }
+static sg_image_desc sg_query_image_defaults(const sg_image_desc& desc) { return sg_query_image_defaults(&desc); }
+static sg_sampler_desc sg_query_sampler_defaults(const sg_sampler_desc& desc) { return sg_query_sampler_defaults(&desc); }
+static sg_shader_desc sg_query_shader_defaults(const sg_shader_desc& desc) { return sg_query_shader_defaults(&desc); }
+static sg_pipeline_desc sg_query_pipeline_defaults(const sg_pipeline_desc& desc) { return sg_query_pipeline_defaults(&desc); }
+static sg_pass_desc sg_query_pass_defaults(const sg_pass_desc& desc) { return sg_query_pass_defaults(&desc); }
 
-inline void sg_init_buffer(sg_buffer buf, const sg_buffer_desc& desc) { return sg_init_buffer(buf, &desc); }
-inline void sg_init_image(sg_image img, const sg_image_desc& desc) { return sg_init_image(img, &desc); }
-inline void sg_init_sampler(sg_sampler smp, const sg_sampler_desc& desc) { return sg_init_sampler(smp, &desc); }
-inline void sg_init_shader(sg_shader shd, const sg_shader_desc& desc) { return sg_init_shader(shd, &desc); }
-inline void sg_init_pipeline(sg_pipeline pip, const sg_pipeline_desc& desc) { return sg_init_pipeline(pip, &desc); }
-inline void sg_init_pass(sg_pass pass, const sg_pass_desc& desc) { return sg_init_pass(pass, &desc); }
+static void sg_init_buffer(sg_buffer buf, const sg_buffer_desc& desc) { return sg_init_buffer(buf, &desc); }
+static void sg_init_image(sg_image img, const sg_image_desc& desc) { return sg_init_image(img, &desc); }
+static void sg_init_sampler(sg_sampler smp, const sg_sampler_desc& desc) { return sg_init_sampler(smp, &desc); }
+static void sg_init_shader(sg_shader shd, const sg_shader_desc& desc) { return sg_init_shader(shd, &desc); }
+static void sg_init_pipeline(sg_pipeline pip, const sg_pipeline_desc& desc) { return sg_init_pipeline(pip, &desc); }
+static void sg_init_pass(sg_pass pass, const sg_pass_desc& desc) { return sg_init_pass(pass, &desc); }
 
-inline void sg_update_buffer(sg_buffer buf_id, const sg_range& data) { return sg_update_buffer(buf_id, &data); }
-inline int sg_append_buffer(sg_buffer buf_id, const sg_range& data) { return sg_append_buffer(buf_id, &data); }
+static void sg_update_buffer(sg_buffer buf_id, const sg_range& data) { return sg_update_buffer(buf_id, &data); }
+static int sg_append_buffer(sg_buffer buf_id, const sg_range& data) { return sg_append_buffer(buf_id, &data); }
 #endif
 #endif // SOKOL_GFX_INCLUDED
 
@@ -9220,7 +9220,7 @@ _SOKOL_PRIVATE void _sg_gl_update_image(_sg_image_t* img, const sg_image_data* d
 #endif
 
 //-- D3D11 C/C++ wrappers ------------------------------------------------------
-static inline HRESULT _sg_d3d11_CheckFormatSupport(ID3D11Device* self, DXGI_FORMAT Format, UINT* pFormatSupport) {
+static static HRESULT _sg_d3d11_CheckFormatSupport(ID3D11Device* self, DXGI_FORMAT Format, UINT* pFormatSupport) {
     #if defined(__cplusplus)
         return self->CheckFormatSupport(Format, pFormatSupport);
     #else
@@ -9228,7 +9228,7 @@ static inline HRESULT _sg_d3d11_CheckFormatSupport(ID3D11Device* self, DXGI_FORM
     #endif
 }
 
-static inline void _sg_d3d11_OMSetRenderTargets(ID3D11DeviceContext* self, UINT NumViews, ID3D11RenderTargetView* const* ppRenderTargetViews, ID3D11DepthStencilView *pDepthStencilView) {
+static static void _sg_d3d11_OMSetRenderTargets(ID3D11DeviceContext* self, UINT NumViews, ID3D11RenderTargetView* const* ppRenderTargetViews, ID3D11DepthStencilView *pDepthStencilView) {
     #if defined(__cplusplus)
         self->OMSetRenderTargets(NumViews, ppRenderTargetViews, pDepthStencilView);
     #else
@@ -9236,7 +9236,7 @@ static inline void _sg_d3d11_OMSetRenderTargets(ID3D11DeviceContext* self, UINT 
     #endif
 }
 
-static inline void _sg_d3d11_RSSetState(ID3D11DeviceContext* self, ID3D11RasterizerState* pRasterizerState) {
+static static void _sg_d3d11_RSSetState(ID3D11DeviceContext* self, ID3D11RasterizerState* pRasterizerState) {
     #if defined(__cplusplus)
         self->RSSetState(pRasterizerState);
     #else
@@ -9244,7 +9244,7 @@ static inline void _sg_d3d11_RSSetState(ID3D11DeviceContext* self, ID3D11Rasteri
     #endif
 }
 
-static inline void _sg_d3d11_OMSetDepthStencilState(ID3D11DeviceContext* self, ID3D11DepthStencilState* pDepthStencilState, UINT StencilRef) {
+static static void _sg_d3d11_OMSetDepthStencilState(ID3D11DeviceContext* self, ID3D11DepthStencilState* pDepthStencilState, UINT StencilRef) {
     #if defined(__cplusplus)
         self->OMSetDepthStencilState(pDepthStencilState, StencilRef);
     #else
@@ -9252,7 +9252,7 @@ static inline void _sg_d3d11_OMSetDepthStencilState(ID3D11DeviceContext* self, I
     #endif
 }
 
-static inline void _sg_d3d11_OMSetBlendState(ID3D11DeviceContext* self, ID3D11BlendState* pBlendState, const FLOAT BlendFactor[4], UINT SampleMask) {
+static static void _sg_d3d11_OMSetBlendState(ID3D11DeviceContext* self, ID3D11BlendState* pBlendState, const FLOAT BlendFactor[4], UINT SampleMask) {
     #if defined(__cplusplus)
         self->OMSetBlendState(pBlendState, BlendFactor, SampleMask);
     #else
@@ -9260,7 +9260,7 @@ static inline void _sg_d3d11_OMSetBlendState(ID3D11DeviceContext* self, ID3D11Bl
     #endif
 }
 
-static inline void _sg_d3d11_IASetVertexBuffers(ID3D11DeviceContext* self, UINT StartSlot, UINT NumBuffers, ID3D11Buffer* const* ppVertexBuffers, const UINT* pStrides, const UINT* pOffsets) {
+static static void _sg_d3d11_IASetVertexBuffers(ID3D11DeviceContext* self, UINT StartSlot, UINT NumBuffers, ID3D11Buffer* const* ppVertexBuffers, const UINT* pStrides, const UINT* pOffsets) {
     #if defined(__cplusplus)
         self->IASetVertexBuffers(StartSlot, NumBuffers, ppVertexBuffers, pStrides, pOffsets);
     #else
@@ -9268,7 +9268,7 @@ static inline void _sg_d3d11_IASetVertexBuffers(ID3D11DeviceContext* self, UINT 
     #endif
 }
 
-static inline void _sg_d3d11_IASetIndexBuffer(ID3D11DeviceContext* self, ID3D11Buffer* pIndexBuffer, DXGI_FORMAT Format, UINT Offset) {
+static static void _sg_d3d11_IASetIndexBuffer(ID3D11DeviceContext* self, ID3D11Buffer* pIndexBuffer, DXGI_FORMAT Format, UINT Offset) {
     #if defined(__cplusplus)
         self->IASetIndexBuffer(pIndexBuffer, Format, Offset);
     #else
@@ -9276,7 +9276,7 @@ static inline void _sg_d3d11_IASetIndexBuffer(ID3D11DeviceContext* self, ID3D11B
     #endif
 }
 
-static inline void _sg_d3d11_IASetInputLayout(ID3D11DeviceContext* self, ID3D11InputLayout* pInputLayout) {
+static static void _sg_d3d11_IASetInputLayout(ID3D11DeviceContext* self, ID3D11InputLayout* pInputLayout) {
     #if defined(__cplusplus)
         self->IASetInputLayout(pInputLayout);
     #else
@@ -9284,7 +9284,7 @@ static inline void _sg_d3d11_IASetInputLayout(ID3D11DeviceContext* self, ID3D11I
     #endif
 }
 
-static inline void _sg_d3d11_VSSetShader(ID3D11DeviceContext* self, ID3D11VertexShader* pVertexShader, ID3D11ClassInstance* const* ppClassInstances, UINT NumClassInstances) {
+static static void _sg_d3d11_VSSetShader(ID3D11DeviceContext* self, ID3D11VertexShader* pVertexShader, ID3D11ClassInstance* const* ppClassInstances, UINT NumClassInstances) {
     #if defined(__cplusplus)
         self->VSSetShader(pVertexShader, ppClassInstances, NumClassInstances);
     #else
@@ -9292,7 +9292,7 @@ static inline void _sg_d3d11_VSSetShader(ID3D11DeviceContext* self, ID3D11Vertex
     #endif
 }
 
-static inline void _sg_d3d11_PSSetShader(ID3D11DeviceContext* self, ID3D11PixelShader* pPixelShader, ID3D11ClassInstance* const* ppClassInstances, UINT NumClassInstances) {
+static static void _sg_d3d11_PSSetShader(ID3D11DeviceContext* self, ID3D11PixelShader* pPixelShader, ID3D11ClassInstance* const* ppClassInstances, UINT NumClassInstances) {
     #if defined(__cplusplus)
         self->PSSetShader(pPixelShader, ppClassInstances, NumClassInstances);
     #else
@@ -9300,7 +9300,7 @@ static inline void _sg_d3d11_PSSetShader(ID3D11DeviceContext* self, ID3D11PixelS
     #endif
 }
 
-static inline void _sg_d3d11_VSSetConstantBuffers(ID3D11DeviceContext* self, UINT StartSlot, UINT NumBuffers, ID3D11Buffer* const* ppConstantBuffers) {
+static static void _sg_d3d11_VSSetConstantBuffers(ID3D11DeviceContext* self, UINT StartSlot, UINT NumBuffers, ID3D11Buffer* const* ppConstantBuffers) {
     #if defined(__cplusplus)
         self->VSSetConstantBuffers(StartSlot, NumBuffers, ppConstantBuffers);
     #else
@@ -9308,7 +9308,7 @@ static inline void _sg_d3d11_VSSetConstantBuffers(ID3D11DeviceContext* self, UIN
     #endif
 }
 
-static inline void _sg_d3d11_PSSetConstantBuffers(ID3D11DeviceContext* self, UINT StartSlot, UINT NumBuffers, ID3D11Buffer* const* ppConstantBuffers) {
+static static void _sg_d3d11_PSSetConstantBuffers(ID3D11DeviceContext* self, UINT StartSlot, UINT NumBuffers, ID3D11Buffer* const* ppConstantBuffers) {
     #if defined(__cplusplus)
         self->PSSetConstantBuffers(StartSlot, NumBuffers, ppConstantBuffers);
     #else
@@ -9316,7 +9316,7 @@ static inline void _sg_d3d11_PSSetConstantBuffers(ID3D11DeviceContext* self, UIN
     #endif
 }
 
-static inline void _sg_d3d11_VSSetShaderResources(ID3D11DeviceContext* self, UINT StartSlot, UINT NumViews, ID3D11ShaderResourceView* const* ppShaderResourceViews) {
+static static void _sg_d3d11_VSSetShaderResources(ID3D11DeviceContext* self, UINT StartSlot, UINT NumViews, ID3D11ShaderResourceView* const* ppShaderResourceViews) {
     #if defined(__cplusplus)
         self->VSSetShaderResources(StartSlot, NumViews, ppShaderResourceViews);
     #else
@@ -9324,7 +9324,7 @@ static inline void _sg_d3d11_VSSetShaderResources(ID3D11DeviceContext* self, UIN
     #endif
 }
 
-static inline void _sg_d3d11_PSSetShaderResources(ID3D11DeviceContext* self, UINT StartSlot, UINT NumViews, ID3D11ShaderResourceView* const* ppShaderResourceViews) {
+static static void _sg_d3d11_PSSetShaderResources(ID3D11DeviceContext* self, UINT StartSlot, UINT NumViews, ID3D11ShaderResourceView* const* ppShaderResourceViews) {
     #if defined(__cplusplus)
         self->PSSetShaderResources(StartSlot, NumViews, ppShaderResourceViews);
     #else
@@ -9332,7 +9332,7 @@ static inline void _sg_d3d11_PSSetShaderResources(ID3D11DeviceContext* self, UIN
     #endif
 }
 
-static inline void _sg_d3d11_VSSetSamplers(ID3D11DeviceContext* self, UINT StartSlot, UINT NumSamplers, ID3D11SamplerState* const* ppSamplers) {
+static static void _sg_d3d11_VSSetSamplers(ID3D11DeviceContext* self, UINT StartSlot, UINT NumSamplers, ID3D11SamplerState* const* ppSamplers) {
     #if defined(__cplusplus)
         self->VSSetSamplers(StartSlot, NumSamplers, ppSamplers);
     #else
@@ -9340,7 +9340,7 @@ static inline void _sg_d3d11_VSSetSamplers(ID3D11DeviceContext* self, UINT Start
     #endif
 }
 
-static inline void _sg_d3d11_PSSetSamplers(ID3D11DeviceContext* self, UINT StartSlot, UINT NumSamplers, ID3D11SamplerState* const* ppSamplers) {
+static static void _sg_d3d11_PSSetSamplers(ID3D11DeviceContext* self, UINT StartSlot, UINT NumSamplers, ID3D11SamplerState* const* ppSamplers) {
     #if defined(__cplusplus)
         self->PSSetSamplers(StartSlot, NumSamplers, ppSamplers);
     #else
@@ -9348,7 +9348,7 @@ static inline void _sg_d3d11_PSSetSamplers(ID3D11DeviceContext* self, UINT Start
     #endif
 }
 
-static inline HRESULT _sg_d3d11_CreateBuffer(ID3D11Device* self, const D3D11_BUFFER_DESC* pDesc, const D3D11_SUBRESOURCE_DATA* pInitialData, ID3D11Buffer** ppBuffer) {
+static static HRESULT _sg_d3d11_CreateBuffer(ID3D11Device* self, const D3D11_BUFFER_DESC* pDesc, const D3D11_SUBRESOURCE_DATA* pInitialData, ID3D11Buffer** ppBuffer) {
     #if defined(__cplusplus)
         return self->CreateBuffer(pDesc, pInitialData, ppBuffer);
     #else
@@ -9356,7 +9356,7 @@ static inline HRESULT _sg_d3d11_CreateBuffer(ID3D11Device* self, const D3D11_BUF
     #endif
 }
 
-static inline HRESULT _sg_d3d11_CreateTexture2D(ID3D11Device* self, const D3D11_TEXTURE2D_DESC* pDesc, const D3D11_SUBRESOURCE_DATA* pInitialData, ID3D11Texture2D** ppTexture2D) {
+static static HRESULT _sg_d3d11_CreateTexture2D(ID3D11Device* self, const D3D11_TEXTURE2D_DESC* pDesc, const D3D11_SUBRESOURCE_DATA* pInitialData, ID3D11Texture2D** ppTexture2D) {
     #if defined(__cplusplus)
         return self->CreateTexture2D(pDesc, pInitialData, ppTexture2D);
     #else
@@ -9364,7 +9364,7 @@ static inline HRESULT _sg_d3d11_CreateTexture2D(ID3D11Device* self, const D3D11_
     #endif
 }
 
-static inline HRESULT _sg_d3d11_CreateShaderResourceView(ID3D11Device* self, ID3D11Resource* pResource, const D3D11_SHADER_RESOURCE_VIEW_DESC* pDesc, ID3D11ShaderResourceView** ppSRView) {
+static static HRESULT _sg_d3d11_CreateShaderResourceView(ID3D11Device* self, ID3D11Resource* pResource, const D3D11_SHADER_RESOURCE_VIEW_DESC* pDesc, ID3D11ShaderResourceView** ppSRView) {
     #if defined(__cplusplus)
         return self->CreateShaderResourceView(pResource, pDesc, ppSRView);
     #else
@@ -9372,7 +9372,7 @@ static inline HRESULT _sg_d3d11_CreateShaderResourceView(ID3D11Device* self, ID3
     #endif
 }
 
-static inline void _sg_d3d11_GetResource(ID3D11View* self, ID3D11Resource** ppResource) {
+static static void _sg_d3d11_GetResource(ID3D11View* self, ID3D11Resource** ppResource) {
     #if defined(__cplusplus)
         self->GetResource(ppResource);
     #else
@@ -9380,7 +9380,7 @@ static inline void _sg_d3d11_GetResource(ID3D11View* self, ID3D11Resource** ppRe
     #endif
 }
 
-static inline HRESULT _sg_d3d11_CreateTexture3D(ID3D11Device* self, const D3D11_TEXTURE3D_DESC* pDesc, const D3D11_SUBRESOURCE_DATA* pInitialData, ID3D11Texture3D** ppTexture3D) {
+static static HRESULT _sg_d3d11_CreateTexture3D(ID3D11Device* self, const D3D11_TEXTURE3D_DESC* pDesc, const D3D11_SUBRESOURCE_DATA* pInitialData, ID3D11Texture3D** ppTexture3D) {
     #if defined(__cplusplus)
         return self->CreateTexture3D(pDesc, pInitialData, ppTexture3D);
     #else
@@ -9388,7 +9388,7 @@ static inline HRESULT _sg_d3d11_CreateTexture3D(ID3D11Device* self, const D3D11_
     #endif
 }
 
-static inline HRESULT _sg_d3d11_CreateSamplerState(ID3D11Device* self, const D3D11_SAMPLER_DESC* pSamplerDesc, ID3D11SamplerState** ppSamplerState) {
+static static HRESULT _sg_d3d11_CreateSamplerState(ID3D11Device* self, const D3D11_SAMPLER_DESC* pSamplerDesc, ID3D11SamplerState** ppSamplerState) {
     #if defined(__cplusplus)
         return self->CreateSamplerState(pSamplerDesc, ppSamplerState);
     #else
@@ -9396,7 +9396,7 @@ static inline HRESULT _sg_d3d11_CreateSamplerState(ID3D11Device* self, const D3D
     #endif
 }
 
-static inline LPVOID _sg_d3d11_GetBufferPointer(ID3D10Blob* self) {
+static static LPVOID _sg_d3d11_GetBufferPointer(ID3D10Blob* self) {
     #if defined(__cplusplus)
         return self->GetBufferPointer();
     #else
@@ -9404,7 +9404,7 @@ static inline LPVOID _sg_d3d11_GetBufferPointer(ID3D10Blob* self) {
     #endif
 }
 
-static inline SIZE_T _sg_d3d11_GetBufferSize(ID3D10Blob* self) {
+static static SIZE_T _sg_d3d11_GetBufferSize(ID3D10Blob* self) {
     #if defined(__cplusplus)
         return self->GetBufferSize();
     #else
@@ -9412,7 +9412,7 @@ static inline SIZE_T _sg_d3d11_GetBufferSize(ID3D10Blob* self) {
     #endif
 }
 
-static inline HRESULT _sg_d3d11_CreateVertexShader(ID3D11Device* self, const void* pShaderBytecode, SIZE_T BytecodeLength, ID3D11ClassLinkage* pClassLinkage, ID3D11VertexShader** ppVertexShader) {
+static static HRESULT _sg_d3d11_CreateVertexShader(ID3D11Device* self, const void* pShaderBytecode, SIZE_T BytecodeLength, ID3D11ClassLinkage* pClassLinkage, ID3D11VertexShader** ppVertexShader) {
     #if defined(__cplusplus)
         return self->CreateVertexShader(pShaderBytecode, BytecodeLength, pClassLinkage, ppVertexShader);
     #else
@@ -9420,7 +9420,7 @@ static inline HRESULT _sg_d3d11_CreateVertexShader(ID3D11Device* self, const voi
     #endif
 }
 
-static inline HRESULT _sg_d3d11_CreatePixelShader(ID3D11Device* self, const void* pShaderBytecode, SIZE_T BytecodeLength, ID3D11ClassLinkage* pClassLinkage, ID3D11PixelShader** ppPixelShader) {
+static static HRESULT _sg_d3d11_CreatePixelShader(ID3D11Device* self, const void* pShaderBytecode, SIZE_T BytecodeLength, ID3D11ClassLinkage* pClassLinkage, ID3D11PixelShader** ppPixelShader) {
     #if defined(__cplusplus)
         return self->CreatePixelShader(pShaderBytecode, BytecodeLength, pClassLinkage, ppPixelShader);
     #else
@@ -9428,7 +9428,7 @@ static inline HRESULT _sg_d3d11_CreatePixelShader(ID3D11Device* self, const void
     #endif
 }
 
-static inline HRESULT _sg_d3d11_CreateInputLayout(ID3D11Device* self, const D3D11_INPUT_ELEMENT_DESC* pInputElementDescs, UINT NumElements, const void* pShaderBytecodeWithInputSignature, SIZE_T BytecodeLength, ID3D11InputLayout **ppInputLayout) {
+static static HRESULT _sg_d3d11_CreateInputLayout(ID3D11Device* self, const D3D11_INPUT_ELEMENT_DESC* pInputElementDescs, UINT NumElements, const void* pShaderBytecodeWithInputSignature, SIZE_T BytecodeLength, ID3D11InputLayout **ppInputLayout) {
     #if defined(__cplusplus)
         return self->CreateInputLayout(pInputElementDescs, NumElements, pShaderBytecodeWithInputSignature, BytecodeLength, ppInputLayout);
     #else
@@ -9436,7 +9436,7 @@ static inline HRESULT _sg_d3d11_CreateInputLayout(ID3D11Device* self, const D3D1
     #endif
 }
 
-static inline HRESULT _sg_d3d11_CreateRasterizerState(ID3D11Device* self, const D3D11_RASTERIZER_DESC* pRasterizerDesc, ID3D11RasterizerState** ppRasterizerState) {
+static static HRESULT _sg_d3d11_CreateRasterizerState(ID3D11Device* self, const D3D11_RASTERIZER_DESC* pRasterizerDesc, ID3D11RasterizerState** ppRasterizerState) {
     #if defined(__cplusplus)
         return self->CreateRasterizerState(pRasterizerDesc, ppRasterizerState);
     #else
@@ -9444,7 +9444,7 @@ static inline HRESULT _sg_d3d11_CreateRasterizerState(ID3D11Device* self, const 
     #endif
 }
 
-static inline HRESULT _sg_d3d11_CreateDepthStencilState(ID3D11Device* self, const D3D11_DEPTH_STENCIL_DESC* pDepthStencilDesc, ID3D11DepthStencilState** ppDepthStencilState) {
+static static HRESULT _sg_d3d11_CreateDepthStencilState(ID3D11Device* self, const D3D11_DEPTH_STENCIL_DESC* pDepthStencilDesc, ID3D11DepthStencilState** ppDepthStencilState) {
     #if defined(__cplusplus)
         return self->CreateDepthStencilState(pDepthStencilDesc, ppDepthStencilState);
     #else
@@ -9452,7 +9452,7 @@ static inline HRESULT _sg_d3d11_CreateDepthStencilState(ID3D11Device* self, cons
     #endif
 }
 
-static inline HRESULT _sg_d3d11_CreateBlendState(ID3D11Device* self, const D3D11_BLEND_DESC* pBlendStateDesc, ID3D11BlendState** ppBlendState) {
+static static HRESULT _sg_d3d11_CreateBlendState(ID3D11Device* self, const D3D11_BLEND_DESC* pBlendStateDesc, ID3D11BlendState** ppBlendState) {
     #if defined(__cplusplus)
         return self->CreateBlendState(pBlendStateDesc, ppBlendState);
     #else
@@ -9460,7 +9460,7 @@ static inline HRESULT _sg_d3d11_CreateBlendState(ID3D11Device* self, const D3D11
     #endif
 }
 
-static inline HRESULT _sg_d3d11_CreateRenderTargetView(ID3D11Device* self, ID3D11Resource *pResource, const D3D11_RENDER_TARGET_VIEW_DESC* pDesc, ID3D11RenderTargetView** ppRTView) {
+static static HRESULT _sg_d3d11_CreateRenderTargetView(ID3D11Device* self, ID3D11Resource *pResource, const D3D11_RENDER_TARGET_VIEW_DESC* pDesc, ID3D11RenderTargetView** ppRTView) {
     #if defined(__cplusplus)
         return self->CreateRenderTargetView(pResource, pDesc, ppRTView);
     #else
@@ -9468,7 +9468,7 @@ static inline HRESULT _sg_d3d11_CreateRenderTargetView(ID3D11Device* self, ID3D1
     #endif
 }
 
-static inline HRESULT _sg_d3d11_CreateDepthStencilView(ID3D11Device* self, ID3D11Resource* pResource, const D3D11_DEPTH_STENCIL_VIEW_DESC* pDesc, ID3D11DepthStencilView** ppDepthStencilView) {
+static static HRESULT _sg_d3d11_CreateDepthStencilView(ID3D11Device* self, ID3D11Resource* pResource, const D3D11_DEPTH_STENCIL_VIEW_DESC* pDesc, ID3D11DepthStencilView** ppDepthStencilView) {
     #if defined(__cplusplus)
         return self->CreateDepthStencilView(pResource, pDesc, ppDepthStencilView);
     #else
@@ -9476,7 +9476,7 @@ static inline HRESULT _sg_d3d11_CreateDepthStencilView(ID3D11Device* self, ID3D1
     #endif
 }
 
-static inline void _sg_d3d11_RSSetViewports(ID3D11DeviceContext* self, UINT NumViewports, const D3D11_VIEWPORT* pViewports) {
+static static void _sg_d3d11_RSSetViewports(ID3D11DeviceContext* self, UINT NumViewports, const D3D11_VIEWPORT* pViewports) {
     #if defined(__cplusplus)
         self->RSSetViewports(NumViewports, pViewports);
     #else
@@ -9484,7 +9484,7 @@ static inline void _sg_d3d11_RSSetViewports(ID3D11DeviceContext* self, UINT NumV
     #endif
 }
 
-static inline void _sg_d3d11_RSSetScissorRects(ID3D11DeviceContext* self, UINT NumRects, const D3D11_RECT* pRects) {
+static static void _sg_d3d11_RSSetScissorRects(ID3D11DeviceContext* self, UINT NumRects, const D3D11_RECT* pRects) {
     #if defined(__cplusplus)
         self->RSSetScissorRects(NumRects, pRects);
     #else
@@ -9492,7 +9492,7 @@ static inline void _sg_d3d11_RSSetScissorRects(ID3D11DeviceContext* self, UINT N
     #endif
 }
 
-static inline void _sg_d3d11_ClearRenderTargetView(ID3D11DeviceContext* self, ID3D11RenderTargetView* pRenderTargetView, const FLOAT ColorRGBA[4]) {
+static static void _sg_d3d11_ClearRenderTargetView(ID3D11DeviceContext* self, ID3D11RenderTargetView* pRenderTargetView, const FLOAT ColorRGBA[4]) {
     #if defined(__cplusplus)
         self->ClearRenderTargetView(pRenderTargetView, ColorRGBA);
     #else
@@ -9500,7 +9500,7 @@ static inline void _sg_d3d11_ClearRenderTargetView(ID3D11DeviceContext* self, ID
     #endif
 }
 
-static inline void _sg_d3d11_ClearDepthStencilView(ID3D11DeviceContext* self, ID3D11DepthStencilView* pDepthStencilView, UINT ClearFlags, FLOAT Depth, UINT8 Stencil) {
+static static void _sg_d3d11_ClearDepthStencilView(ID3D11DeviceContext* self, ID3D11DepthStencilView* pDepthStencilView, UINT ClearFlags, FLOAT Depth, UINT8 Stencil) {
     #if defined(__cplusplus)
         self->ClearDepthStencilView(pDepthStencilView, ClearFlags, Depth, Stencil);
     #else
@@ -9508,7 +9508,7 @@ static inline void _sg_d3d11_ClearDepthStencilView(ID3D11DeviceContext* self, ID
     #endif
 }
 
-static inline void _sg_d3d11_ResolveSubresource(ID3D11DeviceContext* self, ID3D11Resource* pDstResource, UINT DstSubresource, ID3D11Resource* pSrcResource, UINT SrcSubresource, DXGI_FORMAT Format) {
+static static void _sg_d3d11_ResolveSubresource(ID3D11DeviceContext* self, ID3D11Resource* pDstResource, UINT DstSubresource, ID3D11Resource* pSrcResource, UINT SrcSubresource, DXGI_FORMAT Format) {
     #if defined(__cplusplus)
         self->ResolveSubresource(pDstResource, DstSubresource, pSrcResource, SrcSubresource, Format);
     #else
@@ -9516,7 +9516,7 @@ static inline void _sg_d3d11_ResolveSubresource(ID3D11DeviceContext* self, ID3D1
     #endif
 }
 
-static inline void _sg_d3d11_IASetPrimitiveTopology(ID3D11DeviceContext* self, D3D11_PRIMITIVE_TOPOLOGY Topology) {
+static static void _sg_d3d11_IASetPrimitiveTopology(ID3D11DeviceContext* self, D3D11_PRIMITIVE_TOPOLOGY Topology) {
     #if defined(__cplusplus)
         self->IASetPrimitiveTopology(Topology);
     #else
@@ -9524,7 +9524,7 @@ static inline void _sg_d3d11_IASetPrimitiveTopology(ID3D11DeviceContext* self, D
     #endif
 }
 
-static inline void _sg_d3d11_UpdateSubresource(ID3D11DeviceContext* self, ID3D11Resource* pDstResource, UINT DstSubresource, const D3D11_BOX* pDstBox, const void* pSrcData, UINT SrcRowPitch, UINT SrcDepthPitch) {
+static static void _sg_d3d11_UpdateSubresource(ID3D11DeviceContext* self, ID3D11Resource* pDstResource, UINT DstSubresource, const D3D11_BOX* pDstBox, const void* pSrcData, UINT SrcRowPitch, UINT SrcDepthPitch) {
     #if defined(__cplusplus)
         self->UpdateSubresource(pDstResource, DstSubresource, pDstBox, pSrcData, SrcRowPitch, SrcDepthPitch);
     #else
@@ -9532,7 +9532,7 @@ static inline void _sg_d3d11_UpdateSubresource(ID3D11DeviceContext* self, ID3D11
     #endif
 }
 
-static inline void _sg_d3d11_DrawIndexed(ID3D11DeviceContext* self, UINT IndexCount, UINT StartIndexLocation, INT  BaseVertexLocation) {
+static static void _sg_d3d11_DrawIndexed(ID3D11DeviceContext* self, UINT IndexCount, UINT StartIndexLocation, INT  BaseVertexLocation) {
     #if defined(__cplusplus)
         self->DrawIndexed(IndexCount, StartIndexLocation, BaseVertexLocation);
     #else
@@ -9540,7 +9540,7 @@ static inline void _sg_d3d11_DrawIndexed(ID3D11DeviceContext* self, UINT IndexCo
     #endif
 }
 
-static inline void _sg_d3d11_DrawIndexedInstanced(ID3D11DeviceContext* self, UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation, INT BaseVertexLocation, UINT StartInstanceLocation) {
+static static void _sg_d3d11_DrawIndexedInstanced(ID3D11DeviceContext* self, UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation, INT BaseVertexLocation, UINT StartInstanceLocation) {
     #if defined(__cplusplus)
         self->DrawIndexedInstanced(IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
     #else
@@ -9548,7 +9548,7 @@ static inline void _sg_d3d11_DrawIndexedInstanced(ID3D11DeviceContext* self, UIN
     #endif
 }
 
-static inline void _sg_d3d11_Draw(ID3D11DeviceContext* self, UINT VertexCount, UINT StartVertexLocation) {
+static static void _sg_d3d11_Draw(ID3D11DeviceContext* self, UINT VertexCount, UINT StartVertexLocation) {
     #if defined(__cplusplus)
         self->Draw(VertexCount, StartVertexLocation);
     #else
@@ -9556,7 +9556,7 @@ static inline void _sg_d3d11_Draw(ID3D11DeviceContext* self, UINT VertexCount, U
     #endif
 }
 
-static inline void _sg_d3d11_DrawInstanced(ID3D11DeviceContext* self, UINT VertexCountPerInstance, UINT InstanceCount, UINT StartVertexLocation, UINT StartInstanceLocation) {
+static static void _sg_d3d11_DrawInstanced(ID3D11DeviceContext* self, UINT VertexCountPerInstance, UINT InstanceCount, UINT StartVertexLocation, UINT StartInstanceLocation) {
     #if defined(__cplusplus)
         self->DrawInstanced(VertexCountPerInstance, InstanceCount, StartVertexLocation, StartInstanceLocation);
     #else
@@ -9564,7 +9564,7 @@ static inline void _sg_d3d11_DrawInstanced(ID3D11DeviceContext* self, UINT Verte
     #endif
 }
 
-static inline HRESULT _sg_d3d11_Map(ID3D11DeviceContext* self, ID3D11Resource* pResource, UINT Subresource, D3D11_MAP MapType, UINT MapFlags, D3D11_MAPPED_SUBRESOURCE* pMappedResource) {
+static static HRESULT _sg_d3d11_Map(ID3D11DeviceContext* self, ID3D11Resource* pResource, UINT Subresource, D3D11_MAP MapType, UINT MapFlags, D3D11_MAPPED_SUBRESOURCE* pMappedResource) {
     #if defined(__cplusplus)
         return self->Map(pResource, Subresource, MapType, MapFlags, pMappedResource);
     #else
@@ -9572,7 +9572,7 @@ static inline HRESULT _sg_d3d11_Map(ID3D11DeviceContext* self, ID3D11Resource* p
     #endif
 }
 
-static inline void _sg_d3d11_Unmap(ID3D11DeviceContext* self, ID3D11Resource* pResource, UINT Subresource) {
+static static void _sg_d3d11_Unmap(ID3D11DeviceContext* self, ID3D11Resource* pResource, UINT Subresource) {
     #if defined(__cplusplus)
         self->Unmap(pResource, Subresource);
     #else
@@ -9580,7 +9580,7 @@ static inline void _sg_d3d11_Unmap(ID3D11DeviceContext* self, ID3D11Resource* pR
     #endif
 }
 
-static inline void _sg_d3d11_ClearState(ID3D11DeviceContext* self) {
+static static void _sg_d3d11_ClearState(ID3D11DeviceContext* self) {
     #if defined(__cplusplus)
         self->ClearState();
     #else
@@ -14780,7 +14780,7 @@ _SOKOL_PRIVATE void _sg_wgpu_update_image(_sg_image_t* img, const sg_image_data*
 //  ██████  ███████ ██   ████ ███████ ██   ██ ██  ██████     ██████  ██   ██  ██████ ██   ██ ███████ ██   ████ ██████
 //
 // >>generic backend
-static inline void _sg_setup_backend(const sg_desc* desc) {
+static static void _sg_setup_backend(const sg_desc* desc) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_setup_backend(desc);
     #elif defined(SOKOL_METAL)
@@ -14796,7 +14796,7 @@ static inline void _sg_setup_backend(const sg_desc* desc) {
     #endif
 }
 
-static inline void _sg_discard_backend(void) {
+static static void _sg_discard_backend(void) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_discard_backend();
     #elif defined(SOKOL_METAL)
@@ -14812,7 +14812,7 @@ static inline void _sg_discard_backend(void) {
     #endif
 }
 
-static inline void _sg_reset_state_cache(void) {
+static static void _sg_reset_state_cache(void) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_reset_state_cache();
     #elif defined(SOKOL_METAL)
@@ -14828,7 +14828,7 @@ static inline void _sg_reset_state_cache(void) {
     #endif
 }
 
-static inline void _sg_activate_context(_sg_context_t* ctx) {
+static static void _sg_activate_context(_sg_context_t* ctx) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_activate_context(ctx);
     #elif defined(SOKOL_METAL)
@@ -14844,7 +14844,7 @@ static inline void _sg_activate_context(_sg_context_t* ctx) {
     #endif
 }
 
-static inline sg_resource_state _sg_create_context(_sg_context_t* ctx) {
+static static sg_resource_state _sg_create_context(_sg_context_t* ctx) {
     #if defined(_SOKOL_ANY_GL)
     return _sg_gl_create_context(ctx);
     #elif defined(SOKOL_METAL)
@@ -14860,7 +14860,7 @@ static inline sg_resource_state _sg_create_context(_sg_context_t* ctx) {
     #endif
 }
 
-static inline void _sg_discard_context(_sg_context_t* ctx) {
+static static void _sg_discard_context(_sg_context_t* ctx) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_discard_context(ctx);
     #elif defined(SOKOL_METAL)
@@ -14876,7 +14876,7 @@ static inline void _sg_discard_context(_sg_context_t* ctx) {
     #endif
 }
 
-static inline sg_resource_state _sg_create_buffer(_sg_buffer_t* buf, const sg_buffer_desc* desc) {
+static static sg_resource_state _sg_create_buffer(_sg_buffer_t* buf, const sg_buffer_desc* desc) {
     #if defined(_SOKOL_ANY_GL)
     return _sg_gl_create_buffer(buf, desc);
     #elif defined(SOKOL_METAL)
@@ -14892,7 +14892,7 @@ static inline sg_resource_state _sg_create_buffer(_sg_buffer_t* buf, const sg_bu
     #endif
 }
 
-static inline void _sg_discard_buffer(_sg_buffer_t* buf) {
+static static void _sg_discard_buffer(_sg_buffer_t* buf) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_discard_buffer(buf);
     #elif defined(SOKOL_METAL)
@@ -14908,7 +14908,7 @@ static inline void _sg_discard_buffer(_sg_buffer_t* buf) {
     #endif
 }
 
-static inline sg_resource_state _sg_create_image(_sg_image_t* img, const sg_image_desc* desc) {
+static static sg_resource_state _sg_create_image(_sg_image_t* img, const sg_image_desc* desc) {
     #if defined(_SOKOL_ANY_GL)
     return _sg_gl_create_image(img, desc);
     #elif defined(SOKOL_METAL)
@@ -14924,7 +14924,7 @@ static inline sg_resource_state _sg_create_image(_sg_image_t* img, const sg_imag
     #endif
 }
 
-static inline void _sg_discard_image(_sg_image_t* img) {
+static static void _sg_discard_image(_sg_image_t* img) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_discard_image(img);
     #elif defined(SOKOL_METAL)
@@ -14940,7 +14940,7 @@ static inline void _sg_discard_image(_sg_image_t* img) {
     #endif
 }
 
-static inline sg_resource_state _sg_create_sampler(_sg_sampler_t* smp, const sg_sampler_desc* desc) {
+static static sg_resource_state _sg_create_sampler(_sg_sampler_t* smp, const sg_sampler_desc* desc) {
     #if defined(_SOKOL_ANY_GL)
     return _sg_gl_create_sampler(smp, desc);
     #elif defined(SOKOL_METAL)
@@ -14956,7 +14956,7 @@ static inline sg_resource_state _sg_create_sampler(_sg_sampler_t* smp, const sg_
     #endif
 }
 
-static inline void _sg_discard_sampler(_sg_sampler_t* smp) {
+static static void _sg_discard_sampler(_sg_sampler_t* smp) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_discard_sampler(smp);
     #elif defined(SOKOL_METAL)
@@ -14972,7 +14972,7 @@ static inline void _sg_discard_sampler(_sg_sampler_t* smp) {
     #endif
 }
 
-static inline sg_resource_state _sg_create_shader(_sg_shader_t* shd, const sg_shader_desc* desc) {
+static static sg_resource_state _sg_create_shader(_sg_shader_t* shd, const sg_shader_desc* desc) {
     #if defined(_SOKOL_ANY_GL)
     return _sg_gl_create_shader(shd, desc);
     #elif defined(SOKOL_METAL)
@@ -14988,7 +14988,7 @@ static inline sg_resource_state _sg_create_shader(_sg_shader_t* shd, const sg_sh
     #endif
 }
 
-static inline void _sg_discard_shader(_sg_shader_t* shd) {
+static static void _sg_discard_shader(_sg_shader_t* shd) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_discard_shader(shd);
     #elif defined(SOKOL_METAL)
@@ -15004,7 +15004,7 @@ static inline void _sg_discard_shader(_sg_shader_t* shd) {
     #endif
 }
 
-static inline sg_resource_state _sg_create_pipeline(_sg_pipeline_t* pip, _sg_shader_t* shd, const sg_pipeline_desc* desc) {
+static static sg_resource_state _sg_create_pipeline(_sg_pipeline_t* pip, _sg_shader_t* shd, const sg_pipeline_desc* desc) {
     #if defined(_SOKOL_ANY_GL)
     return _sg_gl_create_pipeline(pip, shd, desc);
     #elif defined(SOKOL_METAL)
@@ -15020,7 +15020,7 @@ static inline sg_resource_state _sg_create_pipeline(_sg_pipeline_t* pip, _sg_sha
     #endif
 }
 
-static inline void _sg_discard_pipeline(_sg_pipeline_t* pip) {
+static static void _sg_discard_pipeline(_sg_pipeline_t* pip) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_discard_pipeline(pip);
     #elif defined(SOKOL_METAL)
@@ -15036,7 +15036,7 @@ static inline void _sg_discard_pipeline(_sg_pipeline_t* pip) {
     #endif
 }
 
-static inline sg_resource_state _sg_create_pass(_sg_pass_t* pass, _sg_image_t** color_images, _sg_image_t** resolve_images, _sg_image_t* ds_image, const sg_pass_desc* desc) {
+static static sg_resource_state _sg_create_pass(_sg_pass_t* pass, _sg_image_t** color_images, _sg_image_t** resolve_images, _sg_image_t* ds_image, const sg_pass_desc* desc) {
     #if defined(_SOKOL_ANY_GL)
     return _sg_gl_create_pass(pass, color_images, resolve_images, ds_image, desc);
     #elif defined(SOKOL_METAL)
@@ -15052,7 +15052,7 @@ static inline sg_resource_state _sg_create_pass(_sg_pass_t* pass, _sg_image_t** 
     #endif
 }
 
-static inline void _sg_discard_pass(_sg_pass_t* pass) {
+static static void _sg_discard_pass(_sg_pass_t* pass) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_discard_pass(pass);
     #elif defined(SOKOL_METAL)
@@ -15068,7 +15068,7 @@ static inline void _sg_discard_pass(_sg_pass_t* pass) {
     #endif
 }
 
-static inline _sg_image_t* _sg_pass_color_image(const _sg_pass_t* pass, int index) {
+static static _sg_image_t* _sg_pass_color_image(const _sg_pass_t* pass, int index) {
     #if defined(_SOKOL_ANY_GL)
     return _sg_gl_pass_color_image(pass, index);
     #elif defined(SOKOL_METAL)
@@ -15084,7 +15084,7 @@ static inline _sg_image_t* _sg_pass_color_image(const _sg_pass_t* pass, int inde
     #endif
 }
 
-static inline _sg_image_t* _sg_pass_resolve_image(const _sg_pass_t* pass, int index) {
+static static _sg_image_t* _sg_pass_resolve_image(const _sg_pass_t* pass, int index) {
     #if defined(_SOKOL_ANY_GL)
     return _sg_gl_pass_resolve_image(pass, index);
     #elif defined(SOKOL_METAL)
@@ -15100,7 +15100,7 @@ static inline _sg_image_t* _sg_pass_resolve_image(const _sg_pass_t* pass, int in
     #endif
 }
 
-static inline _sg_image_t* _sg_pass_ds_image(const _sg_pass_t* pass) {
+static static _sg_image_t* _sg_pass_ds_image(const _sg_pass_t* pass) {
     #if defined(_SOKOL_ANY_GL)
     return _sg_gl_pass_ds_image(pass);
     #elif defined(SOKOL_METAL)
@@ -15116,7 +15116,7 @@ static inline _sg_image_t* _sg_pass_ds_image(const _sg_pass_t* pass) {
     #endif
 }
 
-static inline void _sg_begin_pass(_sg_pass_t* pass, const sg_pass_action* action, int w, int h) {
+static static void _sg_begin_pass(_sg_pass_t* pass, const sg_pass_action* action, int w, int h) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_begin_pass(pass, action, w, h);
     #elif defined(SOKOL_METAL)
@@ -15132,7 +15132,7 @@ static inline void _sg_begin_pass(_sg_pass_t* pass, const sg_pass_action* action
     #endif
 }
 
-static inline void _sg_end_pass(void) {
+static static void _sg_end_pass(void) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_end_pass();
     #elif defined(SOKOL_METAL)
@@ -15148,7 +15148,7 @@ static inline void _sg_end_pass(void) {
     #endif
 }
 
-static inline void _sg_apply_viewport(int x, int y, int w, int h, bool origin_top_left) {
+static static void _sg_apply_viewport(int x, int y, int w, int h, bool origin_top_left) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_apply_viewport(x, y, w, h, origin_top_left);
     #elif defined(SOKOL_METAL)
@@ -15164,7 +15164,7 @@ static inline void _sg_apply_viewport(int x, int y, int w, int h, bool origin_to
     #endif
 }
 
-static inline void _sg_apply_scissor_rect(int x, int y, int w, int h, bool origin_top_left) {
+static static void _sg_apply_scissor_rect(int x, int y, int w, int h, bool origin_top_left) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_apply_scissor_rect(x, y, w, h, origin_top_left);
     #elif defined(SOKOL_METAL)
@@ -15180,7 +15180,7 @@ static inline void _sg_apply_scissor_rect(int x, int y, int w, int h, bool origi
     #endif
 }
 
-static inline void _sg_apply_pipeline(_sg_pipeline_t* pip) {
+static static void _sg_apply_pipeline(_sg_pipeline_t* pip) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_apply_pipeline(pip);
     #elif defined(SOKOL_METAL)
@@ -15196,7 +15196,7 @@ static inline void _sg_apply_pipeline(_sg_pipeline_t* pip) {
     #endif
 }
 
-static inline bool _sg_apply_bindings(_sg_bindings_t* bnd) {
+static static bool _sg_apply_bindings(_sg_bindings_t* bnd) {
     #if defined(_SOKOL_ANY_GL)
     return _sg_gl_apply_bindings(bnd);
     #elif defined(SOKOL_METAL)
@@ -15212,7 +15212,7 @@ static inline bool _sg_apply_bindings(_sg_bindings_t* bnd) {
     #endif
 }
 
-static inline void _sg_apply_uniforms(sg_shader_stage stage_index, int ub_index, const sg_range* data) {
+static static void _sg_apply_uniforms(sg_shader_stage stage_index, int ub_index, const sg_range* data) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_apply_uniforms(stage_index, ub_index, data);
     #elif defined(SOKOL_METAL)
@@ -15228,7 +15228,7 @@ static inline void _sg_apply_uniforms(sg_shader_stage stage_index, int ub_index,
     #endif
 }
 
-static inline void _sg_draw(int base_element, int num_elements, int num_instances) {
+static static void _sg_draw(int base_element, int num_elements, int num_instances) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_draw(base_element, num_elements, num_instances);
     #elif defined(SOKOL_METAL)
@@ -15244,7 +15244,7 @@ static inline void _sg_draw(int base_element, int num_elements, int num_instance
     #endif
 }
 
-static inline void _sg_commit(void) {
+static static void _sg_commit(void) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_commit();
     #elif defined(SOKOL_METAL)
@@ -15260,7 +15260,7 @@ static inline void _sg_commit(void) {
     #endif
 }
 
-static inline void _sg_update_buffer(_sg_buffer_t* buf, const sg_range* data) {
+static static void _sg_update_buffer(_sg_buffer_t* buf, const sg_range* data) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_update_buffer(buf, data);
     #elif defined(SOKOL_METAL)
@@ -15276,7 +15276,7 @@ static inline void _sg_update_buffer(_sg_buffer_t* buf, const sg_range* data) {
     #endif
 }
 
-static inline void _sg_append_buffer(_sg_buffer_t* buf, const sg_range* data, bool new_frame) {
+static static void _sg_append_buffer(_sg_buffer_t* buf, const sg_range* data, bool new_frame) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_append_buffer(buf, data, new_frame);
     #elif defined(SOKOL_METAL)
@@ -15292,7 +15292,7 @@ static inline void _sg_append_buffer(_sg_buffer_t* buf, const sg_range* data, bo
     #endif
 }
 
-static inline void _sg_update_image(_sg_image_t* img, const sg_image_data* data) {
+static static void _sg_update_image(_sg_image_t* img, const sg_image_data* data) {
     #if defined(_SOKOL_ANY_GL)
     _sg_gl_update_image(img, data);
     #elif defined(SOKOL_METAL)
@@ -15308,7 +15308,7 @@ static inline void _sg_update_image(_sg_image_t* img, const sg_image_data* data)
     #endif
 }
 
-static inline void _sg_push_debug_group(const char* name) {
+static static void _sg_push_debug_group(const char* name) {
     #if defined(SOKOL_METAL)
     _sg_mtl_push_debug_group(name);
     #else
@@ -15316,7 +15316,7 @@ static inline void _sg_push_debug_group(const char* name) {
     #endif
 }
 
-static inline void _sg_pop_debug_group(void) {
+static static void _sg_pop_debug_group(void) {
     #if defined(SOKOL_METAL)
     _sg_mtl_pop_debug_group();
     #endif

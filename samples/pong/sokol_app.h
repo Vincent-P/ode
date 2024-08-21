@@ -1851,7 +1851,7 @@ SOKOL_APP_API_DECL const void* sapp_android_get_native_activity(void);
 } /* extern "C" */
 
 /* reference-based equivalents for C++ */
-inline void sapp_run(const sapp_desc& desc) { return sapp_run(&desc); }
+static void sapp_run(const sapp_desc& desc) { return sapp_run(&desc); }
 
 #endif
 
@@ -6269,7 +6269,7 @@ static const IID _sapp_IID_ID3D11Texture2D = { 0x6f15aaf2,0xd208,0x4e89, {0x9a,0
 static const IID _sapp_IID_IDXGIDevice1    = { 0x77db970f,0x6276,0x48ba, {0xba,0x28,0x07,0x01,0x43,0xb4,0x39,0x2c} };
 static const IID _sapp_IID_IDXGIFactory    = { 0x7b7166ec,0x21c7,0x44ae, {0xb2,0x1a,0xc9,0xae,0x32,0x1a,0xe3,0x69} };
 
-static inline HRESULT _sapp_dxgi_GetBuffer(IDXGISwapChain* self, UINT Buffer, REFIID riid, void** ppSurface) {
+static static HRESULT _sapp_dxgi_GetBuffer(IDXGISwapChain* self, UINT Buffer, REFIID riid, void** ppSurface) {
     #if defined(__cplusplus)
         return self->GetBuffer(Buffer, riid, ppSurface);
     #else
@@ -6277,7 +6277,7 @@ static inline HRESULT _sapp_dxgi_GetBuffer(IDXGISwapChain* self, UINT Buffer, RE
     #endif
 }
 
-static inline HRESULT _sapp_d3d11_QueryInterface(ID3D11Device* self, REFIID riid, void** ppvObject) {
+static static HRESULT _sapp_d3d11_QueryInterface(ID3D11Device* self, REFIID riid, void** ppvObject) {
     #if defined(__cplusplus)
         return self->QueryInterface(riid, ppvObject);
     #else
@@ -6285,7 +6285,7 @@ static inline HRESULT _sapp_d3d11_QueryInterface(ID3D11Device* self, REFIID riid
     #endif
 }
 
-static inline HRESULT _sapp_d3d11_CreateRenderTargetView(ID3D11Device* self, ID3D11Resource *pResource, const D3D11_RENDER_TARGET_VIEW_DESC* pDesc, ID3D11RenderTargetView** ppRTView) {
+static static HRESULT _sapp_d3d11_CreateRenderTargetView(ID3D11Device* self, ID3D11Resource *pResource, const D3D11_RENDER_TARGET_VIEW_DESC* pDesc, ID3D11RenderTargetView** ppRTView) {
     #if defined(__cplusplus)
         return self->CreateRenderTargetView(pResource, pDesc, ppRTView);
     #else
@@ -6293,7 +6293,7 @@ static inline HRESULT _sapp_d3d11_CreateRenderTargetView(ID3D11Device* self, ID3
     #endif
 }
 
-static inline HRESULT _sapp_d3d11_CreateTexture2D(ID3D11Device* self, const D3D11_TEXTURE2D_DESC* pDesc, const D3D11_SUBRESOURCE_DATA* pInitialData, ID3D11Texture2D** ppTexture2D) {
+static static HRESULT _sapp_d3d11_CreateTexture2D(ID3D11Device* self, const D3D11_TEXTURE2D_DESC* pDesc, const D3D11_SUBRESOURCE_DATA* pInitialData, ID3D11Texture2D** ppTexture2D) {
     #if defined(__cplusplus)
         return self->CreateTexture2D(pDesc, pInitialData, ppTexture2D);
     #else
@@ -6301,7 +6301,7 @@ static inline HRESULT _sapp_d3d11_CreateTexture2D(ID3D11Device* self, const D3D1
     #endif
 }
 
-static inline HRESULT _sapp_d3d11_CreateDepthStencilView(ID3D11Device* self, ID3D11Resource* pResource, const D3D11_DEPTH_STENCIL_VIEW_DESC* pDesc, ID3D11DepthStencilView** ppDepthStencilView) {
+static static HRESULT _sapp_d3d11_CreateDepthStencilView(ID3D11Device* self, ID3D11Resource* pResource, const D3D11_DEPTH_STENCIL_VIEW_DESC* pDesc, ID3D11DepthStencilView** ppDepthStencilView) {
     #if defined(__cplusplus)
         return self->CreateDepthStencilView(pResource, pDesc, ppDepthStencilView);
     #else
@@ -6309,7 +6309,7 @@ static inline HRESULT _sapp_d3d11_CreateDepthStencilView(ID3D11Device* self, ID3
     #endif
 }
 
-static inline void _sapp_d3d11_ResolveSubresource(ID3D11DeviceContext* self, ID3D11Resource* pDstResource, UINT DstSubresource, ID3D11Resource* pSrcResource, UINT SrcSubresource, DXGI_FORMAT Format) {
+static static void _sapp_d3d11_ResolveSubresource(ID3D11DeviceContext* self, ID3D11Resource* pDstResource, UINT DstSubresource, ID3D11Resource* pSrcResource, UINT SrcSubresource, DXGI_FORMAT Format) {
     #if defined(__cplusplus)
         self->ResolveSubresource(pDstResource, DstSubresource, pSrcResource, SrcSubresource, Format);
     #else
@@ -6317,7 +6317,7 @@ static inline void _sapp_d3d11_ResolveSubresource(ID3D11DeviceContext* self, ID3
     #endif
 }
 
-static inline HRESULT _sapp_dxgi_ResizeBuffers(IDXGISwapChain* self, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags) {
+static static HRESULT _sapp_dxgi_ResizeBuffers(IDXGISwapChain* self, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags) {
     #if defined(__cplusplus)
         return self->ResizeBuffers(BufferCount, Width, Height, NewFormat, SwapChainFlags);
     #else
@@ -6325,7 +6325,7 @@ static inline HRESULT _sapp_dxgi_ResizeBuffers(IDXGISwapChain* self, UINT Buffer
     #endif
 }
 
-static inline HRESULT _sapp_dxgi_Present(IDXGISwapChain* self, UINT SyncInterval, UINT Flags) {
+static static HRESULT _sapp_dxgi_Present(IDXGISwapChain* self, UINT SyncInterval, UINT Flags) {
     #if defined(__cplusplus)
         return self->Present(SyncInterval, Flags);
     #else
@@ -6333,7 +6333,7 @@ static inline HRESULT _sapp_dxgi_Present(IDXGISwapChain* self, UINT SyncInterval
     #endif
 }
 
-static inline HRESULT _sapp_dxgi_GetFrameStatistics(IDXGISwapChain* self, DXGI_FRAME_STATISTICS* pStats) {
+static static HRESULT _sapp_dxgi_GetFrameStatistics(IDXGISwapChain* self, DXGI_FRAME_STATISTICS* pStats) {
     #if defined(__cplusplus)
         return self->GetFrameStatistics(pStats);
     #else
@@ -6341,7 +6341,7 @@ static inline HRESULT _sapp_dxgi_GetFrameStatistics(IDXGISwapChain* self, DXGI_F
     #endif
 }
 
-static inline HRESULT _sapp_dxgi_SetMaximumFrameLatency(IDXGIDevice1* self, UINT MaxLatency) {
+static static HRESULT _sapp_dxgi_SetMaximumFrameLatency(IDXGIDevice1* self, UINT MaxLatency) {
     #if defined(__cplusplus)
         return self->SetMaximumFrameLatency(MaxLatency);
     #else
@@ -6349,7 +6349,7 @@ static inline HRESULT _sapp_dxgi_SetMaximumFrameLatency(IDXGIDevice1* self, UINT
     #endif
 }
 
-static inline HRESULT _sapp_dxgi_GetAdapter(IDXGIDevice1* self, IDXGIAdapter** pAdapter) {
+static static HRESULT _sapp_dxgi_GetAdapter(IDXGIDevice1* self, IDXGIAdapter** pAdapter) {
     #if defined(__cplusplus)
         return self->GetAdapter(pAdapter);
     #else
@@ -6357,7 +6357,7 @@ static inline HRESULT _sapp_dxgi_GetAdapter(IDXGIDevice1* self, IDXGIAdapter** p
     #endif
 }
 
-static inline HRESULT _sapp_dxgi_GetParent(IDXGIObject* self, REFIID riid, void** ppParent) {
+static static HRESULT _sapp_dxgi_GetParent(IDXGIObject* self, REFIID riid, void** ppParent) {
     #if defined(__cplusplus)
         return self->GetParent(riid, ppParent);
     #else
@@ -6365,7 +6365,7 @@ static inline HRESULT _sapp_dxgi_GetParent(IDXGIObject* self, REFIID riid, void*
     #endif
 }
 
-static inline HRESULT _sapp_dxgi_MakeWindowAssociation(IDXGIFactory* self, HWND WindowHandle, UINT Flags) {
+static static HRESULT _sapp_dxgi_MakeWindowAssociation(IDXGIFactory* self, HWND WindowHandle, UINT Flags) {
     #if defined(__cplusplus)
         return self->MakeWindowAssociation(WindowHandle, Flags);
     #else
