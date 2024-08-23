@@ -4,29 +4,6 @@
 #include "error.h"
 #include "parser.h"
 
-typedef struct VM VM;
-
-typedef struct CompilationUnit
-{
-	sv input;
-	const Token *tokens;
-	const AstNode *nodes;
-
-	Error error;
-	StringPool string_pool;
-} CompilationUnit;
-
-typedef struct LexicalScope
-{
-	sv args_name[SCOPE_MAX_VARIABLES];
-	TypeID args_type[SCOPE_MAX_VARIABLES];
-	uint32_t args_length;
-	
-	sv variables_name[SCOPE_MAX_VARIABLES];
-	TypeID variables_type[SCOPE_MAX_VARIABLES];
-	uint32_t variables_length;
-} LexicalScope;
-
 typedef struct UserDefinedType
 {
 	sv name;
@@ -81,26 +58,30 @@ typedef struct CompilerModule
 	uint8_t bytecode[BYTECODE_CAPACITY];
 	uint32_t bytecode_length;
 } CompilerModule;
-
-typedef struct Compiler
-{
-	VM *vm;
-	CompilationUnit *compunit;
-	
-	LexicalScope scopes[16];
-	uint32_t scopes_length;
-	uint32_t loop_end_ips[16];
-	uint32_t loop_end_ips_length;
-	CompilerModule module;
-} Compiler;
 	
 typedef struct ScanDepsResult
 {
+	Error error;
 	StringId *names;
 	uint32_t count;
 	bool success;
 } ScanDepsResult;
-ScanDepsResult compiler_scan_dependencies(Arena *memory, CompilationUnit *compunit);
-void compile_module(Compiler *compiler);
+
+ScanDepsResult compiler_scan_dependencies(Arena *memory, StringPool *token_strings, Token const *tokens, AstNode const *nodes);
+
+
+typedef struct CompilerInput
+{
+	StringPool *string_pool;
+	const Token *tokens;
+	const AstNode *nodes;
+} CompilerInput;
+
+struct CompileModuleResult
+{
+
+};
+typedef struct CompileModuleResult CompileModuleResult;
+CompileModuleResult compile_module(CompilerInput input);
 
 

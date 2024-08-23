@@ -6,13 +6,44 @@
 
 #include <stdint.h>
 
+// structs
+
+typedef struct LexicalScope
+{
+	sv args_name[SCOPE_MAX_VARIABLES];
+	TypeID args_type[SCOPE_MAX_VARIABLES];
+	uint32_t args_length;
+	
+	sv variables_name[SCOPE_MAX_VARIABLES];
+	TypeID variables_type[SCOPE_MAX_VARIABLES];
+	uint32_t variables_length;
+} LexicalScope;
+
+typedef struct CompilerContext
+{
+	VM *vm;
+	
+	LexicalScope scopes[16];
+	uint32_t scopes_length;
+	uint32_t loop_end_ips[16];
+	uint32_t loop_end_ips_length;
+
+	CompilerModule *module;
+} CompilerContext;
+
+typedef struct CompileNodeResult
+{
+	TypeID type_id;
+	bool success;
+} CompileNodeResult;
+
 // bytecode functions
 
-static void compiler_push_opcode(Compiler *compiler, OpCode opcode)
+static void compiler_push_opcode(CompilerContext *context, OpCode opcode)
 {
-	CompilerModule *current_module = &compiler->module;
+	CompilerModule *current_module = &context->module;
 	if (current_module->bytecode_length + 1 >= ARRAY_LENGTH(current_module->bytecode)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return;
 	}
 
@@ -20,12 +51,12 @@ static void compiler_push_opcode(Compiler *compiler, OpCode opcode)
 	current_module->bytecode_length += 1;
 }
 
-static uint8_t *compiler_push_u8(Compiler *compiler, uint8_t value)
+static uint8_t *compiler_push_u8(CompilerContext *context, uint8_t value)
 {
-	CompilerModule *current_module = &compiler->module;
+	CompilerModule *current_module = &context->module;
 	uint32_t to_write = sizeof(uint8_t);
 	if (current_module->bytecode_length + to_write >= ARRAY_LENGTH(current_module->bytecode)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return NULL;
 	}
 
@@ -35,12 +66,12 @@ static uint8_t *compiler_push_u8(Compiler *compiler, uint8_t value)
 	return bytecode;
 }
 
-static uint32_t *compiler_push_u32(Compiler *compiler, uint32_t value)
+static uint32_t *compiler_push_u32(CompilerContext *context, uint32_t value)
 {
-	CompilerModule *current_module = &compiler->module;
+	CompilerModule *current_module = &context->module;
 	uint32_t to_write = sizeof(uint32_t);
 	if (current_module->bytecode_length + to_write >= ARRAY_LENGTH(current_module->bytecode)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return NULL;
 	}
 
@@ -50,12 +81,12 @@ static uint32_t *compiler_push_u32(Compiler *compiler, uint32_t value)
 	return bytecode;
 }
 
-static uint32_t compiler_push_str(Compiler *compiler, sv value)
+static uint32_t compiler_push_str(CompilerContext *context, sv value)
 {
-	CompilerModule *current_module = &compiler->module;
+	CompilerModule *current_module = &context->module;
 	uint32_t to_write = sizeof(value.length) + value.length;
 	if (current_module->constants_length + to_write >= ARRAY_LENGTH(current_module->constants)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return 0;
 	}
 
@@ -72,12 +103,12 @@ static uint32_t compiler_push_str(Compiler *compiler, sv value)
 	return offset;
 }
 
-static int32_t *compiler_push_i32(Compiler *compiler, int32_t value)
+static int32_t *compiler_push_i32(CompilerContext *context, int32_t value)
 {
-	CompilerModule *current_module = &compiler->module;
+	CompilerModule *current_module = &context->module;
 	uint32_t to_write = sizeof(int32_t);
 	if (current_module->bytecode_length + to_write >= ARRAY_LENGTH(current_module->bytecode)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return NULL;
 	}
 
@@ -87,13 +118,13 @@ static int32_t *compiler_push_i32(Compiler *compiler, int32_t value)
 	return bytecode;
 }
 
-static void compiler_push_sv(Compiler *compiler, sv value)
+static void compiler_push_sv(CompilerContext *context, sv value)
 {
-	CompilerModule *current_module = &compiler->module;
+	CompilerModule *current_module = &context->module;
 
 	uint32_t to_write = (uint32_t)(sizeof(uint32_t) + value.length * sizeof(char));
 	if (current_module->bytecode_length + to_write >= ARRAY_LENGTH(current_module->bytecode)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return;
 	}
 
@@ -107,12 +138,12 @@ static void compiler_push_sv(Compiler *compiler, sv value)
 	current_module->bytecode_length += to_write;
 }
 
-static float *compiler_push_f32(Compiler *compiler, float value)
+static float *compiler_push_f32(CompilerContext *context, float value)
 {
-	CompilerModule *current_module = &compiler->module;
+	CompilerModule *current_module = &context->module;
 	uint32_t to_write = sizeof(float);
 	if (current_module->bytecode_length + to_write >= ARRAY_LENGTH(current_module->bytecode)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return NULL;
 	}
 
@@ -122,89 +153,89 @@ static float *compiler_push_f32(Compiler *compiler, float value)
 	return bytecode;
 }
 
-static uint32_t *compiler_bytecode_push_u32(Compiler *compiler, uint32_t value)
+static uint32_t *compiler_bytecode_push_u32(CompilerContext *context, uint32_t value)
 {
 	compiler_push_opcode(compiler, OpCode_PushU32);
 	return compiler_push_u32(compiler, value);
 }
 
-static void compiler_bytecode_push_str(Compiler *compiler, sv value)
+static void compiler_bytecode_push_str(CompilerContext *context, sv value)
 {
 	uint32_t constants_offset = compiler_push_str(compiler, value);
 	compiler_push_opcode(compiler, OpCode_PushStr);
 	compiler_push_u32(compiler, constants_offset);
 }
 
-static void compiler_bytecode_push_f32(Compiler *compiler, float value)
+static void compiler_bytecode_push_f32(CompilerContext *context, float value)
 {
 	compiler_push_opcode(compiler, OpCode_PushF32);
 	compiler_push_f32(compiler, value);
 }
 
-static void compiler_bytecode_push_i32(Compiler *compiler, int32_t value)
+static void compiler_bytecode_push_i32(CompilerContext *context, int32_t value)
 {
 	compiler_push_opcode(compiler, OpCode_PushU32);
 	compiler_push_i32(compiler, value);
 }
 
-static void compiler_bytecode_call(Compiler *compiler, uint32_t address, uint8_t num_args)
+static void compiler_bytecode_call(CompilerContext *context, uint32_t address, uint8_t num_args)
 {
 	compiler_push_opcode(compiler, OpCode_Call);
 	compiler_push_u32(compiler, address);
 	compiler_push_u8(compiler, num_args);
 }
 
-static void compiler_bytecode_call_external(Compiler *compiler, uint8_t i_imported_function, uint8_t num_args)
+static void compiler_bytecode_call_external(CompilerContext *context, uint8_t i_imported_function, uint8_t num_args)
 {
 	compiler_push_opcode(compiler, OpCode_CallInModule);
 	compiler_push_u8(compiler, i_imported_function);
 	compiler_push_u8(compiler, num_args);
 }
 
-static void compiler_bytecode_call_foreign(Compiler *compiler, uint8_t i_foreign_function, uint8_t num_args)
+static void compiler_bytecode_call_foreign(CompilerContext *context, uint8_t i_foreign_function, uint8_t num_args)
 {
 	compiler_push_opcode(compiler, OpCode_CallForeign);
 	compiler_push_u8(compiler, i_foreign_function);
 	compiler_push_u8(compiler, num_args);
 }
 
-static uint32_t *compiler_bytecode_conditional_jump(Compiler *compiler, uint32_t address)
+static uint32_t *compiler_bytecode_conditional_jump(CompilerContext *context, uint32_t address)
 {
 	compiler_push_opcode(compiler, OpCode_ConditionalJump);
 	return compiler_push_u32(compiler, address);
 }
 
-static uint32_t *compiler_bytecode_jump(Compiler *compiler, uint32_t address)
+static uint32_t *compiler_bytecode_jump(CompilerContext *context, uint32_t address)
 {
 	compiler_push_opcode(compiler, OpCode_Jump);
 	return compiler_push_u32(compiler, address);
 }
 
-static void compiler_bytecode_store_arg(Compiler *compiler, uint8_t i_arg)
+static void compiler_bytecode_store_arg(CompilerContext *context, uint8_t i_arg)
 {
 	compiler_push_opcode(compiler, OpCode_StoreArg);
 	compiler_push_u8(compiler, i_arg);
 }
 
-static void compiler_bytecode_load_arg(Compiler *compiler, uint8_t i_arg)
+static void compiler_bytecode_load_arg(CompilerContext *context, uint8_t i_arg)
 {
 	compiler_push_opcode(compiler, OpCode_LoadArg);
 	compiler_push_u8(compiler, i_arg);
 }
 
-static void compiler_bytecode_store_local(Compiler *compiler, uint8_t i_local)
+static void compiler_bytecode_store_local(CompilerContext *context, uint8_t i_local)
 {
 	compiler_push_opcode(compiler, OpCode_StoreLocal);
 	compiler_push_u8(compiler, i_local);
 }
 
-static void compiler_bytecode_load_local(Compiler *compiler, uint8_t i_local)
+static void compiler_bytecode_load_local(CompilerContext *context, uint8_t i_local)
 {
 	compiler_push_opcode(compiler, OpCode_LoadLocal);
 	compiler_push_u8(compiler, i_local);
 }
 
-static void compiler_bytecode_debug_label(Compiler *compiler, sv label)
+static void compiler_bytecode_debug_label(CompilerContext *context, sv label)
 {
 	compiler_push_opcode(compiler, OpCode_DebugLabel);
 	compiler_push_sv(compiler, label);
@@ -212,13 +243,13 @@ static void compiler_bytecode_debug_label(Compiler *compiler, sv label)
 
 
 // compiler functions
-static void compiler_lookup_function_str(Compiler *compiler, sv function_name, uint32_t *out_module, uint32_t *out_function)
+static void compiler_lookup_function_str(CompilerContext *context, sv function_name, uint32_t *out_module, uint32_t *out_function)
 {
-	CompilerModule *current_module = &compiler->module;
+	CompilerModule *current_module = &context->module;
 	// Search local functions
 	for (uint32_t i_function = 0; i_function < current_module->functions_length; ++i_function) {
 		Function *function = current_module->functions + i_function;
-		sv local_function_name = string_pool_get(&compiler->vm->identifiers_pool, function->name);
+		sv local_function_name = string_pool_get(&context->vm->identifiers_pool, function->name);
 		if (sv_equals(local_function_name, function_name)) {
 			*out_module = ~(uint32_t)(0);
 			*out_function = i_function;
@@ -228,10 +259,10 @@ static void compiler_lookup_function_str(Compiler *compiler, sv function_name, u
 	// Search imports
 	for (uint32_t i_import = 0; i_import < current_module->imports_length; ++i_import) {
 		uint32_t i_imported_module = current_module->imports[i_import];
-		CompilerModule *imported_module = compiler->vm->compiler_modules + i_imported_module;
+		CompilerModule *imported_module = context->vm->compiler_modules + i_imported_module;
 		for (uint32_t i_function = 0; i_function < imported_module->functions_length; ++i_function) {
 			Function *function = imported_module->functions + i_function;
-			sv imported_function_name = string_pool_get(&compiler->vm->identifiers_pool, function->name);
+			sv imported_function_name = string_pool_get(&context->vm->identifiers_pool, function->name);
 			bool is_importable = function->type == FunctionType_Global || function->type == FunctionType_Foreign;
 			if (is_importable && sv_equals(imported_function_name, function_name)) {
 				*out_module = i_import;
@@ -244,9 +275,9 @@ static void compiler_lookup_function_str(Compiler *compiler, sv function_name, u
 	*out_function = ~0u;
 }
 
-static void compiler_lookup_function_id(Compiler *compiler, StringId function_id, uint32_t *out_module, uint32_t *out_function)
+static void compiler_lookup_function_id(CompilerContext *context, StringId function_id, uint32_t *out_module, uint32_t *out_function)
 {
-	CompilerModule *current_module = &compiler->module;
+	CompilerModule *current_module = &context->module;
 	// Search local functions
 	for (uint32_t i_function = 0; i_function < current_module->functions_length; ++i_function) {
 		Function *function = current_module->functions + i_function;
@@ -259,7 +290,7 @@ static void compiler_lookup_function_id(Compiler *compiler, StringId function_id
 	// Search imports
 	for (uint32_t i_import = 0; i_import < current_module->imports_length; ++i_import) {
 		uint32_t i_imported_module = current_module->imports[i_import];
-		CompilerModule *imported_module = compiler->vm->compiler_modules + i_imported_module;
+		CompilerModule *imported_module = context->vm->compiler_modules + i_imported_module;
 		for (uint32_t i_function = 0; i_function < imported_module->functions_length; ++i_function) {
 			Function *function = imported_module->functions + i_function;
 			bool is_importable = function->type == FunctionType_Global || function->type == FunctionType_Foreign;
@@ -298,78 +329,78 @@ uint32_t type_get_size(CompilerModule *module, TypeID id)
 	}
 }
 
-static void compiler_push_scope(Compiler *compiler)
+static void compiler_push_scope(CompilerContext *context)
 {
-	if (compiler->scopes_length >= ARRAY_LENGTH(compiler->scopes)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+	if (context->scopes_length >= ARRAY_LENGTH(context->scopes)) {
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return;
 	}
 
-	LexicalScope *new_scope = compiler->scopes + compiler->scopes_length;
-	compiler->scopes_length += 1;
+	LexicalScope *new_scope = context->scopes + context->scopes_length;
+	context->scopes_length += 1;
 	*new_scope = (LexicalScope){0};
 }
 
-static void compiler_pop_scope(Compiler *compiler)
+static void compiler_pop_scope(CompilerContext *context)
 {
-	if (compiler->scopes_length == 0) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+	if (context->scopes_length == 0) {
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return;
 	}
 	
-	compiler->scopes_length -= 1;
+	context->scopes_length -= 1;
 }
 
-static void compiler_push_loop_end_ip(Compiler *compiler, uint32_t loop_end_ip)
+static void compiler_push_loop_end_ip(CompilerContext *context, uint32_t loop_end_ip)
 {
-	if (compiler->loop_end_ips_length >= ARRAY_LENGTH(compiler->loop_end_ips)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+	if (context->loop_end_ips_length >= ARRAY_LENGTH(context->loop_end_ips)) {
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return;
 	}
 
-	uint32_t *new_loop_end_ip = compiler->loop_end_ips + compiler->loop_end_ips_length;
-	compiler->loop_end_ips_length += 1;
+	uint32_t *new_loop_end_ip = context->loop_end_ips + context->loop_end_ips_length;
+	context->loop_end_ips_length += 1;
 	*new_loop_end_ip = loop_end_ip;
 }
 
-static void compiler_pop_loop_end_ip(Compiler *compiler)
+static void compiler_pop_loop_end_ip(CompilerContext *context)
 {
-	if (compiler->loop_end_ips_length == 0 || compiler->loop_end_ips_length >= ARRAY_LENGTH(compiler->loop_end_ips)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+	if (context->loop_end_ips_length == 0 || context->loop_end_ips_length >= ARRAY_LENGTH(context->loop_end_ips)) {
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return;
 	}
 
-	compiler->loop_end_ips_length -= 1;
+	context->loop_end_ips_length -= 1;
 }
 
-static uint32_t compiler_last_loop_end_ip(Compiler *compiler)
+static uint32_t compiler_last_loop_end_ip(CompilerContext *context)
 {
-	if (compiler->loop_end_ips_length == 0 || compiler->loop_end_ips_length >= ARRAY_LENGTH(compiler->loop_end_ips)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+	if (context->loop_end_ips_length == 0 || context->loop_end_ips_length >= ARRAY_LENGTH(context->loop_end_ips)) {
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return 0;
 	}
 
-	return compiler->loop_end_ips[compiler->loop_end_ips_length-1];
+	return context->loop_end_ips[context->loop_end_ips_length-1];
 }
 
-static bool compiler_push_variable(Compiler *compiler, Token identifier_token, TypeID type, uint32_t *i_variable_out)
+static bool compiler_push_variable(CompilerContext *context, Token identifier_token, TypeID type, uint32_t *i_variable_out)
 {
-	if (compiler->scopes_length >= ARRAY_LENGTH(compiler->scopes)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+	if (context->scopes_length >= ARRAY_LENGTH(context->scopes)) {
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return false;
 	}
 
-	uint32_t last_scope_index = compiler->scopes_length - 1;
-	LexicalScope *current_scope = compiler->scopes + last_scope_index;
+	uint32_t last_scope_index = context->scopes_length - 1;
+	LexicalScope *current_scope = context->scopes + last_scope_index;
 	if (current_scope->variables_length >= SCOPE_MAX_VARIABLES) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return false;
 	}
 
 	uint32_t i_new_variable = current_scope->variables_length;
 	current_scope->variables_length += 1;
 
-	sv name_str = string_pool_get(&compiler->compunit->string_pool, identifier_token.data.sid);
+	sv name_str = string_pool_get(&input.string_pool, identifier_token.data.sid);
 
 	current_scope->variables_name[i_new_variable] = name_str;
 	current_scope->variables_type[i_new_variable] = type;
@@ -378,24 +409,24 @@ static bool compiler_push_variable(Compiler *compiler, Token identifier_token, T
 	return true;
 }
 
-static bool compiler_push_arg(Compiler *compiler, Token identifier_token, TypeID type, uint32_t *i_arg_out)
+static bool compiler_push_arg(CompilerContext *context, Token identifier_token, TypeID type, uint32_t *i_arg_out)
 {
-	if (compiler->scopes_length >= ARRAY_LENGTH(compiler->scopes)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+	if (context->scopes_length >= ARRAY_LENGTH(context->scopes)) {
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return false;
 	}
 
-	uint32_t last_scope_index = compiler->scopes_length - 1;
-	LexicalScope *current_scope = compiler->scopes + last_scope_index;
+	uint32_t last_scope_index = context->scopes_length - 1;
+	LexicalScope *current_scope = context->scopes + last_scope_index;
 	if (current_scope->variables_length >= SCOPE_MAX_VARIABLES) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return false;
 	}
 
 	uint32_t i_new_arg = current_scope->args_length;
 	current_scope->args_length += 1;
 
-	sv name_str = string_pool_get(&compiler->compunit->string_pool, identifier_token.data.sid);
+	sv name_str = string_pool_get(&input.string_pool, identifier_token.data.sid);
 
 	current_scope->args_name[i_new_arg] = name_str;
 	current_scope->args_type[i_new_arg] = type;
@@ -404,17 +435,17 @@ static bool compiler_push_arg(Compiler *compiler, Token identifier_token, TypeID
 	return true;
 }
 
-static bool compiler_lookup_variable(Compiler *compiler, Token identifier_token, TypeID *type_out, uint32_t *i_variable_out, bool *is_variable)
+static bool compiler_lookup_variable(CompilerContext *context, Token identifier_token, TypeID *type_out, uint32_t *i_variable_out, bool *is_variable)
 {
-	if (compiler->scopes_length == 0) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+	if (context->scopes_length == 0) {
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return false;
 	}
 
-	sv tofind_name = string_pool_get(&compiler->compunit->string_pool, identifier_token.data.sid);
+	sv tofind_name = string_pool_get(&input.string_pool, identifier_token.data.sid);
 
-	for (uint32_t i_scope = compiler->scopes_length - 1; i_scope < compiler->scopes_length; --i_scope) {
-		LexicalScope *scope = compiler->scopes + i_scope;
+	for (uint32_t i_scope = context->scopes_length - 1; i_scope < context->scopes_length; --i_scope) {
+		LexicalScope *scope = context->scopes + i_scope;
 
 		for (uint32_t i_variable = 0; i_variable < scope->variables_length; ++i_variable) {
 			sv variable_name = scope->variables_name[i_variable];
@@ -442,11 +473,11 @@ static bool compiler_lookup_variable(Compiler *compiler, Token identifier_token,
 
 // compiler
 
-static TypeID compile_sexpr(Compiler *compiler, const AstNode *node);
+static CompileNodeResult compile_sexpr(CompilerContext *context, const AstNode *node);
 
 //
 
-static TypeID compile_atom(Compiler *compiler, Token token)
+static CompileNodeResult compile_atom(CompilerContext *context, Token token)
 {
 	if (token.kind == TokenKind_Identifier) {
 		// Refer a declared variable
@@ -455,8 +486,8 @@ static TypeID compile_atom(Compiler *compiler, Token token)
 		uint32_t i_variable = 0;
 		bool is_variable = true;
 		if (!compiler_lookup_variable(compiler, token, &ty, &i_variable, &is_variable)) {
-			INIT_ERROR(&compiler->compunit->error, ErrorCode_UnknownSymbol);
-			compiler->compunit->error.span = token.span;
+			INIT_ERROR(&input.error, ErrorCode_UnknownSymbol);
+			input.error.span = token.span;
 			return UNIT_TYPE;
 		}
 		if (is_variable) {
@@ -515,26 +546,26 @@ static TypeID compile_atom(Compiler *compiler, Token token)
 	} else if (token.kind == TokenKind_StringLiteral) {
 		// A string literal
 		// "str"
-		sv literal = string_pool_get(&compiler->compunit->string_pool, token.data.sid);
+		sv literal = string_pool_get(&input.string_pool, token.data.sid);
 		compiler_bytecode_push_str(compiler, literal);
 		TypeID new_type_id = type_id_pointer_from(type_id_new_unsigned(NumberWidth_8));
 		new_type_id.slice.builtin_kind = BuiltinTypeKind_Slice;
 		return new_type_id;
 	} else {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return UNIT_TYPE;
 	}
 }
 
 // <identifier> | <number> | <s-expression>
-static TypeID compile_expr(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_expr(CompilerContext *context, const AstNode *node)
 {
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	if (ast_is_atom(node)) {
-		const Token token = ast_get_token(compiler->compunit->tokens, node);
+		const Token token = ast_get_token(input.tokens, node);
 		TypeID return_type = compile_atom(compiler, token);
 		return return_type;
 	} else if (ast_has_left_child(node)) {
@@ -547,14 +578,14 @@ static TypeID compile_expr(Compiler *compiler, const AstNode *node)
 	}
 }
 
-static TypeID compile_sexprs_return_last(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_sexprs_return_last(CompilerContext *context, const AstNode *node)
 {
 	const AstNode *first_expr_node = node;
 	TypeID return_type = compile_expr(compiler, first_expr_node);
 
 	uint32_t i_next_expr_node = first_expr_node->right_sibling_index;
 	while (ast_is_valid(i_next_expr_node)) {
-		const AstNode *next_expr_node = ast_get_node(compiler->compunit->nodes, i_next_expr_node);
+		const AstNode *next_expr_node = ast_get_node(input.nodes, i_next_expr_node);
 		return_type = compile_expr(compiler, next_expr_node);
 		i_next_expr_node = next_expr_node->right_sibling_index;
 	}
@@ -562,38 +593,38 @@ static TypeID compile_sexprs_return_last(Compiler *compiler, const AstNode *node
 	return return_type;
 }
 
-static TypeID compile_function_defininition(Compiler *compiler, const AstNode *node, FunctionType function_type)
+static CompileNodeResult compile_function_defininition(CompilerContext *context, const AstNode *node, FunctionType function_type)
 {
 	// Parse the function definition
 	DefineNode define_node = {0};
-	parse_define_sig(compiler->compunit, node, &define_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	parse_define_sig(context->compunit, node, &define_node);
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
-	parse_define_body(compiler->compunit, node, &define_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	parse_define_body(context->compunit, node, &define_node);
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
-	sv function_name = string_pool_get(&compiler->compunit->string_pool, define_node.function_name_token.data.sid);
-	StringId function_id = string_pool_intern(&compiler->vm->identifiers_pool, function_name);
-	TypeID return_type = parse_type(compiler->compunit, &compiler->module, define_node.return_type_node);
+	sv function_name = string_pool_get(&input.string_pool, define_node.function_name_token.data.sid);
+	StringId function_id = string_pool_intern(&context->vm->identifiers_pool, function_name);
+	TypeID return_type = parse_type(context->compunit, &context->module, define_node.return_type_node);
 	TypeID arg_types[MAX_ARGUMENTS] = {0};
 	for (uint32_t i_arg = 0; i_arg < define_node.args_length; ++i_arg) {
-		arg_types[i_arg] = parse_type(compiler->compunit, &compiler->module, define_node.arg_nodes[i_arg]);
+		arg_types[i_arg] = parse_type(context->compunit, &context->module, define_node.arg_nodes[i_arg]);
 	}
 	// Look for duplicated symbols
 	uint32_t i_found_module = 0;
 	uint32_t i_found_function = 0;
 	compiler_lookup_function_id(compiler, function_id, &i_found_module, &i_found_function);
-	if (i_found_module < compiler->vm->compiler_modules_length || i_found_module < compiler->module.functions_length) {
+	if (i_found_module < context->vm->compiler_modules_length || i_found_module < context->module.functions_length) {
 		// Actually it should be possible to recompile a function if signature has not changed.
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_DuplicateSymbol);
+		INIT_ERROR(&input.error, ErrorCode_DuplicateSymbol);
 		return UNIT_TYPE;
 	}
 	// Create a new function symbol in the module
-	CompilerModule *current_module = &compiler->module;
+	CompilerModule *current_module = &context->module;
 	if (current_module->functions_length + 1 > ARRAY_LENGTH(current_module->functions)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return UNIT_TYPE;
 	}
 	Function *function = current_module->functions + current_module->functions_length;
@@ -625,68 +656,68 @@ static TypeID compile_function_defininition(Compiler *compiler, const AstNode *n
 	}
 	compiler_pop_scope(compiler);
 	compiler_push_opcode(compiler, OpCode_Ret);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 	// Typecheck the body expression
 	bool valid_return_type = type_similar(body_type, return_type);
 	if (!valid_return_type) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.expected_type = return_type;
-		compiler->compunit->error.got_type = body_type;
-		compiler->compunit->error.span = define_node.body_node->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
+		input.error.expected_type = return_type;
+		input.error.got_type = body_type;
+		input.error.span = define_node.body_node->span;
 	}
 	return function->return_type;
 }
 
 // Defines a new local function
 // (define (<name> <return_type>) (<args>*) <expression>+)
-static TypeID compile_define(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_define(CompilerContext *context, const AstNode *node)
 {
 	return compile_function_defininition(compiler, node, FunctionType_Local);
 }
 
 // Defines a new global function
 // (define-global (<name> <return_type>) (<args>*) <expression>+)
-static TypeID compile_define_global(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_define_global(CompilerContext *context, const AstNode *node)
 {
 	return compile_function_defininition(compiler, node, FunctionType_Global);
 }
 
 // Defines a new foreign function
 // (define-foreign (<name> <return_type>) (<args>))
-static TypeID compile_define_foreign(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_define_foreign(CompilerContext *context, const AstNode *node)
 {
 	DefineNode nodes = {0};
-	parse_define_sig(compiler->compunit, node, &nodes);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	parse_define_sig(context->compunit, node, &nodes);
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
-	sv function_name_token_str = string_pool_get(&compiler->compunit->string_pool, nodes.function_name_token.data.sid);
-	StringId function_id = string_pool_intern(&compiler->vm->identifiers_pool, function_name_token_str);\
+	sv function_name_token_str = string_pool_get(&input.string_pool, nodes.function_name_token.data.sid);
+	StringId function_id = string_pool_intern(&context->vm->identifiers_pool, function_name_token_str);\
 
 	// -- Type checking
-	CompilerModule *current_module = &compiler->module;
+	CompilerModule *current_module = &context->module;
 	uint32_t i_found_module = 0;
 	uint32_t i_found_function = 0;
 	compiler_lookup_function_id(compiler, function_id, &i_found_module, &i_found_function);
-	if (i_found_module < compiler->vm->compiler_modules_length || i_found_module < compiler->module.functions_length) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_DuplicateSymbol);
-		compiler->compunit->error.span = node->span;
+	if (i_found_module < context->vm->compiler_modules_length || i_found_module < context->module.functions_length) {
+		INIT_ERROR(&input.error, ErrorCode_DuplicateSymbol);
+		input.error.span = node->span;
 		return UNIT_TYPE;
 	}
 
 	if (current_module->functions_length + 1 >= ARRAY_LENGTH(current_module->functions)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
-		compiler->compunit->error.span = node->span;
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
+		input.error.span = node->span;
 		return UNIT_TYPE;
 	}
 
 	// Add to foreign function list
 	uint32_t foreign_functions_length = current_module->foreign_functions_length;
 	if (foreign_functions_length + 1 >= ARRAY_LENGTH(current_module->foreign_functions_name)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
-		compiler->compunit->error.span = node->span;
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
+		input.error.span = node->span;
 		return UNIT_TYPE;
 	}
 
@@ -700,14 +731,14 @@ static TypeID compile_define_foreign(Compiler *compiler, const AstNode *node)
 	function->address = foreign_functions_length;
 	function->type = FunctionType_Foreign;
 	// parse return type
-	TypeID return_type = parse_type(compiler->compunit, &compiler->module, nodes.return_type_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	TypeID return_type = parse_type(context->compunit, &context->module, nodes.return_type_node);
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 	function->return_type = return_type;
 	// parse argument types
 	for (uint32_t i_arg = 0; i_arg < nodes.args_length; ++i_arg) {
-		TypeID arg_type = parse_type(compiler->compunit, &compiler->module, nodes.arg_nodes[i_arg]);
+		TypeID arg_type = parse_type(context->compunit, &context->module, nodes.arg_nodes[i_arg]);
 		function->arg_types[function->arg_count] = arg_type;
 		function->arg_count += 1;
 	}
@@ -717,62 +748,62 @@ static TypeID compile_define_foreign(Compiler *compiler, const AstNode *node)
 }
 
 // Defines a new struct
-static TypeID compile_struct(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_struct(CompilerContext *context, const AstNode *node)
 {
 	// -- Parsing
 	StructNode nodes = {0};
-	parse_struct(compiler->compunit, node, &nodes);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	parse_struct(context->compunit, node, &nodes);
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
-	sv struct_name_token_str = string_pool_get(&compiler->compunit->string_pool, nodes.struct_name_token.data.sid);
+	sv struct_name_token_str = string_pool_get(&input.string_pool, nodes.struct_name_token.data.sid);
 
 	// -- Type checking
 	// Check if the type is already defined
-	for (uint32_t i_type = 0; i_type < compiler->module.types_length; ++i_type) {
-		UserDefinedType *type = compiler->module.types + i_type;
+	for (uint32_t i_type = 0; i_type < context->module.types_length; ++i_type) {
+		UserDefinedType *type = context->module.types + i_type;
 		if (sv_equals(type->name, struct_name_token_str)) {
-			INIT_ERROR(&compiler->compunit->error, ErrorCode_DuplicateSymbol);
-			compiler->compunit->error.span = node->span;
+			INIT_ERROR(&input.error, ErrorCode_DuplicateSymbol);
+			input.error.span = node->span;
 			// Actually it should be possible to recompile a function if signature has not changed.
 			return UNIT_TYPE;
 		}
 	}
 	// Not enough space to add a type
-	if (compiler->module.types_length + 1 >= ARRAY_LENGTH(compiler->module.types)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
-		compiler->compunit->error.span = node->span;
+	if (context->module.types_length + 1 >= ARRAY_LENGTH(context->module.types)) {
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
+		input.error.span = node->span;
 		return UNIT_TYPE;
 	}
 
 	// -- Create a new structure type
 	if (nodes.fields_length >= MAX_STRUCT_FIELDS) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
-		compiler->compunit->error.span = node->span;
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
+		input.error.span = node->span;
 		return UNIT_TYPE;
 	}
 	TypeID fields_type[MAX_STRUCT_FIELDS] = {0};
 
-	TypeID struct_type_id = type_id_new_user_defined(compiler->module.types_length);
-	compiler->module.types_length += 1;
+	TypeID struct_type_id = type_id_new_user_defined(context->module.types_length);
+	context->module.types_length += 1;
 
-	UserDefinedType *struct_type = compiler->module.types + struct_type_id.user_defined.index;
+	UserDefinedType *struct_type = context->module.types + struct_type_id.user_defined.index;
 	*struct_type = (UserDefinedType){0};
 	struct_type->size = 0;
 	struct_type->name = struct_name_token_str;
 
 	uint32_t struct_size = 0;
 	for (uint32_t i_field = 0; i_field < nodes.fields_length; ++i_field) {
-		TypeID field_type = parse_type(compiler->compunit, &compiler->module, nodes.field_type_nodes[i_field]);
-		if (compiler->compunit->error.code != ErrorCode_Ok) {
+		TypeID field_type = parse_type(context->compunit, &context->module, nodes.field_type_nodes[i_field]);
+		if (input.error.code != ErrorCode_Ok) {
 			return UNIT_TYPE;
 		}
 
 		struct_type->field_types[i_field] = field_type;
-		struct_type->field_names[i_field] = string_pool_get(&compiler->compunit->string_pool, nodes.field_identifiers[i_field].data.sid);
+		struct_type->field_names[i_field] = string_pool_get(&input.string_pool, nodes.field_identifiers[i_field].data.sid);
 		struct_type->field_offsets[i_field] = struct_size;
 
-		struct_size += type_get_size(&compiler->module, field_type);
+		struct_size += type_get_size(&context->module, field_type);
 		fields_type[i_field] = field_type;
 	}
 
@@ -782,7 +813,7 @@ static TypeID compile_struct(Compiler *compiler, const AstNode *node)
 	return struct_type_id;
 }
 
-static TypeID compile_require(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_require(CompilerContext *context, const AstNode *node)
 {
 	(void)compiler;
 	(void)node;
@@ -790,27 +821,27 @@ static TypeID compile_require(Compiler *compiler, const AstNode *node)
 }
 
 // Conditional branch
-static TypeID compile_if(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_if(CompilerContext *context, const AstNode *node)
 {
 	// -- Parsing
 	IfNode nodes = {0};
-	parse_if(compiler->compunit, node, &nodes);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	parse_if(context->compunit, node, &nodes);
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	// Compile the condition first,
 	TypeID cond_expr = compile_expr(compiler, nodes.cond_expr_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 	
 	TypeID bool_type = type_id_new_builtin(BuiltinTypeKind_Bool);
 	if (!type_similar(cond_expr, bool_type)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.span = nodes.cond_expr_node->span;
-		compiler->compunit->error.expected_type = type_id_new_builtin(BuiltinTypeKind_Bool);
-		compiler->compunit->error.got_type = cond_expr;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
+		input.error.span = nodes.cond_expr_node->span;
+		input.error.expected_type = type_id_new_builtin(BuiltinTypeKind_Bool);
+		input.error.got_type = cond_expr;
 		return UNIT_TYPE;
 	}
 
@@ -819,7 +850,7 @@ static TypeID compile_if(Compiler *compiler, const AstNode *node)
 
 	// Then compile the else branch, because the condition was false
 	TypeID else_expr = compile_expr(compiler, nodes.else_expr_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
@@ -827,57 +858,57 @@ static TypeID compile_if(Compiler *compiler, const AstNode *node)
 	uint32_t *jump_to_end = compiler_bytecode_jump(compiler, 0);
 
 	// Compile the true branch
-	const uint32_t then_branch_address = compiler->module.bytecode_length;
+	const uint32_t then_branch_address = context->module.bytecode_length;
 	TypeID then_expr = compile_expr(compiler, nodes.then_expr_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
-	const uint32_t end_address = compiler->module.bytecode_length;
+	const uint32_t end_address = context->module.bytecode_length;
 	*jump_to_true_branch = then_branch_address;
 	*jump_to_end = end_address;
 
 	bool valid_return_type = type_similar(else_expr, then_expr);
 	if (!valid_return_type) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.span = node->span;
-		compiler->compunit->error.expected_type = then_expr;
-		compiler->compunit->error.got_type = else_expr;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
+		input.error.span = node->span;
+		input.error.expected_type = then_expr;
+		input.error.got_type = else_expr;
 	}
 
 	return then_expr;
 }
 
-static TypeID compile_when(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_when(CompilerContext *context, const AstNode *node)
 {
 	// -- Parsing
-	const AstNode *when_node = ast_get_left_child(compiler->compunit->nodes, node);
+	const AstNode *when_node = ast_get_left_child(input.nodes, node);
 	// A when expression must have at least a condition
 	if (!ast_has_right_sibling(when_node)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedExpr);
-		compiler->compunit->error.span = node->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedExpr);
+		input.error.span = node->span;
 		return UNIT_TYPE;
 	}
-	const AstNode *cond_node = ast_get_right_sibling(compiler->compunit->nodes, when_node);
+	const AstNode *cond_node = ast_get_right_sibling(input.nodes, when_node);
 	// A when expression must have at least one expression after the condition
 	if (!ast_has_right_sibling(cond_node)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedExpr);
-		compiler->compunit->error.span = node->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedExpr);
+		input.error.span = node->span;
 		return UNIT_TYPE;
 	}
-	const AstNode *expr_node = ast_get_right_sibling(compiler->compunit->nodes, cond_node);
+	const AstNode *expr_node = ast_get_right_sibling(input.nodes, cond_node);
 	
 	// Compile the condition first,
 	TypeID cond_expr = compile_expr(compiler, cond_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 	TypeID bool_type = type_id_new_builtin(BuiltinTypeKind_Bool);
 	if (!type_similar(cond_expr, bool_type)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.span = cond_node->span;
-		compiler->compunit->error.expected_type = type_id_new_builtin(BuiltinTypeKind_Bool);
-		compiler->compunit->error.got_type = cond_expr;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
+		input.error.span = cond_node->span;
+		input.error.expected_type = type_id_new_builtin(BuiltinTypeKind_Bool);
+		input.error.got_type = cond_expr;
 		return UNIT_TYPE;
 	}
 
@@ -888,13 +919,13 @@ static TypeID compile_when(Compiler *compiler, const AstNode *node)
 	uint32_t *jump_to_end = compiler_bytecode_jump(compiler, 0);
 
 	// Compile the true branch
-	const uint32_t then_branch_address = compiler->module.bytecode_length;
+	const uint32_t then_branch_address = context->module.bytecode_length;
 	TypeID then_expr = compile_sexprs_return_last(compiler, expr_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
-	const uint32_t end_address = compiler->module.bytecode_length;
+	const uint32_t end_address = context->module.bytecode_length;
 	*jump_to_true_branch = then_branch_address;
 	*jump_to_end = end_address;
 
@@ -907,36 +938,36 @@ static TypeID compile_when(Compiler *compiler, const AstNode *node)
 	return UNIT_TYPE;
 }
 
-static TypeID compile_unless(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_unless(CompilerContext *context, const AstNode *node)
 {
 	// -- Parsing
-	const AstNode *when_node = ast_get_left_child(compiler->compunit->nodes, node);
+	const AstNode *when_node = ast_get_left_child(input.nodes, node);
 	// A when expression must have at least a condition
 	if (!ast_has_right_sibling(when_node)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedExpr);
-		compiler->compunit->error.span = node->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedExpr);
+		input.error.span = node->span;
 		return UNIT_TYPE;
 	}
-	const AstNode *cond_node = ast_get_right_sibling(compiler->compunit->nodes, when_node);
+	const AstNode *cond_node = ast_get_right_sibling(input.nodes, when_node);
 	// A when expression must have at least one expression after the condition
 	if (!ast_has_right_sibling(cond_node)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedExpr);
-		compiler->compunit->error.span = node->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedExpr);
+		input.error.span = node->span;
 		return UNIT_TYPE;
 	}
-	const AstNode *expr_node = ast_get_right_sibling(compiler->compunit->nodes, cond_node);
+	const AstNode *expr_node = ast_get_right_sibling(input.nodes, cond_node);
 	
 	// Compile the condition first,
 	TypeID cond_expr = compile_expr(compiler, cond_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 	TypeID bool_type = type_id_new_builtin(BuiltinTypeKind_Bool);
 	if (!type_similar(cond_expr, bool_type)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.span = cond_node->span;
-		compiler->compunit->error.expected_type = type_id_new_builtin(BuiltinTypeKind_Bool);
-		compiler->compunit->error.got_type = cond_expr;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
+		input.error.span = cond_node->span;
+		input.error.expected_type = type_id_new_builtin(BuiltinTypeKind_Bool);
+		input.error.got_type = cond_expr;
 		return UNIT_TYPE;
 	}
 
@@ -947,13 +978,13 @@ static TypeID compile_unless(Compiler *compiler, const AstNode *node)
 	uint32_t *jump_to_body = compiler_bytecode_jump(compiler, 0);
 
 	// Compile the true branch
-	const uint32_t body_address = compiler->module.bytecode_length;
+	const uint32_t body_address = context->module.bytecode_length;
 	TypeID body_expr = compile_sexprs_return_last(compiler, expr_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
-	const uint32_t end_address = compiler->module.bytecode_length;
+	const uint32_t end_address = context->module.bytecode_length;
 	*jump_to_end = end_address;
 	*jump_to_body = body_address;
 
@@ -966,31 +997,31 @@ static TypeID compile_unless(Compiler *compiler, const AstNode *node)
 	return UNIT_TYPE;
 }
 
-static TypeID compile_loop(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_loop(CompilerContext *context, const AstNode *node)
 {
-	const AstNode *loop_node = ast_get_left_child(compiler->compunit->nodes, node);
+	const AstNode *loop_node = ast_get_left_child(input.nodes, node);
 	// A loop expression must have at least one expr
 	if (!ast_has_right_sibling(loop_node)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedExpr);
-		compiler->compunit->error.span = node->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedExpr);
+		input.error.span = node->span;
 		return UNIT_TYPE;
 	}
 
 	uint32_t *jump_to_loop_begin = compiler_bytecode_jump(compiler, 0);
-	uint32_t jump_to_loop_end_ip = compiler->module.bytecode_length;
+	uint32_t jump_to_loop_end_ip = context->module.bytecode_length;
 	uint32_t *jump_to_loop_end = compiler_bytecode_jump(compiler, 0);
 	// Push the address of the jump to the loop end, break will jump there.
 	compiler_push_loop_end_ip(compiler, jump_to_loop_end_ip);
 
 	// Get the beginning of the loop
-	uint32_t loop_begin_ip = compiler->module.bytecode_length;
+	uint32_t loop_begin_ip = context->module.bytecode_length;
 	compiler_push_opcode(compiler, OpCode_Nop);
 	// Compile exprs
-	const AstNode *first_sexpr = ast_get_right_sibling(compiler->compunit->nodes, loop_node);
+	const AstNode *first_sexpr = ast_get_right_sibling(input.nodes, loop_node);
 	/*TypeID last_expr_type =*/ compile_sexprs_return_last(compiler, first_sexpr);
 	// Jump to the beginning of the loop
 	compiler_bytecode_jump(compiler, loop_begin_ip);
-	uint32_t loop_end_ip = compiler->module.bytecode_length;
+	uint32_t loop_end_ip = context->module.bytecode_length;
 
 	compiler_pop_loop_end_ip(compiler);
 
@@ -1001,13 +1032,13 @@ static TypeID compile_loop(Compiler *compiler, const AstNode *node)
 	return UNIT_TYPE;
 }
 
-static TypeID compile_break(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_break(CompilerContext *context, const AstNode *node)
 {
-	const AstNode *break_node = ast_get_left_child(compiler->compunit->nodes, node);
+	const AstNode *break_node = ast_get_left_child(input.nodes, node);
 	// A break expression DOES NOT have any children
 	if (ast_has_right_sibling(break_node)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_UnexpectedExpression);
-		compiler->compunit->error.span = node->span;
+		INIT_ERROR(&input.error, ErrorCode_UnexpectedExpression);
+		input.error.span = node->span;
 		return UNIT_TYPE;
 	}
 
@@ -1016,11 +1047,11 @@ static TypeID compile_break(Compiler *compiler, const AstNode *node)
 	return UNIT_TYPE;
 }
 
-static TypeID compile_let(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_let(CompilerContext *context, const AstNode *node)
 {
 	LetNode nodes = {0};
-	parse_let(compiler->compunit, node, &nodes);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	parse_let(context->compunit, node, &nodes);
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
@@ -1036,11 +1067,11 @@ static TypeID compile_let(Compiler *compiler, const AstNode *node)
 	return UNIT_TYPE;
 }
 
-static TypeID compile_set(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_set(CompilerContext *context, const AstNode *node)
 {
 	LetNode nodes = {0};
-	parse_let(compiler->compunit, node, &nodes);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	parse_let(context->compunit, node, &nodes);
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
@@ -1048,21 +1079,21 @@ static TypeID compile_set(Compiler *compiler, const AstNode *node)
 	uint32_t i_variable = 0;
 	bool is_variable = true;
 	if (!compiler_lookup_variable(compiler, nodes.name_token, &variable_type, &i_variable, &is_variable)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_UnknownSymbol);
-		compiler->compunit->error.span = nodes.name_token.span;
+		INIT_ERROR(&input.error, ErrorCode_UnknownSymbol);
+		input.error.span = nodes.name_token.span;
 		return UNIT_TYPE;
 	}
 
 	TypeID expr_type = compile_expr(compiler, nodes.value_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	if (!type_similar(expr_type, variable_type)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.expected_type = variable_type;
-		compiler->compunit->error.got_type = expr_type;
-		compiler->compunit->error.span = nodes.value_node->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
+		input.error.expected_type = variable_type;
+		input.error.got_type = expr_type;
+		input.error.span = nodes.value_node->span;
 		return UNIT_TYPE;
 	}
 
@@ -1076,17 +1107,17 @@ static TypeID compile_set(Compiler *compiler, const AstNode *node)
 }
 
 // (begin <expr1> <expr2> ...)
-static TypeID compile_begin(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_begin(CompilerContext *context, const AstNode *node)
 {
-	const AstNode *begin_node = ast_get_left_child(compiler->compunit->nodes, node);
+	const AstNode *begin_node = ast_get_left_child(input.nodes, node);
 	// A begin expression must have at least one expr
 	if (!ast_has_right_sibling(begin_node)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedExpr);
-		compiler->compunit->error.span = node->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedExpr);
+		input.error.span = node->span;
 		return UNIT_TYPE;
 	}
 
-	const AstNode *first_sexpr = ast_get_right_sibling(compiler->compunit->nodes, begin_node);
+	const AstNode *first_sexpr = ast_get_right_sibling(input.nodes, begin_node);
 	return compile_sexprs_return_last(compiler, first_sexpr);
 }
 
@@ -1099,37 +1130,37 @@ typedef struct CompileNumBinaryOpResult
 
 // Parse 2 expressions, typecheck them according to their numeric type, and let the caller push the correct opcode
 // (<op> <lhs> <rhs>)
-static CompileNumBinaryOpResult compile_num_binary_op(Compiler *compiler, const AstNode *node)
+static CompileNumBinaryOpResult compile_num_binary_op(CompilerContext *context, const AstNode *node)
 {
 	// -- Parsing
 	const AstNode *nodes[2] = {0};
-	parse_nary_op(compiler->compunit, node, ARRAY_LENGTH(nodes), nodes);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	parse_nary_op(context->compunit, node, ARRAY_LENGTH(nodes), nodes);
+	if (input.error.code != ErrorCode_Ok) {
 		return (CompileNumBinaryOpResult){0};
 	}
 
 	// -- Type checking
 	TypeID lhs = compile_expr(compiler, nodes[0]);
 	TypeID rhs = compile_expr(compiler, nodes[1]);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return (CompileNumBinaryOpResult){0};
 	}
 
 	// Both types need to be numeric
 	bool lhs_numeric = type_id_is_builtin(lhs) && (lhs.builtin.kind == BuiltinTypeKind_Signed || lhs.builtin.kind == BuiltinTypeKind_Unsigned || lhs.builtin.kind == BuiltinTypeKind_Float);
 	if (!lhs_numeric) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedNumericType);
-		compiler->compunit->error.expected_type = UNIT_TYPE;
-		compiler->compunit->error.got_type = lhs;
-		compiler->compunit->error.span = nodes[0]->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedNumericType);
+		input.error.expected_type = UNIT_TYPE;
+		input.error.got_type = lhs;
+		input.error.span = nodes[0]->span;
 		return (CompileNumBinaryOpResult){0};
 	}
 	bool rhs_numeric = type_id_is_builtin(rhs) && (rhs.builtin.kind == BuiltinTypeKind_Signed || rhs.builtin.kind == BuiltinTypeKind_Unsigned || lhs.builtin.kind == BuiltinTypeKind_Float);
 	if (!rhs_numeric) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedNumericType);
-		compiler->compunit->error.expected_type = UNIT_TYPE;
-		compiler->compunit->error.got_type = rhs;
-		compiler->compunit->error.span = nodes[1]->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedNumericType);
+		input.error.expected_type = UNIT_TYPE;
+		input.error.got_type = rhs;
+		input.error.span = nodes[1]->span;
 		return (CompileNumBinaryOpResult){0};
 	}
 
@@ -1150,18 +1181,18 @@ static CompileNumBinaryOpResult compile_num_binary_op(Compiler *compiler, const 
 	// Check that the two operands are similar to the expected type
 	bool lhs_valid = type_similar(lhs, expected_type);
 	if (!lhs_valid) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.expected_type = expected_type;
-		compiler->compunit->error.got_type = lhs;
-		compiler->compunit->error.span = nodes[0]->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
+		input.error.expected_type = expected_type;
+		input.error.got_type = lhs;
+		input.error.span = nodes[0]->span;
 		return (CompileNumBinaryOpResult){0};
 	}	
 	bool rhs_valid = type_similar(rhs, expected_type);
 	if (!rhs_valid) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.expected_type = expected_type;
-		compiler->compunit->error.got_type = rhs;
-		compiler->compunit->error.span = nodes[1]->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
+		input.error.expected_type = expected_type;
+		input.error.got_type = rhs;
+		input.error.span = nodes[1]->span;
 		return (CompileNumBinaryOpResult){0};
 	}
 	
@@ -1171,7 +1202,7 @@ static CompileNumBinaryOpResult compile_num_binary_op(Compiler *compiler, const 
 	return result;
 }
 
-static TypeID compile_iadd(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_iadd(CompilerContext *context, const AstNode *node)
 {
 	CompileNumBinaryOpResult res = compile_num_binary_op(compiler, node);
 	if (!res.success) {
@@ -1184,14 +1215,14 @@ static TypeID compile_iadd(Compiler *compiler, const AstNode *node)
 		_Static_assert(OpCode_AddU8 + NumberWidth_32 == OpCode_AddU32);
 		compiler_push_opcode(compiler, OpCode_AddU8 + res.inferred_type.builtin.number_width);
 	} else {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return UNIT_TYPE;
 
 	}
 	return res.inferred_type;
 }
 
-static TypeID compile_isub(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_isub(CompilerContext *context, const AstNode *node)
 {
 	CompileNumBinaryOpResult res = compile_num_binary_op(compiler, node);
 	if (!res.success) {
@@ -1204,13 +1235,13 @@ static TypeID compile_isub(Compiler *compiler, const AstNode *node)
 		_Static_assert(OpCode_SubU8 + NumberWidth_32 == OpCode_SubU32);
 		compiler_push_opcode(compiler, OpCode_SubU8 + res.inferred_type.builtin.number_width);
 	} else {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return UNIT_TYPE;
 	}
 	return res.inferred_type;
 }
 
-static TypeID compile_imul(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_imul(CompilerContext *context, const AstNode *node)
 {
 	CompileNumBinaryOpResult res = compile_num_binary_op(compiler, node);
 	if (!res.success) {
@@ -1226,7 +1257,7 @@ static TypeID compile_imul(Compiler *compiler, const AstNode *node)
 
 // Compare two integers
 // (<= <lhs> <rhs>)
-static TypeID compile_ltethan(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_ltethan(CompilerContext *context, const AstNode *node)
 {
 	CompileNumBinaryOpResult res = compile_num_binary_op(compiler, node);
 	if (!res.success) {
@@ -1242,7 +1273,7 @@ static TypeID compile_ltethan(Compiler *compiler, const AstNode *node)
 
 // Compare two integers
 // (< <lhs> <rhs>)
-static TypeID compile_lthan(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_lthan(CompilerContext *context, const AstNode *node)
 {
 	CompileNumBinaryOpResult res = compile_num_binary_op(compiler, node);
 	if (!res.success) {
@@ -1258,7 +1289,7 @@ static TypeID compile_lthan(Compiler *compiler, const AstNode *node)
 
 // Compare two integers
 // (>= <lhs> <rhs>)
-static TypeID compile_gtethan(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_gtethan(CompilerContext *context, const AstNode *node)
 {
 	CompileNumBinaryOpResult res = compile_num_binary_op(compiler, node);
 	if (!res.success) {
@@ -1274,7 +1305,7 @@ static TypeID compile_gtethan(Compiler *compiler, const AstNode *node)
 
 // Compare two integers
 // (> <lhs> <rhs>)
-static TypeID compile_gthan(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_gthan(CompilerContext *context, const AstNode *node)
 {
 	CompileNumBinaryOpResult res = compile_num_binary_op(compiler, node);
 	if (!res.success) {
@@ -1290,7 +1321,7 @@ static TypeID compile_gthan(Compiler *compiler, const AstNode *node)
 
 // Compare two integers
 // (= <lhs> <rhs>)
-static TypeID compile_eq(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_eq(CompilerContext *context, const AstNode *node)
 {
 	CompileNumBinaryOpResult res = compile_num_binary_op(compiler, node);
 	if (!res.success) {
@@ -1306,34 +1337,34 @@ static TypeID compile_eq(Compiler *compiler, const AstNode *node)
 
 // Perform a logical AND
 // (and <lhs> <rhs>)
-static TypeID compile_and(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_and(CompilerContext *context, const AstNode *node)
 {
 	const AstNode *nodes[2] = {0};
-	parse_nary_op(compiler->compunit, node, ARRAY_LENGTH(nodes), nodes);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	parse_nary_op(context->compunit, node, ARRAY_LENGTH(nodes), nodes);
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	TypeID lhs = compile_expr(compiler, nodes[0]);
 	TypeID rhs = compile_expr(compiler, nodes[1]);
 	TypeID expected_type = type_id_new_builtin(BuiltinTypeKind_Bool);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	if (!type_similar(lhs, expected_type)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
 		__debugbreak();
-		compiler->compunit->error.expected_type = expected_type;
-		compiler->compunit->error.got_type = lhs;
-		compiler->compunit->error.span = nodes[0]->span;
+		input.error.expected_type = expected_type;
+		input.error.got_type = lhs;
+		input.error.span = nodes[0]->span;
 		return UNIT_TYPE;
 	}
 	if (!type_similar(rhs, expected_type)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.expected_type = expected_type;
-		compiler->compunit->error.got_type = rhs;
-		compiler->compunit->error.span = nodes[1]->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
+		input.error.expected_type = expected_type;
+		input.error.got_type = rhs;
+		input.error.span = nodes[1]->span;
 		return UNIT_TYPE;
 	}
 
@@ -1342,34 +1373,34 @@ static TypeID compile_and(Compiler *compiler, const AstNode *node)
 }
 // Perform a logical OR
 // (or <lhs> <rhs>)
-static TypeID compile_or(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_or(CompilerContext *context, const AstNode *node)
 {
 	const AstNode *nodes[2] = {0};
-	parse_nary_op(compiler->compunit, node, ARRAY_LENGTH(nodes), nodes);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	parse_nary_op(context->compunit, node, ARRAY_LENGTH(nodes), nodes);
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	TypeID lhs = compile_expr(compiler, nodes[0]);
 	TypeID rhs = compile_expr(compiler, nodes[1]);
 	TypeID expected_type = type_id_new_builtin(BuiltinTypeKind_Bool);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	if (!type_similar(lhs, expected_type)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
 		__debugbreak();
-		compiler->compunit->error.expected_type = expected_type;
-		compiler->compunit->error.got_type = lhs;
-		compiler->compunit->error.span = nodes[0]->span;
+		input.error.expected_type = expected_type;
+		input.error.got_type = lhs;
+		input.error.span = nodes[0]->span;
 		return UNIT_TYPE;
 	}
 	if (!type_similar(rhs, expected_type)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.expected_type = expected_type;
-		compiler->compunit->error.got_type = rhs;
-		compiler->compunit->error.span = nodes[1]->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
+		input.error.expected_type = expected_type;
+		input.error.got_type = rhs;
+		input.error.span = nodes[1]->span;
 		return UNIT_TYPE;
 	}
 
@@ -1377,9 +1408,9 @@ static TypeID compile_or(Compiler *compiler, const AstNode *node)
 	return expected_type;
 }
 
-static TypeID compiler_load_pointer(Compiler *compiler, TypeID pointed_type)
+static CompileNodeResult compiler_load_pointer(CompilerContext *context, TypeID pointed_type)
 {
-	uint32_t type_size = type_get_size(&compiler->module, pointed_type);
+	uint32_t type_size = type_get_size(&context->module, pointed_type);
 	OpCode opcode = OpCode_Halt;
 	if (type_size == 1) {
 		opcode = OpCode_Load8;
@@ -1390,7 +1421,7 @@ static TypeID compiler_load_pointer(Compiler *compiler, TypeID pointed_type)
 	} else if (type_size == 8) {
 		opcode = OpCode_Load64;
 	} else {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return UNIT_TYPE;
 	}
 	
@@ -1400,25 +1431,25 @@ static TypeID compiler_load_pointer(Compiler *compiler, TypeID pointed_type)
 
 // Load a value at the given memory address
 // (load <addr>)
-static TypeID compile_load(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_load(CompilerContext *context, const AstNode *node)
 {
 	const AstNode *value_node = NULL;
-	parse_nary_op(compiler->compunit, node, 1, &value_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	parse_nary_op(context->compunit, node, 1, &value_node);
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	TypeID addr_type_id = compile_expr(compiler, value_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	// Typecheck
 	if (!type_id_is_pointer(addr_type_id)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.span = value_node->span;
-		compiler->compunit->error.expected_type = (TypeID){0};
-		compiler->compunit->error.got_type = addr_type_id;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
+		input.error.span = value_node->span;
+		input.error.expected_type = (TypeID){0};
+		input.error.got_type = addr_type_id;
 		return UNIT_TYPE;
 	}
 
@@ -1426,9 +1457,9 @@ static TypeID compile_load(Compiler *compiler, const AstNode *node)
 	return compiler_load_pointer(compiler, pointed_type_id);
 }
 
-static TypeID compiler_store_pointer(Compiler *compiler, TypeID pointed_type)
+static CompileNodeResult compiler_store_pointer(CompilerContext *context, TypeID pointed_type)
 {
-	uint32_t value_type_size = type_get_size(&compiler->module, pointed_type);
+	uint32_t value_type_size = type_get_size(&context->module, pointed_type);
 	
 	OpCode opcode = OpCode_Halt;
 	if (value_type_size == 1) {
@@ -1438,7 +1469,7 @@ static TypeID compiler_store_pointer(Compiler *compiler, TypeID pointed_type)
 	} else if (value_type_size == 4) {
 		opcode = OpCode_Store32;
 	} else {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return UNIT_TYPE;
 	}
 	
@@ -1448,27 +1479,27 @@ static TypeID compiler_store_pointer(Compiler *compiler, TypeID pointed_type)
 
 // Store a value at the given memory address
 // (store <addr> <value>)
-static TypeID compile_store(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_store(CompilerContext *context, const AstNode *node)
 {
 	const AstNode *nodes[2] = {0};
-	parse_nary_op(compiler->compunit, node, ARRAY_LENGTH(nodes), nodes);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	parse_nary_op(context->compunit, node, ARRAY_LENGTH(nodes), nodes);
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	TypeID addr_type_id = compile_expr(compiler, nodes[0]);
 	TypeID expr_type_id = compile_expr(compiler, nodes[1]);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	// Typecheck
 	TypeID expected_pointer_type = type_id_pointer_from(expr_type_id);
 	if (!type_similar(addr_type_id, expected_pointer_type)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.span = nodes[0]->span;
-		compiler->compunit->error.expected_type = expected_pointer_type;
-		compiler->compunit->error.got_type = addr_type_id;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
+		input.error.span = nodes[0]->span;
+		input.error.expected_type = expected_pointer_type;
+		input.error.got_type = addr_type_id;
 		return UNIT_TYPE;
 	}
 
@@ -1476,39 +1507,39 @@ static TypeID compile_store(Compiler *compiler, const AstNode *node)
 }
 
 // Returns the size of a type
-static TypeID compile_sizeof(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_sizeof(CompilerContext *context, const AstNode *node)
 {
 	// -- Parsing
 	const AstNode *value_node = NULL;
-	parse_nary_op(compiler->compunit, node, 1, &value_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	parse_nary_op(context->compunit, node, 1, &value_node);
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
-	TypeID expr_type = parse_type(compiler->compunit, &compiler->module, value_node);
-	uint32_t type_size = type_get_size(&compiler->module, expr_type);
+	TypeID expr_type = parse_type(context->compunit, &context->module, value_node);
+	uint32_t type_size = type_get_size(&context->module, expr_type);
 	compiler_bytecode_push_u32(compiler, type_size);
 	return type_id_new_unsigned(NumberWidth_32);
 }
 
-static TypeID compile_data(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_data(CompilerContext *context, const AstNode *node)
 {
 	const AstNode *value_node = NULL;
-	parse_nary_op(compiler->compunit, node, 1, &value_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	parse_nary_op(context->compunit, node, 1, &value_node);
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	const TypeID expr_type = compile_expr(compiler, value_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	if (!type_id_is_slice(expr_type)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.span = value_node->span;
-		compiler->compunit->error.got_type = expr_type;
-		compiler->compunit->error.expected_type = type_id_new_builtin(BuiltinTypeKind_Slice);
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
+		input.error.span = value_node->span;
+		input.error.got_type = expr_type;
+		input.error.expected_type = type_id_new_builtin(BuiltinTypeKind_Slice);
 		return UNIT_TYPE;
 	}
 
@@ -1519,24 +1550,24 @@ static TypeID compile_data(Compiler *compiler, const AstNode *node)
 	return slice_as_pointer;
 }
 
-static TypeID compile_len(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_len(CompilerContext *context, const AstNode *node)
 {
 	const AstNode *value_node = NULL;
-	parse_nary_op(compiler->compunit, node, 1, &value_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	parse_nary_op(context->compunit, node, 1, &value_node);
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	const TypeID expr_type = compile_expr(compiler, value_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	if (!type_id_is_slice(expr_type)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.span = value_node->span;
-		compiler->compunit->error.got_type = expr_type;
-		compiler->compunit->error.expected_type = type_id_new_builtin(BuiltinTypeKind_Slice);
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
+		input.error.span = value_node->span;
+		input.error.got_type = expr_type;
+		input.error.expected_type = type_id_new_builtin(BuiltinTypeKind_Slice);
 		return UNIT_TYPE;
 	}
 
@@ -1546,53 +1577,53 @@ static TypeID compile_len(Compiler *compiler, const AstNode *node)
 }
 
 // (field <expr> <identifier>)
-static TypeID compile_field(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_field(CompilerContext *context, const AstNode *node)
 {
 	// -- Parsing
 	const AstNode *nodes[2] = {0};
-	parse_nary_op(compiler->compunit, node, ARRAY_LENGTH(nodes), nodes);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	parse_nary_op(context->compunit, node, ARRAY_LENGTH(nodes), nodes);
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	// -- Typecheck
 	TypeID pointer_type = compile_expr(compiler, nodes[0]);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	if (!type_id_is_pointer(pointer_type)) {
 		// The expr type has to be a pointer
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot)
-		compiler->compunit->error.got_type = pointer_type;
-		compiler->compunit->error.expected_type = type_id_pointer_from(UNIT_TYPE);
-		compiler->compunit->error.span = nodes[0]->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot)
+		input.error.got_type = pointer_type;
+		input.error.expected_type = type_id_pointer_from(UNIT_TYPE);
+		input.error.span = nodes[0]->span;
 		return UNIT_TYPE;
 	}
 	TypeID struct_type = type_id_deref_pointer(pointer_type);
 	if (!type_id_is_user_defined(struct_type)) {
 		// The pointed type HAS to be a struct.
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.span = nodes[0]->span;
-		compiler->compunit->error.got_type = pointer_type;
-		compiler->compunit->error.expected_type = UNIT_TYPE;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
+		input.error.span = nodes[0]->span;
+		input.error.got_type = pointer_type;
+		input.error.expected_type = UNIT_TYPE;
 		return UNIT_TYPE;
 	}
 
-	Token field_token = array_check(compiler->compunit->tokens, nodes[1]->atom_token_index);
+	Token field_token = array_check(input.tokens, nodes[1]->atom_token_index);
 	const bool is_an_identifier = ast_is_atom(nodes[1]) && field_token.kind == TokenKind_Identifier;
 	if (!is_an_identifier) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedIdentifier);
-		compiler->compunit->error.span = nodes[1]->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedIdentifier);
+		input.error.span = nodes[1]->span;
 		return UNIT_TYPE;
 	}
-	sv field_identifier_str = string_pool_get(&compiler->compunit->string_pool, field_token.data.sid);
+	sv field_identifier_str = string_pool_get(&input.string_pool, field_token.data.sid);
 	// -- Find field offset
-	if (struct_type.user_defined.index >= compiler->module.types_length) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+	if (struct_type.user_defined.index >= context->module.types_length) {
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return UNIT_TYPE;
 	}
-	UserDefinedType *type = compiler->module.types + struct_type.user_defined.index;
+	UserDefinedType *type = context->module.types + struct_type.user_defined.index;
 	uint32_t i_field = 0;
 	for (; i_field < type->field_count; ++i_field) {
 		if (sv_equals(type->field_names[i_field], field_identifier_str)) {
@@ -1601,8 +1632,8 @@ static TypeID compile_field(Compiler *compiler, const AstNode *node)
 	}
 	if (i_field >= type->field_count) {
 		// The field was not found in the struct.
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_UnknownSymbol);
-		compiler->compunit->error.span = field_token.span;
+		INIT_ERROR(&input.error, ErrorCode_UnknownSymbol);
+		input.error.span = field_token.span;
 		return UNIT_TYPE;
 	}
 
@@ -1616,56 +1647,56 @@ static TypeID compile_field(Compiler *compiler, const AstNode *node)
 }
 
 // (store-field <expr> <identifier> <value>)
-static TypeID compile_store_field(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_store_field(CompilerContext *context, const AstNode *node)
 {
 	// -- Parsing
 	const AstNode *nodes[3] = {0};
-	parse_nary_op(compiler->compunit, node, ARRAY_LENGTH(nodes), nodes);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	parse_nary_op(context->compunit, node, ARRAY_LENGTH(nodes), nodes);
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	// -- Typecheck
 	TypeID pointer_type = compile_expr(compiler, nodes[0]);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	if (!type_id_is_pointer(pointer_type)) {
 		// The expr type has to be a pointer
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot)
-		compiler->compunit->error.got_type = pointer_type;
-		compiler->compunit->error.expected_type = type_id_pointer_from(UNIT_TYPE);
-		compiler->compunit->error.span = nodes[0]->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot)
+		input.error.got_type = pointer_type;
+		input.error.expected_type = type_id_pointer_from(UNIT_TYPE);
+		input.error.span = nodes[0]->span;
 		return UNIT_TYPE;
 	}
 	TypeID struct_type = type_id_deref_pointer(pointer_type);
 	if (!type_id_is_user_defined(struct_type)) {
 		// The pointed type HAS to be a struct.
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.span = nodes[0]->span;
-		compiler->compunit->error.got_type = pointer_type;
-		compiler->compunit->error.expected_type = UNIT_TYPE;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
+		input.error.span = nodes[0]->span;
+		input.error.got_type = pointer_type;
+		input.error.expected_type = UNIT_TYPE;
 		return UNIT_TYPE;
 	}
 	// Generate the field offset
 	uint32_t *field_offset_to_fix = compiler_bytecode_push_u32(compiler, 0);
 	compiler_push_opcode(compiler, OpCode_AddU32);
 
-	Token field_token = array_check(compiler->compunit->tokens, nodes[1]->atom_token_index);
+	Token field_token = array_check(input.tokens, nodes[1]->atom_token_index);
 	const bool is_an_identifier = ast_is_atom(nodes[1]) && field_token.kind == TokenKind_Identifier;
 	if (!is_an_identifier) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedIdentifier);
-		compiler->compunit->error.span = nodes[1]->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedIdentifier);
+		input.error.span = nodes[1]->span;
 		return UNIT_TYPE;
 	}
-	sv field_identifier_str = string_pool_get(&compiler->compunit->string_pool, field_token.data.sid);
+	sv field_identifier_str = string_pool_get(&input.string_pool, field_token.data.sid);
 	// -- Find field offset
-	if (struct_type.user_defined.index >= compiler->module.types_length) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+	if (struct_type.user_defined.index >= context->module.types_length) {
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return UNIT_TYPE;
 	}
-	UserDefinedType *type = compiler->module.types + struct_type.user_defined.index;
+	UserDefinedType *type = context->module.types + struct_type.user_defined.index;
 	uint32_t i_field = 0;
 	for (; i_field < type->field_count; ++i_field) {
 		if (sv_equals(type->field_names[i_field], field_identifier_str)) {
@@ -1674,12 +1705,12 @@ static TypeID compile_store_field(Compiler *compiler, const AstNode *node)
 	}
 	if (i_field >= type->field_count) {
 		// The field was not found in the struct.
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_UnknownSymbol);
-		compiler->compunit->error.span = field_token.span;
+		INIT_ERROR(&input.error, ErrorCode_UnknownSymbol);
+		input.error.span = field_token.span;
 		return UNIT_TYPE;
 	}
 
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
@@ -1687,10 +1718,10 @@ static TypeID compile_store_field(Compiler *compiler, const AstNode *node)
 	TypeID field_type = type->field_types[i_field];
 	if (!type_similar(expr_type, field_type)) {
 		// The expression type has to match the field type
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot)
-		compiler->compunit->error.got_type = expr_type;
-		compiler->compunit->error.expected_type = field_type;
-		compiler->compunit->error.span = nodes[2]->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot)
+		input.error.got_type = expr_type;
+		input.error.expected_type = field_type;
+		input.error.span = nodes[2]->span;
 		return UNIT_TYPE;
 	}
 
@@ -1700,56 +1731,56 @@ static TypeID compile_store_field(Compiler *compiler, const AstNode *node)
 }
 
 // (load-field <expr> <identifier>)
-static TypeID compile_load_field(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_load_field(CompilerContext *context, const AstNode *node)
 {
 	// -- Parsing
 	const AstNode *nodes[2] = {0};
-	parse_nary_op(compiler->compunit, node, ARRAY_LENGTH(nodes), nodes);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	parse_nary_op(context->compunit, node, ARRAY_LENGTH(nodes), nodes);
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	// -- Typecheck
 	TypeID expr_type = compile_expr(compiler, nodes[0]);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 	if (!type_id_is_pointer(expr_type)) {
 		// The expr type has to be a pointer
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot)
-		compiler->compunit->error.got_type = expr_type;
-		compiler->compunit->error.expected_type = type_id_pointer_from(UNIT_TYPE);
-		compiler->compunit->error.span = nodes[0]->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot)
+		input.error.got_type = expr_type;
+		input.error.expected_type = type_id_pointer_from(UNIT_TYPE);
+		input.error.span = nodes[0]->span;
 		return UNIT_TYPE;
 	}
 	TypeID struct_type = type_id_deref_pointer(expr_type);
 	if (!type_id_is_user_defined(struct_type)) {
 		// The pointed type HAS to be a struct.
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.span = nodes[0]->span;
-		compiler->compunit->error.got_type = expr_type;
-		compiler->compunit->error.expected_type = UNIT_TYPE;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
+		input.error.span = nodes[0]->span;
+		input.error.got_type = expr_type;
+		input.error.expected_type = UNIT_TYPE;
 		return UNIT_TYPE;
 	}
 	// Generate the pointer offset
 	uint32_t *field_offset_to_fix = compiler_bytecode_push_u32(compiler, 0);
 	compiler_push_opcode(compiler, OpCode_AddU32);			
 
-	Token field_token = array_check(compiler->compunit->tokens, nodes[1]->atom_token_index);
+	Token field_token = array_check(input.tokens, nodes[1]->atom_token_index);
 	const bool is_an_identifier = ast_is_atom(nodes[1]) && field_token.kind == TokenKind_Identifier;
 	if (!is_an_identifier) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedIdentifier);
-		compiler->compunit->error.span = nodes[1]->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedIdentifier);
+		input.error.span = nodes[1]->span;
 		return UNIT_TYPE;
 	}
-	sv field_identifier_str = string_pool_get(&compiler->compunit->string_pool, field_token.data.sid);
+	sv field_identifier_str = string_pool_get(&input.string_pool, field_token.data.sid);
 
 	// -- Find field offset
-	if (struct_type.user_defined.index >= compiler->module.types_length) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+	if (struct_type.user_defined.index >= context->module.types_length) {
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return UNIT_TYPE;
 	}
-	UserDefinedType *type = compiler->module.types + struct_type.user_defined.index;
+	UserDefinedType *type = context->module.types + struct_type.user_defined.index;
 	for (uint32_t i_field = 0; i_field < type->field_count; ++i_field) {
 		if (sv_equals(type->field_names[i_field], field_identifier_str)) {
 			*field_offset_to_fix = type->field_offsets[i_field];
@@ -1759,46 +1790,46 @@ static TypeID compile_load_field(Compiler *compiler, const AstNode *node)
 	}
 
 	// The field was not found in the struct.
-	INIT_ERROR(&compiler->compunit->error, ErrorCode_UnknownSymbol);
-	compiler->compunit->error.span = field_token.span;
+	INIT_ERROR(&input.error, ErrorCode_UnknownSymbol);
+	input.error.span = field_token.span;
 	return UNIT_TYPE;
 }
  
-static TypeID compile_field_offset(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_field_offset(CompilerContext *context, const AstNode *node)
 {
 	// -- Parsing
 	const AstNode *nodes[2] = {0};
-	parse_nary_op(compiler->compunit, node, ARRAY_LENGTH(nodes), nodes);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	parse_nary_op(context->compunit, node, ARRAY_LENGTH(nodes), nodes);
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
 	// -- Typecheck
-	TypeID expr_type = parse_type(compiler->compunit, &compiler->module, nodes[0]);
+	TypeID expr_type = parse_type(context->compunit, &context->module, nodes[0]);
 	if (!type_id_is_user_defined(expr_type)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.span = nodes[0]->span;
-		compiler->compunit->error.got_type = expr_type;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
+		input.error.span = nodes[0]->span;
+		input.error.got_type = expr_type;
 		return UNIT_TYPE;
 	}
 
 	bool is_an_identifier = ast_is_atom(nodes[1]);
-	Token field_token = array_check(compiler->compunit->tokens, nodes[1]->atom_token_index);
+	Token field_token = array_check(input.tokens, nodes[1]->atom_token_index);
 	is_an_identifier = is_an_identifier && field_token.kind == TokenKind_Identifier;
 	if (!is_an_identifier) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedIdentifier);
-		compiler->compunit->error.span = nodes[1]->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedIdentifier);
+		input.error.span = nodes[1]->span;
 		return UNIT_TYPE;
 	}
-	sv field_identifier_str = string_pool_get(&compiler->compunit->string_pool, field_token.data.sid);
+	sv field_identifier_str = string_pool_get(&input.string_pool, field_token.data.sid);
 
 	// -- Find field offset
-	if (expr_type.user_defined.index >= compiler->module.types_length) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_Fatal);
+	if (expr_type.user_defined.index >= context->module.types_length) {
+		INIT_ERROR(&input.error, ErrorCode_Fatal);
 		return UNIT_TYPE;
 	}
 
-	UserDefinedType *type = compiler->module.types + expr_type.user_defined.index;
+	UserDefinedType *type = context->module.types + expr_type.user_defined.index;
 	for (uint32_t i_field = 0; i_field < type->field_count; ++i_field) {
 		if (sv_equals(type->field_names[i_field], field_identifier_str)) {
 			uint32_t val = type->field_offsets[i_field];
@@ -1807,25 +1838,25 @@ static TypeID compile_field_offset(Compiler *compiler, const AstNode *node)
 		}
 	}
 
-	INIT_ERROR(&compiler->compunit->error, ErrorCode_UnknownSymbol);
-	compiler->compunit->error.span = field_token.span;
+	INIT_ERROR(&input.error, ErrorCode_UnknownSymbol);
+	input.error.span = field_token.span;
 	return UNIT_TYPE;
 }
 
 // Allocate memory on the stack (_stack_alloc <type> <size>)
-static TypeID compile_stack_alloc(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_stack_alloc(CompilerContext *context, const AstNode *node)
 {
 	// -- Parsing
 	const AstNode *nodes[2] = {0};
-	parse_nary_op(compiler->compunit, node, ARRAY_LENGTH(nodes), nodes);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	parse_nary_op(context->compunit, node, ARRAY_LENGTH(nodes), nodes);
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
-	TypeID type_of_pointed_memory = parse_type(compiler->compunit, &compiler->module, nodes[0]);
+	TypeID type_of_pointed_memory = parse_type(context->compunit, &context->module, nodes[0]);
 
 	/*TypeID size_type =*/compile_expr(compiler, nodes[1]);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
@@ -1836,44 +1867,44 @@ static TypeID compile_stack_alloc(Compiler *compiler, const AstNode *node)
 	return type_id_pointer_from(type_of_pointed_memory);
 }
 
-static TypeID compile_ptr_offset(Compiler *compiler, const AstNode *node)
+static CompileNodeResult compile_ptr_offset(CompilerContext *context, const AstNode *node)
 {
 	PtrOffsetNodes nodes = {0};
-	parse_ptr_offset(compiler->compunit, node, &nodes);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	parse_ptr_offset(context->compunit, node, &nodes);
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 
-	TypeID return_type = parse_type(compiler->compunit, &compiler->module, nodes.return_type_node);
+	TypeID return_type = parse_type(context->compunit, &context->module, nodes.return_type_node);
 	if (!type_id_is_pointer(return_type)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot)
-		compiler->compunit->error.got_type = return_type;
-		compiler->compunit->error.span = nodes.return_type_node->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot)
+		input.error.got_type = return_type;
+		input.error.span = nodes.return_type_node->span;
 		return UNIT_TYPE;
 	}
 
 	TypeID base_pointer_type = compile_expr(compiler, nodes.base_pointer_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 	if (!type_id_is_pointer(base_pointer_type)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot)
-		compiler->compunit->error.got_type = return_type;
-		compiler->compunit->error.span = nodes.base_pointer_node->span;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot)
+		input.error.got_type = return_type;
+		input.error.span = nodes.base_pointer_node->span;
 		return UNIT_TYPE;
 	}
 
 	// Check that the provided offset is an int
 	TypeID offset_type = compile_expr(compiler, nodes.offset_node);
-	if (compiler->compunit->error.code != ErrorCode_Ok) {
+	if (input.error.code != ErrorCode_Ok) {
 		return UNIT_TYPE;
 	}
 	TypeID expected_offset_type = type_id_new_unsigned(NumberWidth_32);
 	if (!type_similar(offset_type, expected_offset_type)) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-		compiler->compunit->error.span = nodes.offset_node->span;
-		compiler->compunit->error.got_type = offset_type;
-		compiler->compunit->error.expected_type = expected_offset_type;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
+		input.error.span = nodes.offset_node->span;
+		input.error.got_type = offset_type;
+		input.error.expected_type = expected_offset_type;
 		return UNIT_TYPE;
 	}
 
@@ -1881,7 +1912,7 @@ static TypeID compile_ptr_offset(Compiler *compiler, const AstNode *node)
 	return return_type;
 }
 
-typedef TypeID (*CompilerBuiltin)(Compiler *, const AstNode *);
+typedef CompileNodeResult (*CompilerBuiltin)(CompilerContext *, const AstNode *);
 
 // There are two kinds of "builtins", the ones allowed at top-level and the other ones
 const CompilerBuiltin compiler_top_builtins[] = {
@@ -1965,12 +1996,12 @@ const sv compiler_expr_builtins_str[] = {
 _Static_assert(ARRAY_LENGTH(compiler_expr_builtins_str) == ARRAY_LENGTH(compiler_expr_builtins));
 
 // (<identifier> <expr>*)
-static TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
+static CompileNodeResult compile_sexpr(CompilerContext *context, const AstNode *function_node)
 {
 	// Get the function name
-	const AstNode *identifier_node = ast_get_left_child(compiler->compunit->nodes, function_node);
-	const Token identifier = ast_get_token(compiler->compunit->tokens, identifier_node);
-	sv identifier_str = string_pool_get(&compiler->compunit->string_pool, identifier.data.sid);
+	const AstNode *identifier_node = ast_get_left_child(input.nodes, function_node);
+	const Token identifier = ast_get_token(input.tokens, identifier_node);
+	sv identifier_str = string_pool_get(&input.string_pool, identifier.data.sid);
 
 	// Dispatch to the correct builtin compile function (define, iadd, etc)
 	const uint32_t compiler_builtin_length = ARRAY_LENGTH(compiler_expr_builtins);
@@ -1984,43 +2015,43 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 	uint32_t i_found_module = 0;
 	uint32_t i_found_function = 0;
 	compiler_lookup_function_str(compiler, identifier_str, &i_found_module, &i_found_function);
-	bool is_external = i_found_module < compiler->vm->compiler_modules_length;
-	if (!is_external && i_found_function >= compiler->module.functions_length) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_UnknownSymbol);
-		compiler->compunit->error.span = identifier.span;
+	bool is_external = i_found_module < context->vm->compiler_modules_length;
+	if (!is_external && i_found_function >= context->module.functions_length) {
+		INIT_ERROR(&input.error, ErrorCode_UnknownSymbol);
+		input.error.span = identifier.span;
 		return UNIT_TYPE;
 	}
 	Function *found_function = NULL;
 	if (is_external) {
-		found_function = compiler->vm->compiler_modules[i_found_module].functions + i_found_function;
+		found_function = context->vm->compiler_modules[i_found_module].functions + i_found_function;
 	} else {
-		found_function = compiler->module.functions + i_found_function;
+		found_function = context->module.functions + i_found_function;
 	}
 
 	// Typecheck arguments
 	uint32_t i_sig_arg_type = 0;
 	uint32_t i_arg_node = identifier_node->right_sibling_index;
 	while (ast_is_valid(i_arg_node)) {
-		const AstNode *arg_node = ast_get_node(compiler->compunit->nodes, i_arg_node);
+		const AstNode *arg_node = ast_get_node(input.nodes, i_arg_node);
 		// There is an expr but the signature has ended
 		if (i_sig_arg_type >= found_function->arg_count) {
-			INIT_ERROR(&compiler->compunit->error, ErrorCode_UnexpectedExpression);
-			compiler->compunit->error.span = arg_node->span;
+			INIT_ERROR(&input.error, ErrorCode_UnexpectedExpression);
+			input.error.span = arg_node->span;
 			return UNIT_TYPE;
 		}
 
 		// compile expr
 		TypeID arg_type = compile_expr(compiler, arg_node);
-		if (compiler->compunit->error.code != ErrorCode_Ok) {
+		if (input.error.code != ErrorCode_Ok) {
 			return UNIT_TYPE;
 		}
 
 		// typecheck
 		if (!type_similar(arg_type, found_function->arg_types[i_sig_arg_type])) {
-			INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedTypeGot);
-			compiler->compunit->error.span = arg_node->span;
-			compiler->compunit->error.expected_type = found_function->arg_types[i_sig_arg_type];
-			compiler->compunit->error.got_type = arg_type;
+			INIT_ERROR(&input.error, ErrorCode_ExpectedTypeGot);
+			input.error.span = arg_node->span;
+			input.error.expected_type = found_function->arg_types[i_sig_arg_type];
+			input.error.got_type = arg_type;
 		}
 
 		i_arg_node = arg_node->right_sibling_index;
@@ -2029,10 +2060,10 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 
 	// There is an argument left in the signature
 	if (i_sig_arg_type < found_function->arg_count) {
-		INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedExpr);
-		compiler->compunit->error.span = function_node->span;
-		compiler->compunit->error.expected_type = found_function->arg_types[i_sig_arg_type];
-		compiler->compunit->error.got_type = UNIT_TYPE;
+		INIT_ERROR(&input.error, ErrorCode_ExpectedExpr);
+		input.error.span = function_node->span;
+		input.error.expected_type = found_function->arg_types[i_sig_arg_type];
+		input.error.got_type = UNIT_TYPE;
 		return UNIT_TYPE;
 	}
 
@@ -2040,11 +2071,11 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 	if (found_function->type == FunctionType_Foreign) {
 		uint32_t i_foreign_function = 0;
 		if (is_external) {
-			CompilerModule *external_module = compiler->vm->compiler_modules + i_found_module;
+			CompilerModule *external_module = context->vm->compiler_modules + i_found_module;
 			
 			// If the foreign function is imported from another module, we need to check
 			// if we have already imported it.
-			CompilerModule *current_module = &compiler->module;
+			CompilerModule *current_module = &context->module;
 			uint32_t f = 0;
 			for (; f < current_module->foreign_functions_length; ++f)
 			{
@@ -2074,7 +2105,7 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 	else {
 		if (is_external) {
 			// Insert the external function into our import list
-			CompilerModule *current_module = &compiler->module;
+			CompilerModule *current_module = &context->module;
 			uint32_t i_imported_function = 0;
 			for (; i_imported_function < current_module->imported_functions_length; ++i_imported_function)
 			{
@@ -2105,9 +2136,13 @@ static TypeID compile_sexpr(Compiler *compiler, const AstNode *function_node)
 	return found_function->return_type;
 }
 
-void compile_module(Compiler *compiler)
+CompileModuleResult compile_module(CompilerInput input)
 {
-	const AstNode *root_node = compiler->compunit->nodes;
+	CompileModuleResult result = {0};
+
+	CompilerContext context = {0};
+
+	const AstNode *root_node = input.nodes;
 
 	// Set instruction #0 to halt to detect invalid jump to 0
 	compiler_push_opcode(compiler, OpCode_Halt);
@@ -2115,24 +2150,24 @@ void compile_module(Compiler *compiler)
 	// Compile every S-expression at root level
 	uint32_t i_root_expr = root_node->left_child_index;
 	while (ast_is_valid(i_root_expr)) {
-		const AstNode *root_expr = ast_get_node(compiler->compunit->nodes, i_root_expr);
+		const AstNode *root_expr = ast_get_node(input.nodes, i_root_expr);
 
 		// Validate that a root S-expression starts with a token
-		const AstNode *first_sexpr_member = ast_get_left_child(compiler->compunit->nodes, root_expr);
+		const AstNode *first_sexpr_member = ast_get_left_child(input.nodes, root_expr);
 		const bool is_an_atom = ast_has_left_child(root_expr) && ast_is_atom(first_sexpr_member);
 		if (!is_an_atom) {
-			INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedIdentifier);
+			INIT_ERROR(&input.error, ErrorCode_ExpectedIdentifier);
 			return;
 		}
-		Token atom_token = array_check(compiler->compunit->tokens, first_sexpr_member->atom_token_index);
+		Token atom_token = array_check(input.tokens, first_sexpr_member->atom_token_index);
 		const bool is_an_identifier = atom_token.kind == TokenKind_Identifier;
 		if (!is_an_identifier) {
-			INIT_ERROR(&compiler->compunit->error, ErrorCode_ExpectedIdentifier);
-			return;
+			INIT_ERROR(&input.error, ErrorCode_ExpectedIdentifier);
+			return result;
 		}
 
 		// Find the compiler builtin for this S-expression
-		sv identifier_str = string_pool_get(&compiler->compunit->string_pool, atom_token.data.sid);
+		sv identifier_str = string_pool_get(&input.string_pool, atom_token.data.sid);
 		uint32_t i_builtin = 0;
 		for (; i_builtin < ARRAY_LENGTH(compiler_top_builtins); ++i_builtin) {
 			if (sv_equals(identifier_str, compiler_top_builtins_str[i_builtin])) {
@@ -2141,40 +2176,42 @@ void compile_module(Compiler *compiler)
 			}
 		}
 		if (i_builtin >= ARRAY_LENGTH(compiler_top_builtins)) {
-			INIT_ERROR(&compiler->compunit->error, ErrorCode_UnknownSymbol);
-			compiler->compunit->error.span = first_sexpr_member->span;
+			INIT_ERROR(&input.error, ErrorCode_UnknownSymbol);
+			input.error.span = first_sexpr_member->span;
 		}
-		if (compiler->compunit->error.code != ErrorCode_Ok) {
+		if (input.error.code != ErrorCode_Ok) {
 			break;
 		}
 
 		// Go to the next root expression
 		i_root_expr = root_expr->right_sibling_index;
 	}
+
+	return result;
 }
 
-ScanDepsResult compiler_scan_dependencies(Arena *out_memory, CompilationUnit *compunit)
+ScanDepsResult compiler_scan_dependencies(Arena *out_memory, StringPool *token_strings, Token const *tokens, AstNode const *nodes)
 {
-	StringId REQUIRE_ID = string_pool_intern(&compunit->string_pool, SV("require"));
+	StringId REQUIRE_ID = string_pool_intern(token_strings, SV("require"));
 
 	ScanDepsResult result = {0};
-	const AstNode *root_node = compunit->nodes;
+	const AstNode *root_node = nodes;
 
 	uint32_t i_root_expr = root_node->left_child_index;
 	while (ast_is_valid(i_root_expr)) {
-		const AstNode *root_expr = ast_get_node(compunit->nodes, i_root_expr);
+		const AstNode *root_expr = ast_get_node(nodes, i_root_expr);
 
 		// Validate that a root S-expression starts with an identifier
-		const AstNode *first_sexpr_member = ast_get_left_child(compunit->nodes, root_expr);
+		const AstNode *first_sexpr_member = ast_get_left_child(nodes, root_expr);
 		bool is_an_atom = ast_has_left_child(root_expr) && ast_is_atom(first_sexpr_member);
 		if (!is_an_atom) {
-			INIT_ERROR(&compunit->error, ErrorCode_ExpectedIdentifier);
+			INIT_ERROR(&result.error, ErrorCode_ExpectedIdentifier);
 			return result;
 		}
-		Token atom_token = array_check(compunit->tokens, first_sexpr_member->atom_token_index);
+		Token atom_token = array_check(tokens, first_sexpr_member->atom_token_index);
 		const bool is_an_identifier = atom_token.kind == TokenKind_Identifier;
 		if (!is_an_identifier) {
-			INIT_ERROR(&compunit->error, ErrorCode_ExpectedIdentifier);
+			INIT_ERROR(&result.error, ErrorCode_ExpectedIdentifier);
 			return result;
 		}
 
@@ -2182,28 +2219,28 @@ ScanDepsResult compiler_scan_dependencies(Arena *out_memory, CompilationUnit *co
 		if (atom_token.data.sid.id == REQUIRE_ID.id) {
 			// Check that there is only one argument
 			if (root_expr->child_count < 2) {
-				INIT_ERROR(&compunit->error, ErrorCode_ExpectedExpr);
-				compunit->error.span = root_expr->span;
+				INIT_ERROR(&result.error, ErrorCode_ExpectedExpr);
+				result.error.span = root_expr->span;
 				return result;
 			} else if (root_expr->child_count > 2) {
-				INIT_ERROR(&compunit->error, ErrorCode_UnexpectedExpression);
-				compunit->error.span = root_expr->span;
+				INIT_ERROR(&result.error, ErrorCode_UnexpectedExpression);
+				result.error.span = root_expr->span;
 				return result;
 			}
 
-			const AstNode *require_path_node = ast_get_right_sibling(compunit->nodes, first_sexpr_member);
+			const AstNode *require_path_node = ast_get_right_sibling(nodes, first_sexpr_member);
 
 			// Check that the argument is a string
 			is_an_atom = ast_is_atom(require_path_node);
 			if (!is_an_atom) {
-				INIT_ERROR(&compunit->error, ErrorCode_ExpectedString);
-				compunit->error.span = require_path_node->span;
+				INIT_ERROR(&result.error, ErrorCode_ExpectedString);
+				result.error.span = require_path_node->span;
 				return result;
 			}
-			Token require_path_token = array_check(compunit->tokens, require_path_node->atom_token_index);
+			Token require_path_token = array_check(tokens, require_path_node->atom_token_index);
 			if (require_path_token.kind != TokenKind_StringLiteral) {
-				INIT_ERROR(&compunit->error, ErrorCode_ExpectedString);
-				compunit->error.span = require_path_node->span;
+				INIT_ERROR(&result.error, ErrorCode_ExpectedString);
+				result.error.span = require_path_node->span;
 				return result;
 			}
 

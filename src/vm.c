@@ -79,6 +79,20 @@ static sv vm_get_identifier(VM *vm, StringId id)
 		return string_pool_get(&vm->identifiers_pool, id);
 }
 
+static CompilationUnit *alloc_compunit(Arena *memory)
+{
+	CompilationUnit *compunit = arena_alloc(memory, sizeof(CompilationUnit));
+	const uint32_t MAX_INTERNED_CHARS = 1024;
+	compunit->string_pool.string_buffer_capacity = MAX_INTERNED_CHARS;
+	compunit->string_pool.string_buffer = arena_alloc(memory, MAX_INTERNED_CHARS);
+	const uint32_t MAX_INTERNED_STRINGS = 256;
+	compunit->string_pool.capacity = MAX_INTERNED_STRINGS;
+	compunit->string_pool.keys = arena_alloc(memory, MAX_INTERNED_STRINGS * sizeof(*compunit->string_pool.keys));
+	compunit->string_pool.sv_offset = arena_alloc(memory, MAX_INTERNED_STRINGS * sizeof(*compunit->string_pool.sv_offset));
+	compunit->string_pool.sv_length = arena_alloc(memory, MAX_INTERNED_STRINGS * sizeof(*compunit->string_pool.sv_length));
+	return compunit;
+}
+
 static ParseModuleResult vm_parse_module(Arena *memory, VM *vm, sv module_name)
 {
 	ParseModuleResult result = {0};
@@ -91,25 +105,16 @@ static ParseModuleResult vm_parse_module(Arena *memory, VM *vm, sv module_name)
 		return result;
 	}
 
-	// Allocate temporary compilation unit
-	CompilationUnit *compunit = arena_alloc(memory, sizeof(CompilationUnit));
+	CompilationUnit *compunit = alloc_compunit(memory);
 	compunit->input = code;
-	const uint32_t MAX_INTERNED_CHARS = 1024;
-	compunit->string_pool.string_buffer_capacity = MAX_INTERNED_CHARS;
-	compunit->string_pool.string_buffer = arena_alloc(memory, MAX_INTERNED_CHARS);
-	const uint32_t MAX_INTERNED_STRINGS = 256;
-	compunit->string_pool.capacity = MAX_INTERNED_STRINGS;
-	compunit->string_pool.keys = arena_alloc(memory, MAX_INTERNED_STRINGS * sizeof(*compunit->string_pool.keys));
-	compunit->string_pool.sv_offset = arena_alloc(memory, MAX_INTERNED_STRINGS * sizeof(*compunit->string_pool.sv_offset));
-	compunit->string_pool.sv_length = arena_alloc(memory, MAX_INTERNED_STRINGS * sizeof(*compunit->string_pool.sv_length));
-	// Lex tokens
+
 	LexerResult lexer_result = lexer_scan(memory, &compunit->string_pool, code);
 	compunit->tokens = lexer_result.tokens;
 	if (lexer_result.success == false) {
 		result.result = ParseModule_LexerError;
 		return result;
 	}
-	// Parse tree
+	
 	ParserResult parser_result = parse_module(memory, lexer_result.tokens);
 	if (parser_result.success == false) {
 		result.result = ParseModule_ParserError;
@@ -118,7 +123,7 @@ static ParseModuleResult vm_parse_module(Arena *memory, VM *vm, sv module_name)
 	compunit->nodes = parser_result.nodes;
 
 	// -- Compile dependencies first
-	ScanDepsResult dependencies = compiler_scan_dependencies(memory, compunit);
+	ScanDepsResult dependencies = compiler_scan_dependencies(memory, &compunit->string_pool, lexer_result.tokens, parser_result.nodes);
 	if (compunit->error.code != ErrorCode_Ok) {
 		result.result = ParseModule_ParserError;
 		return result;
@@ -149,28 +154,18 @@ static CompilationResult compile_code(Arena temp_mem, VM *vm, sv module_name, sv
 
 	Arena vm_temp_mem = vm->memory;
 
-	CompilationUnit compunit = {0};
-	compunit.input = code;
-
-	const uint32_t MAX_INTERNED_CHARS = 1024;
-	compunit.string_pool.string_buffer_capacity = MAX_INTERNED_CHARS;
-	compunit.string_pool.string_buffer = arena_alloc(&temp_mem, MAX_INTERNED_CHARS);
-
-	const uint32_t MAX_INTERNED_STRINGS = 256;
-	compunit.string_pool.capacity = MAX_INTERNED_STRINGS;
-	compunit.string_pool.keys = arena_alloc(&temp_mem, MAX_INTERNED_STRINGS * sizeof(*compunit.string_pool.keys));
-	compunit.string_pool.sv_offset = arena_alloc(&temp_mem, MAX_INTERNED_STRINGS * sizeof(*compunit.string_pool.sv_offset));
-	compunit.string_pool.sv_length = arena_alloc(&temp_mem, MAX_INTERNED_STRINGS * sizeof(*compunit.string_pool.sv_length));
+	CompilationUnit *compunit = alloc_compunit(&temp_mem);
+	compunit->input = code;
 	
 	// -- Lex tokens
-	LexerResult lexer_result = lexer_scan(&temp_mem, &compunit.string_pool, code);
-	compunit.tokens = lexer_result.tokens;
+	LexerResult lexer_result = lexer_scan(&temp_mem, &compunit->string_pool, code);
+	compunit->tokens = lexer_result.tokens;
 
 	if (lexer_result.success == false) {
 #if VM_LOG > 0
 		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 		// <file>:<line>:0: error Lexer[] returned <errcode>
-		string_builder_append_sv(&sb, compunit.error.file);
+		string_builder_append_sv(&sb, compunit->error.file);
 		string_builder_append_char(&sb, ':');
 		string_builder_append_u64(&sb, (uint64_t)(0));
 		string_builder_append_sv(&sb, SV(":0: error: Lexer[]\n"));
@@ -179,36 +174,36 @@ static CompilationResult compile_code(Arena temp_mem, VM *vm, sv module_name, sv
 		cross_log(cross_stderr, string_builder_get_string(&sb));
 #endif	
 		__debugbreak();
-		result.error = compunit.error;
+		result.error = compunit->error;
 		return result;
 	}
 
 	
 	// -- Parse tokens into a parse tree
 	ParserResult parser_result = parse_module(&temp_mem, lexer_result.tokens);
-	compunit.nodes = parser_result.nodes;
+	compunit->nodes = parser_result.nodes;
 	if (parser_result.success == false) {
 #if VM_LOG > 0
-		uint32_t token_count = array_count(compunit.tokens);
+		uint32_t token_count = array_count(compunit->tokens);
 		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 		// <file>:<line>:0: error Parser[] returned <errcode>
-		string_builder_append_sv(&sb, compunit.error.file);
+		string_builder_append_sv(&sb, compunit->error.file);
 		string_builder_append_char(&sb, ':');
-		string_builder_append_u64(&sb, (uint64_t)(compunit.error.line));
+		string_builder_append_u64(&sb, (uint64_t)(compunit->error.line));
 		string_builder_append_sv(&sb, SV(":0: error: Parser[token_length: "));
 		string_builder_append_u64(&sb, (uint64_t)(token_count));
 		string_builder_append_sv(&sb, SV(", i_current_token: "));
 		string_builder_append_u64(&sb, (uint64_t)(parser.i_current_token));
 		string_builder_append_sv(&sb, SV("] returned "));
-		string_builder_append_sv(&sb, SV(ErrorCode_str[(uint32_t)(compunit.error.code)]));
+		string_builder_append_sv(&sb, SV(ErrorCode_str[(uint32_t)(compunit->error.code)]));
 		string_builder_append_sv(&sb, SV("'\n"));
 		cross_log(cross_stderr, string_builder_get_string(&sb));
-		build_error_at(code, compunit.error.span, &sb);
+		build_error_at(code, compunit->error.span, &sb);
 		cross_log(cross_stderr, string_builder_get_string(&sb));
 		if (token_count > 0) {
 			uint32_t i_last_token = parser.i_current_token < token_count ? parser.i_current_token : token_count - 1;
-			const Token *last_token = compunit.tokens + i_last_token;
-			sv last_token_str = sv_substr(compunit.input, last_token->span);
+			const Token *last_token = compunit->tokens + i_last_token;
+			sv last_token_str = sv_substr(compunit->input, last_token->span);
 			const char *token_kind_str = TokenKind_str[(uint32_t)(last_token->kind)];
 			string_builder_append_sv(&sb, SV("# Last seen token is "));
 			string_builder_append_sv(&sb, SV(token_kind_str));
@@ -225,26 +220,26 @@ static CompilationResult compile_code(Arena temp_mem, VM *vm, sv module_name, sv
 			cross_log(cross_stderr, string_builder_get_string(&sb));
 		}
 #endif
-		result.error = compunit.error;
+		result.error = compunit->error;
 		return result;
 	}
 
 	// -- Compile dependencies first
 	uint32_t dep_module_indices[16] = {0};
-	ScanDepsResult dependencies = compiler_scan_dependencies(&vm_temp_mem, &compunit);
-	if (compunit.error.code != ErrorCode_Ok) {
-		result.error = compunit.error;
+	ScanDepsResult dependencies = compiler_scan_dependencies(&vm_temp_mem, &compunit->string_pool, lexer_result.tokens, parser_result.nodes);
+	if (compunit->error.code != ErrorCode_Ok) {
+		result.error = compunit->error;
 		return result;
 	}
 	ASSERT(dependencies.count < ARRAY_LENGTH(dep_module_indices));
 	for (uint32_t i_dep = 0; i_dep < dependencies.count; ++i_dep) {
-		sv dep_module_name = string_pool_get(&compunit.string_pool, dependencies.names[i_dep]);
+		sv dep_module_name = string_pool_get(&compunit->string_pool, dependencies.names[i_dep]);
 		sv dep_input = {0};
 		// Get the code from the load_module callback
 		bool loading_success = vm->config.load_module(dep_module_name, &dep_input);
 		if (!loading_success) {
-			INIT_ERROR(&compunit.error, ErrorCode_Fatal);
-			result.error = compunit.error;
+			INIT_ERROR(&compunit->error, ErrorCode_Fatal);
+			result.error = compunit->error;
 			return result;
 		}
 
@@ -259,14 +254,14 @@ static CompilationResult compile_code(Arena temp_mem, VM *vm, sv module_name, sv
 	// -- Compile the parse tree into bytecode
 	Compiler compiler = {0};	
 	compiler.vm = vm;
-	compiler.compunit = &compunit;
+	compiler.compunit = compunit;
 	compiler.module.name = module_id;
 	compiler.module.imports = dep_module_indices;
 	compiler.module.imports_length = dependencies.count;
 	compile_module(&compiler);
-	if (compunit.error.code != ErrorCode_Ok) {
+	if (compunit->error.code != ErrorCode_Ok) {
 #if VM_LOG > 0
-		Error err = compunit.error;
+		Error err = compunit->error;
 		StringBuilder sb = string_builder_from_buffer(logbuf, sizeof(logbuf));
 		// <file>:<line>:0: error Compiler[] returned <errcode>
 		string_builder_append_sv(&sb, err.file);
@@ -277,7 +272,7 @@ static CompilationResult compile_code(Arena temp_mem, VM *vm, sv module_name, sv
 		string_builder_append_char(&sb, '\n');
 		cross_log(cross_stderr, string_builder_get_string(&sb));
 		// Error at: <error_str>
-		build_error_at(code, compunit.error.span, &sb);
+		build_error_at(code, compunit->error.span, &sb);
 		cross_log(cross_stderr, string_builder_get_string(&sb));
 		// # expected type <type_str>
 		string_builder_append_sv(&sb, SV("# expected type "));
@@ -290,7 +285,7 @@ static CompilationResult compile_code(Arena temp_mem, VM *vm, sv module_name, sv
 		string_builder_append_char(&sb, '\n');
 		cross_log(cross_stderr, string_builder_get_string(&sb));
 #endif
-		result.error = compunit.error;
+		result.error = compunit->error;
 		return result;
 	}
 
@@ -327,8 +322,8 @@ static CompilationResult compile_code(Arena temp_mem, VM *vm, sv module_name, sv
 #if VM_LOG > 0
 			cross_log(cross_stderr, SV("Fatal: module capacity\n"));
 #endif
-			INIT_ERROR(&compunit.error, ErrorCode_Fatal);
-			result.error = compunit.error;
+			INIT_ERROR(&compunit->error, ErrorCode_Fatal);
+			result.error = compunit->error;
 			return result;
 		}
 		i_module = vm->compiler_modules_length;
